@@ -236,6 +236,19 @@ uv run mcp dev server.py
 - **REST Inventory API**: Used for quantity management and bulk price updates.
 - **Credentials**: NEVER commit .env. Use .env.example as reference.
 
+## Skill Integration
+
+**Skill command**: `/ebay-seller-tool` (private, at `~/.claude/skills/ebay-seller-tool/SKILL.md`)
+**Renamed from**: `/ebay-listing` (2026-04-10)
+
+The skill contains all private business rules (title formulas, warning templates, condition descriptions, part number placement). The MCP server provides the API transport layer. When MCP tools are available, the skill calls them directly. When not available, the skill falls back to creating HTML files for manual copy-paste.
+
+**Workflow**:
+1. User invokes `/ebay-seller-tool` with drive details
+2. Skill loads business rules from private dotfiles research docs
+3. Skill calls MCP tools (if registered) or creates HTML files (fallback)
+4. Business rules are the SAME regardless of delivery method
+
 ## Public / Private Data Split
 
 This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfiles` repo and is referenced by path. Never copy private data into this repo.
@@ -266,6 +279,9 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 ## Documentation Links
 - Project README: `README.md`
 - API Research: `docs/research/`
+- Skill (private): `~/.claude/skills/ebay-seller-tool/SKILL.md`
+- Business rules (private): `../dotfiles/business/ebay/research/` (12 docs)
+- Business memory (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/user_ebay_business.md`
 
 ---
 
