@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Python syntax check
+        run: |
+          find . -name "*.py" -not -path "./.venv/*" -print0 | \
+            xargs -0 python -m py_compile
+
+      - name: TOML/YAML/JSON validation
+        run: |
+          python -c "
+          import tomllib, json, pathlib, sys
+          errors = []
+          for f in pathlib.Path('.').rglob('*.toml'):
+              if '.venv' in str(f): continue
+              try: tomllib.loads(f.read_text())
+              except Exception as e: errors.append(f'{f}: {e}')
+          for f in pathlib.Path('.').rglob('*.json'):
+              if '.venv' in str(f): continue
+              try: json.loads(f.read_text())
+              except Exception as e: errors.append(f'{f}: {e}')
+          if errors:
+              print('Validation errors:')
+              for e in errors: print(f'  {e}')
+              sys.exit(1)
+          print('All config files valid')
+          "
+
+      - name: Secret detection
+        run: |
+          if grep -rnE "(password|secret|api_key|apikey|auth_token)\s*=\s*['\"][^'\"]+['\"]" \
+            --include="*.py" --include="*.toml" --include="*.yml" --include="*.yaml" \
+            --exclude-dir=.git --exclude-dir=.venv . | \
+            grep -vE "(\.env\.example|test_|_test\.py|\.pre-commit)"; then
+            echo "ERROR: Possible hardcoded credentials found"
+            exit 1
+          else
+            echo "No secrets detected"
+          fi
