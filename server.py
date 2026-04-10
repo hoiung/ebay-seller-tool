@@ -8,7 +8,6 @@ Uses eBay Trading API (XML) for listing CRUD and photo uploads.
 import json
 import logging
 import os
-import sys
 import traceback
 from functools import wraps
 
@@ -20,14 +19,9 @@ load_dotenv()
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
-from ebay.client import execute_with_retry  # noqa: E402
+from ebay.client import execute_with_retry, log_debug  # noqa: E402
 
 mcp = FastMCP("ebay-seller-tool")
-
-
-def log_debug(msg: str) -> None:
-    """Log to stderr with prefix. MCP uses stdout for protocol wire."""
-    print(f"[ebay-seller-tool] {msg}", file=sys.stderr, flush=True)
 
 
 # Suppress ebaysdk logging unless EBAY_DEBUG=1

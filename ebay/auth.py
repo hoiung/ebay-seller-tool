@@ -5,11 +5,7 @@ eBay credential validation and token health checks.
 import os
 import sys
 
-
-def log_debug(msg: str) -> None:
-    """Log to stderr (MCP uses stdout for protocol wire)."""
-    print(f"[ebay-seller-tool] {msg}", file=sys.stderr, flush=True)
-
+from ebay.client import log_debug
 
 REQUIRED_VARS = [
     "EBAY_APP_ID",
