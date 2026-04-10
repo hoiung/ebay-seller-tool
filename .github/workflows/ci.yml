@@ -61,14 +61,5 @@ jobs:
           print('All config files valid')
           "
 
-      - name: Secret detection
-        run: |
-          if grep -rnE "(password|secret|api_key|apikey|auth_token)\s*=\s*['\"][^'\"]+['\"]" \
-            --include="*.py" --include="*.toml" --include="*.yml" --include="*.yaml" \
-            --exclude-dir=.git --exclude-dir=.venv . | \
-            grep -vE "(\.env\.example|test_|_test\.py|\.pre-commit)"; then
-            echo "ERROR: Possible hardcoded credentials found"
-            exit 1
-          else
-            echo "No secrets detected"
-          fi
+      - name: Secret detection (blocking)
+        run: python3 scripts/check-public-repo-secrets.py .
