@@ -44,18 +44,33 @@ def check_token_expiry() -> None:
     On ANY failure, logs warning and continues (does NOT block startup).
     """
     try:
+        from datetime import datetime, timezone
+
         from ebay.client import execute_with_retry
 
         response = execute_with_retry("GetTokenStatus", {})
         token_status = response.reply.TokenStatus
 
-        expiry = str(getattr(token_status, "ExpirationTime", "unknown"))
+        expiry_str = str(getattr(token_status, "ExpirationTime", "unknown"))
         status = str(getattr(token_status, "Status", "unknown"))
 
-        log_debug(f"TOKEN_CHECK status={status} expiry={expiry}")
+        log_debug(f"TOKEN_CHECK status={status} expiry={expiry_str}")
 
         if status != "Active":
             log_debug(f"TOKEN_CHECK WARNING token_status={status} — token may not be active")
+
+        # Parse expiry and warn if <30 days remaining
+        try:
+            expiry_dt = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+            days_remaining = (expiry_dt - datetime.now(timezone.utc)).days
+            log_debug(f"TOKEN_CHECK days_remaining={days_remaining}")
+            if days_remaining < 30:
+                log_debug(
+                    f"TOKEN_CHECK WARNING token expires in {days_remaining} days — "
+                    f"renew at eBay Developer portal"
+                )
+        except (ValueError, TypeError):
+            pass  # Expiry string not parseable — already logged raw value above
 
     except Exception as e:
         log_debug(f"TOKEN_CHECK SKIPPED error={e} — continuing without token validation")
