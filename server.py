@@ -81,6 +81,10 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
         },
     )
 
+    if not hasattr(response.reply, "ActiveList") or response.reply.ActiveList is None:
+        log_debug("get_active_listings result total=0 reason=no_active_list")
+        return json.dumps({"total": 0, "page": page, "per_page": per_page, "listings": []})
+
     active_list = response.reply.ActiveList
 
     # Handle zero listings
