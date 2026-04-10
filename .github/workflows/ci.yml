@@ -38,7 +38,7 @@ jobs:
 
       - name: TOML/YAML/JSON validation
         run: |
-          python -c "
+          uv run python -c "
           import tomllib, json, pathlib, sys
           errors = []
           for f in pathlib.Path('.').rglob('*.toml'):
@@ -48,6 +48,11 @@ jobs:
           for f in pathlib.Path('.').rglob('*.json'):
               if '.venv' in str(f): continue
               try: json.loads(f.read_text())
+              except Exception as e: errors.append(f'{f}: {e}')
+          import yaml
+          for f in list(pathlib.Path('.').rglob('*.yml')) + list(pathlib.Path('.').rglob('*.yaml')):
+              if '.venv' in str(f): continue
+              try: yaml.safe_load(f.read_text())
               except Exception as e: errors.append(f'{f}: {e}')
           if errors:
               print('Validation errors:')
