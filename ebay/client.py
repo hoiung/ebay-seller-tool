@@ -76,8 +76,7 @@ def execute_with_retry(
             response = api.execute(verb, data)
             duration_ms = time.monotonic() * 1000 - start_ms
             log_debug(
-                f"API {verb} OK duration_ms={duration_ms:.0f} "
-                f"attempt={attempt + 1}/{max_attempts}"
+                f"API {verb} OK duration_ms={duration_ms:.0f} attempt={attempt + 1}/{max_attempts}"
             )
             return response
         except ConnectionError as e:

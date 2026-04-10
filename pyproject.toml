@@ -35,4 +35,5 @@ addopts = "-x --tb=line -q"
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",
+    "ruff>=0.15.10",
 ]
