@@ -7,14 +7,16 @@ Provides a singleton connection factory and retry-aware execution.
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from ebaysdk.trading import Connection as Trading
 
 
 def log_debug(msg: str) -> None:
-    """Log to stderr (MCP uses stdout for protocol wire)."""
-    print(f"[ebay-seller-tool] {msg}", file=sys.stderr, flush=True)
+    """Log to stderr with timestamp. MCP uses stdout for protocol wire."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+    print(f"[ebay-seller-tool {ts}] {msg}", file=sys.stderr, flush=True)
 
 
 @lru_cache(maxsize=1)
@@ -30,6 +32,8 @@ def get_trading_api() -> Trading:
     dev_id = os.environ["EBAY_DEV_ID"]
     token = os.environ["EBAY_AUTH_TOKEN"]
     site_id = os.environ.get("EBAY_SITE_ID", "3")
+    if "EBAY_SITE_ID" not in os.environ:
+        log_debug("EBAY_SITE_ID not set, defaulting to site_id=3 (eBay UK)")
 
     log_debug(f"Creating Trading API connection (site_id={site_id})")
 
@@ -65,12 +69,13 @@ def execute_with_retry(
         ebaysdk response object (dict-like)
 
     Raises:
-        ConnectionError: On API failure after retries exhausted
+        Exception: On API failure after retries exhausted
     """
     api = get_trading_api()
     backoff_seconds = [2, 4, 8]
 
     for attempt in range(max_attempts):
+        log_debug(f"API {verb} CALLING attempt={attempt + 1}/{max_attempts}")
         start_ms = time.monotonic() * 1000
         try:
             response = api.execute(verb, data)
@@ -79,8 +84,10 @@ def execute_with_retry(
                 f"API {verb} OK duration_ms={duration_ms:.0f} attempt={attempt + 1}/{max_attempts}"
             )
             return response
-        except ConnectionError as e:
+        except Exception as e:
             duration_ms = time.monotonic() * 1000 - start_ms
+            # Check for HTTP 429 rate limit on any exception type
+            # (ebaysdk raises its own ConnectionError, not builtins.ConnectionError)
             status_code = getattr(getattr(e, "response", None), "status_code", None)
 
             if status_code == 429 and attempt < max_attempts - 1:
@@ -95,10 +102,10 @@ def execute_with_retry(
             log_debug(
                 f"API {verb} FAILED duration_ms={duration_ms:.0f} "
                 f"attempt={attempt + 1}/{max_attempts} "
-                f"status={status_code} error={e}"
+                f"status={status_code} error={type(e).__name__}: {e}"
             )
             raise
 
-    # Should not reach here, but satisfy type checker
+    # Unreachable — loop always returns or raises. Satisfies type checker.
     msg = f"API {verb} failed after {max_attempts} attempts"
-    raise ConnectionError(msg)
+    raise RuntimeError(msg)
