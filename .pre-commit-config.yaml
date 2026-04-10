@@ -1,0 +1,47 @@
+repos:
+  - repo: local
+    hooks:
+      - id: no-temp-folder
+        name: Prevent temp/ and tmp/ folder commits
+        entry: bash -c 'TEMP_FILES=$(git diff --cached --name-only | grep -E "^temp/|/temp/|^tmp/|/tmp/"); if [ -n "$TEMP_FILES" ]; then echo "ERROR - temp/tmp folders not allowed in repos."; echo "Use C:/temp/ instead and delete the folder."; echo ""; echo "Blocked files -"; echo "$TEMP_FILES"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: check-hardcoded-params
+        name: Check for hardcoded parameters
+        entry: bash scripts/check-hardcoded-params.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: trailing-whitespace
+
+default_language_version:
+  python: python3
+
+exclude: |
+  (?x)^(
+    \.git/|
+    \.venv/|
+    __pycache__/|
+    dist/|
+    build/|
+    uv\.lock
+  )
+
+default_stages: [pre-commit, pre-push]
+fail_fast: false
