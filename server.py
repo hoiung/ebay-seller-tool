@@ -28,6 +28,10 @@ mcp = FastMCP("ebay-seller-tool")
 if not os.environ.get("EBAY_DEBUG"):
     logging.getLogger("ebaysdk").setLevel(logging.CRITICAL)
 
+# Validate credentials at module load (runs whether invoked via __main__ or MCP framework)
+validate_credentials()
+check_token_expiry()
+
 
 def with_error_handling(func):
     """Decorator for consistent error reporting across all MCP tools."""
@@ -87,8 +91,13 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
 
     active_list = response.reply.ActiveList
 
-    # Handle zero listings
-    if not hasattr(active_list, "ItemArray") or active_list.ItemArray is None:
+    # Handle zero listings (ItemArray absent or empty, or Item absent)
+    if (
+        not hasattr(active_list, "ItemArray")
+        or active_list.ItemArray is None
+        or not hasattr(active_list.ItemArray, "Item")
+        or active_list.ItemArray.Item is None
+    ):
         log_debug("get_active_listings result total=0")
         return json.dumps({"total": 0, "page": page, "per_page": per_page, "listings": []})
 
@@ -132,6 +141,4 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
 
 if __name__ == "__main__":
     log_debug("Starting ebay-seller-tool MCP server")
-    validate_credentials()
-    check_token_expiry()
     mcp.run()
