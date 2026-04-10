@@ -1,0 +1,273 @@
+# SST3 Solo Workflow
+
+## 5-Stage Solo Workflow Model
+
+**Your Role**: Orchestrate research/review via subagent swarms; implement directly. See `../dotfiles/SST3/workflow/WORKFLOW.md` for full 5-stage workflow.
+
+**Default: PLANNING MODE** — execute only when user says "work on #X" / "implement this". No file changes, no commits in planning mode. When unclear, ask.
+
+**MANDATORY READING**:
+1. `../dotfiles/SST3/standards/STANDARDS.md` (ALWAYS)
+2. `../dotfiles/SST3/standards/ANTI-PATTERNS.md` (ALWAYS — 16 documented failure modes you must not repeat)
+3. `{repository-name}/CLAUDE.md` (ALWAYS - replace with repo root)
+
+**Reading Confirmation Checklist** (MUST display and complete):
+- [ ] Read STANDARDS.md
+- [ ] Read ANTI-PATTERNS.md
+- [ ] Read {repository-name}/CLAUDE.md
+
+**Critical behavioural rules** (full detail in STANDARDS.md + ANTI-PATTERNS.md):
+- **GREP BEFORE WRITING/CODING**: before creating ANY new file, rule, memory, helper, hook, harness, function, class, component, workflow, process, design, or piece of logic — grep relevant directories with multiple synonyms. Update existing in place if found. New files only after grep confirms nothing exists. (AP #10)
+- **MULTI-LAYER SUBAGENT DISCIPLINE** (AP #14): never stingy. Subagent count is DYNAMIC, scaled to cover every directory / file / claim category line-by-line — no stone left unturned. NOT 2-3 as a default. If the work has 12 claim categories, dispatch ≥12 subagents. Use LAYERS cross-checking each other from DIFFERENT angles (layer 2 ≠ layer 1 prompt). Main agent VERIFIES every subagent finding against source — never assume the subagent got it right. Every claim must be factually provable AND the proof method must be documented inline so future audits don't false-positive on it.
+- **AP #9 Single-Source Edits**: every edit to a multi-research artefact must integrate ALL relevant sources in the same pass. Never apply one in isolation.
+- **AP #11 Stopping vs Applying**: when an audit surfaces a documented violation, RUN the full process (false-positive sweep then apply). Don't stop to ask permission for fixes the standards already mandate. Don't apply without the sweep.
+- **AP #12 No Observability**: every component needs structured logs, metrics, and audit trails AT WRITE TIME. Not after the first incident.
+- **AP #13 "Proceed" ≠ "Bypass Process"**: when the user says okay / proceed / yes / go ahead, that means **proceed using the full standard process** — not skip the sweeps, gates, Ralph reviews, or guardrails. User authorisation never bypasses workflow.
+- **AP #16 Monitor, Don't Fire-and-Forget**: every script / command / subprocess / test / deployment / commit / push you launch must be verified end-to-end (tail logs, check exit code, verify output, confirm side effects). "Started" is not "done". For `run_in_background`, poll BashOutput. Be the user's eyes and ears, not just their executioner. If you cannot answer "what happened?" with specifics, you fired and forgot — go check NOW.
+
+**STOP if**: No GitHub Issue exists. Create Issue using `../dotfiles/SST3/templates/issue-template.md`.
+
+### Solo Workflow Overview
+
+**Context Window**: 1M tokens (Opus 4.6/Sonnet 4.6), 200K (Haiku 4.5)
+**Content Budget**: ~42K tokens (STANDARDS.md + CLAUDE.md + Issue loaded at session start)
+**Handover at**: 80% of model window (800K for 1M, 160K for Haiku)
+**Issue Header**: `## Solo Assignment (SST3 Automated)`
+**Branch**: `solo/issue-{number}-{description}` (commit per file, no PR)
+**Merge**: Direct merge to main after Ralph Review passes (BEFORE user review - protects work)
+
+### Execution Guardrails (Built-in)
+
+Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (80%+ warn, 90%+ STOP) → post-compact re-read → verification loop until clean → user-review-checklist.md.
+
+### Branch Safety (CRITICAL — DO NOT VIOLATE)
+
+- **NEVER switch branches** (`git checkout main`, `git checkout -b`, `git switch`).
+- **Always commit and push to the CURRENT active branch** — it will get merged later.
+- If you need something on main, **ask the user** — do NOT switch yourself.
+- The only exception is creating a NEW solo branch at the START of work.
+
+### Command Interface
+
+- `/start` — list repos, prompt selection, load CLAUDE.md, WAIT for task.
+- `/SST3-solo` — load STANDARDS.md + repo CLAUDE.md, display summary, prompt for task, execute with guardrails.
+
+Handover template: `../dotfiles/SST3/templates/chat-handover.md` (post checkpoint to Issue FIRST).
+
+## External Research References
+
+**Location**: `docs/research/` in project root
+**Check BEFORE external research**: Existing research references
+**Capture AFTER research**: If 3+ external resources found, create/update research reference
+See: `../dotfiles/SST3/reference/research-reference-guide.md` for complete guide
+
+## Quality Standards
+
+**See STANDARDS.md** — Never Assume (read source before concluding), Fix Everything (no scope/language excuses, no priority deferrals), Critical Thinking (challenge with evidence). Only valid skip reason: confirmed false positive (document why).
+
+**Voice Content Protection** — when editing Hoi-voice prose (CV, LinkedIn, cover letters, blogs): wrap in `<!-- iamhoi --> ... <!-- iamhoiend -->`. Canonical rules in `../dotfiles/SST3/standards/STANDARDS.md` "Voice Content Protection" + AP #15. Single source of truth for banned words: `../dotfiles/SST3/scripts/voice_rules.py`. (#406 F3.8 dedup.)
+
+## Ralph Review Loop (MANDATORY)
+
+**Subagents are PLANNING ONLY** - they review, they do NOT write code.
+
+**Flow**: Implement → Haiku → Sonnet → Opus → **Merge to main** → User Review
+
+| Tier | Model | Purpose | Invocation |
+|------|-------|---------|------------|
+| 1 | `haiku` (MANDATORY) | Surface checks | `Task(model=haiku, prompt="Review per SST3/ralph/haiku-review.md...")` |
+| 2 | `sonnet` (MANDATORY) | Logic checks | `Task(model=sonnet, prompt="Review per SST3/ralph/sonnet-review.md...")` |
+| 3 | `opus` (MANDATORY) | Deep analysis | `Task(model=opus, prompt="Review per SST3/ralph/opus-review.md...")` |
+
+**On FAIL any tier**: Main agent fixes → Restart from Tier 1 (Haiku)
+**On PASS all 3**: Merge to main immediately (protects work), then user review
+
+**Checklists**: `../dotfiles/SST3/ralph/`
+
+## Quick Reference
+
+### 5-Stage Workflow (ORDER-DEPENDENT — no skipping, no reordering)
+```
+Stage 1: Research — subagent swarm → main agent writes /tmp (findings + gaps + plan)
+Stage 2: Issue Creation — main agent from /tmp, illustrations, compact breaks, quality mantras verbatim
+Stage 3: Triple-Check — subagents verify scope vs audit = 100%, chat history, dead code
+Stage 4: Implementation — main agent implements, Verification Loop, Ralph Review, merge, user-review-checklist
+Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, quality scan, regression tests
+```
+
+### Solo Execution Checklist (Stage 4)
+```
+## Working on Issue #X
+Read CLAUDE.md, STANDARDS.md, Issue
+Create branch: git checkout -b solo/issue-{X}-{description}
+Execute phase 1, commit per file, push, post checkpoint
+Execute phase 2, commit per file, push, post checkpoint
+...
+Run verification loop until clean (overengineering, reuse, duplication, fallbacks, wiring, regression, quality)
+Run Ralph Review (Haiku → Sonnet → Opus)
+Merge to main (BEFORE user review - protects work, check for conflicts first)
+Post user-review-checklist.md (from TEMPLATE, ALL sections mandatory)
+User reviews and approves
+Cleanup branch, close Issue
+```
+
+### Emergency Procedures
+- **Context overflow**: Create handover immediately
+- **Stuck**: Re-read Issue, identify blocker, post to Issue
+- **User compact**: Re-read CLAUDE.md, STANDARDS.md, Issue last comment
+
+### MCP Configuration (Global)
+- **Location**: `~/.claude.json` (user scope)
+- **Verify**: Run `claude mcp list` or `/mcp` inside Claude Code
+- **Servers**: chrome-devtools, github-checkbox, github
+- **Guide**: `../dotfiles/docs/guides/mcp-configuration.md`
+- **Tool Selection**: See `../dotfiles/SST3/reference/tool-selection-guide.md`
+
+### MCP Tools
+- **Checkboxes**: `mcp__github-checkbox__update_issue_checkbox(issue_number, checkbox_text, evidence)`
+- **Frontend**: Chrome DevTools MCP — guide `../dotfiles/docs/guides/chrome-devtools-mcp.md`, screenshots → `../screenshots/`
+- **GitHub Issues**: issue_write, add_issue_comment, search_issues, get_file_contents, create_pull_request
+
+### Google Drive Sync Conflicts
+Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, edit copy, copy back. See `docs/guides/google-drive-sync.md`.
+
+---
+<!-- ============================================================== -->
+<!-- ⚠️ DO NOT MODIFY OR DELETE ANYTHING ABOVE THIS LINE ⚠️ -->
+<!-- ============================================================== -->
+<!-- All content ABOVE is SST3 standard managed by dotfiles issues -->
+<!-- Modifications require dotfiles repository SST3 issue approval -->
+<!-- Project-specific configuration begins BELOW this boundary -->
+<!-- ============================================================== -->
+
+
+
+
+# Project-Specific Configuration
+
+## Project Overview
+
+MCP server for managing eBay listings from Claude Code. Wraps eBay's Trading API to enable listing creation, bulk description updates, photo uploads, and inventory management directly from the terminal.
+
+## Technology Stack
+
+- Language: Python 3.11+
+- Framework: FastMCP (MCP server SDK)
+- Dependencies: ebaysdk (Trading API), httpx, Jinja2, Pillow, python-dotenv
+- Package manager: uv
+
+## Repository Structure
+```
+ebay-seller-tool/
+├── server.py              # MCP server entrypoint (FastMCP)
+├── ebay/                  # eBay API client layer
+│   ├── client.py          # Trading API connection factory
+│   ├── listing.py         # Create/revise/end listing logic
+│   ├── inventory.py       # Quantity management, bulk ops
+│   ├── photos.py          # Photo upload and processing
+│   └── conditions.py      # Condition name to eBay ID mapping
+├── business/              # Business rules (private, loaded at runtime)
+│   ├── title_generator.py # Title builder with configurable rules
+│   ├── warning_rules.py   # Compatibility warning engine
+│   └── part_lookup.py     # Part number lookup integration
+├── templates/             # Jinja2 HTML templates
+│   ├── base.html          # Base listing HTML shell
+│   └── warnings/          # Warning block templates
+├── scripts/               # Standalone utilities
+│   ├── auth_setup.py      # OAuth2 / Auth'N'Auth initial setup
+│   └── export_listings.py # Dump active listings to JSON
+├── docs/
+│   └── research/          # Decision logs and API research
+├── pyproject.toml
+└── CLAUDE.md              # This file
+```
+
+## Development Setup
+```bash
+# Clone and setup
+git clone https://github.com/hoiung/ebay-seller-tool.git
+cd ebay-seller-tool
+cp .env.example .env
+# Fill in eBay credentials in .env
+
+# Install dependencies
+uv sync
+
+# Test with MCP Inspector
+uv run mcp dev server.py
+```
+
+## Project Standards
+
+### Code Quality
+- Linter: ruff
+- Formatter: ruff format
+- Type checking: mypy (planned)
+
+### Testing
+```bash
+# Run all tests
+uv run pytest -x --tb=line -q
+
+# Test MCP server interactively
+uv run mcp dev server.py
+```
+
+### Git Workflow
+- Branch naming: `solo/issue-[number]-description`
+- Commit format: `type: description (#issue)`
+
+## Common Commands
+```bash
+# Run MCP server (for Claude Code registration)
+uv run python server.py
+
+# Register with Claude Code
+claude mcp add ebay-seller-tool -- uv --directory /path/to/ebay-seller-tool run python server.py
+
+# MCP Inspector (browser-based tool tester)
+uv run mcp dev server.py
+```
+
+## Project-Specific Notes
+
+- **eBay marketplace**: Configured via .env (site ID, currency, marketplace ID).
+- **Trading API**: Used for listing CRUD (supports CDATA HTML descriptions). Auth'N'Auth token (18-month lifetime).
+- **REST Inventory API**: Used for quantity management and bulk price updates.
+- **Credentials**: NEVER commit .env. Use .env.example as reference.
+
+## Public / Private Data Split
+
+This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfiles` repo and is referenced by path. Never copy private data into this repo.
+
+### PUBLIC (this repo)
+- MCP server code (server.py, ebay/, business/)
+- Generic eBay API integration logic
+- Jinja2 template engine (code, not content)
+- API research doc (`docs/research/`)
+- README, CLAUDE.md, pyproject.toml
+
+### PRIVATE (dotfiles repo — never copy here)
+- Business rules, listing strategies, and research docs
+- Listing skill with product-specific rules
+- Listing HTML files and product photos
+- Any data that identifies the seller, products, or business strategies
+
+### What NEVER goes in this repo
+- Listing content with real product data
+- Business strategies or pricing decisions
+- Product-specific lookup results or mappings
+- Inventory details, stock levels, product categories
+- Customer data, order details, serial numbers
+- eBay credentials (.env already gitignored)
+- Store username or eBay profile URL
+- File paths that reveal business folder structure
+
+## Documentation Links
+- Project README: `README.md`
+- API Research: `docs/research/`
+
+---
+
+*Template Version: SST3.0.0*
+*Last Updated: 2026-04-10*
