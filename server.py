@@ -91,15 +91,26 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
 
     active_list = response.reply.ActiveList
 
-    # Handle zero listings (ItemArray absent or empty, or Item absent)
+    # Read the real store total from PaginationResult — even on out-of-bounds
+    # pages this is set, so we don't lie with total=0 when the store actually
+    # has listings on earlier pages.
+    real_total = 0
+    if hasattr(active_list, "PaginationResult") and active_list.PaginationResult is not None:
+        try:
+            real_total = int(active_list.PaginationResult.TotalNumberOfEntries)
+        except (AttributeError, ValueError, TypeError):
+            real_total = 0
+
+    # Handle zero listings (ItemArray absent or empty, or Item absent).
+    # This also handles out-of-bounds pages — total reflects the real store size.
     if (
         not hasattr(active_list, "ItemArray")
         or active_list.ItemArray is None
         or not hasattr(active_list.ItemArray, "Item")
         or active_list.ItemArray.Item is None
     ):
-        log_debug("get_active_listings result total=0")
-        return json.dumps({"total": 0, "page": page, "per_page": per_page, "listings": []})
+        log_debug(f"get_active_listings result total={real_total} returned=0")
+        return json.dumps({"total": real_total, "page": page, "per_page": per_page, "listings": []})
 
     items = active_list.ItemArray.Item
 
@@ -107,7 +118,7 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
     if not isinstance(items, list):
         items = [items]
 
-    total = int(active_list.PaginationResult.TotalNumberOfEntries)
+    total = real_total
 
     listings = []
     for item in items:
