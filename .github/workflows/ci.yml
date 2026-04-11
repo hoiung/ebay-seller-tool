@@ -34,7 +34,7 @@ jobs:
       - name: Python syntax check
         run: |
           find . -name "*.py" -not -path "./.venv/*" -print0 | \
-            xargs -0 python -m py_compile
+            xargs -0 uv run python -m py_compile
 
       - name: TOML/YAML/JSON validation
         run: |
@@ -62,4 +62,4 @@ jobs:
           "
 
       - name: Secret detection (blocking)
-        run: python3 scripts/check-public-repo-secrets.py .
+        run: uv run python scripts/check-public-repo-secrets.py .
