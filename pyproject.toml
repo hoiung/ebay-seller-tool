@@ -22,6 +22,12 @@ packages = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Exclude vendored scripts (maintained in dotfiles, drift-checked here).
+# Modifying them locally would break the secret-rules-drift pre-commit hook.
+extend-exclude = [
+    "scripts/check-public-repo-secrets.py",
+    "scripts/sst3_utils.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
@@ -35,5 +41,6 @@ addopts = "-x --tb=line -q"
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",
+    "pyyaml>=6.0.3",
     "ruff>=0.15.10",
 ]
