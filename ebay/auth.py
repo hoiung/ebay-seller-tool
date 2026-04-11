@@ -3,7 +3,6 @@ eBay credential validation and token health checks.
 """
 
 import os
-import sys
 
 from ebay.client import log_debug
 
@@ -25,11 +24,10 @@ def validate_credentials() -> None:
 
     if missing:
         log_debug(f"CREDENTIAL_CHECK FAILED missing={missing}")
-        print(
-            f"ERROR: Missing required environment variables: {', '.join(missing)}\n"
-            f"Copy .env.example to .env and fill in your eBay credentials.\n"
-            f"Get credentials from https://developer.ebay.com",
-            file=sys.stderr,
+        log_debug(
+            f"ERROR: Missing required environment variables: {', '.join(missing)}. "
+            f"Copy .env.example to .env and fill in your eBay credentials. "
+            f"Get credentials from https://developer.ebay.com"
         )
         raise SystemExit(1)
 
