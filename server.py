@@ -21,6 +21,7 @@ from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.client import execute_with_retry, log_debug  # noqa: E402
+from ebay.listings import listing_to_dict  # noqa: E402
 
 mcp = FastMCP("ebay-seller-tool")
 
@@ -150,6 +151,36 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
         },
         indent=2,
     )
+
+
+@mcp.tool()
+@with_error_handling
+async def get_listing_details(item_id: str) -> str:
+    """Get full details for a single eBay listing including description HTML, item specifics, and photos.
+
+    Args:
+        item_id: The eBay item ID (numeric string).
+
+    Returns:
+        JSON with full listing details or error.
+    """
+    if not item_id or not item_id.strip():
+        return json.dumps({"error": "item_id required"})
+
+    log_debug(f"get_listing_details item_id={item_id}")
+
+    response = await asyncio.to_thread(
+        execute_with_retry,
+        "GetItem",
+        {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
+    )
+
+    result = listing_to_dict(response.reply.Item)
+    log_debug(
+        f"get_listing_details OK item_id={item_id} title={result['title'][:50]} "
+        f"desc_len={result['description_length']}"
+    )
+    return json.dumps(result, indent=2)
 
 
 if __name__ == "__main__":
