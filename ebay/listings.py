@@ -123,8 +123,14 @@ def compute_diff(
                 "before_hash": before_hash,
                 "after_hash": after_hash,
             }
-    if price is not None and str(price) != before.get("price"):
-        diff["price"] = {"before": before.get("price"), "after": str(price)}
+    if price is not None:
+        # Compare as floats to avoid false positives (eBay stores "10.00", Python str(10.0)="10.0")
+        try:
+            before_price = float(before.get("price", 0))
+        except (ValueError, TypeError):
+            before_price = 0.0
+        if abs(price - before_price) > 0.001:
+            diff["price"] = {"before": before.get("price"), "after": str(price)}
     return diff
 
 
@@ -242,7 +248,7 @@ def extract_warning_block(html: str) -> str | None:
     """
     # Match the outermost warning div — use a non-greedy approach with
     # nested div awareness (count opening/closing div tags)
-    match = re.search(r'<div\s+class="warning"', html)
+    match = re.search(r'<div\b[^>]*\bclass=["\']warning["\']', html)
     if not match:
         return None
 
