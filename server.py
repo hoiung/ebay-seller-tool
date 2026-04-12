@@ -222,9 +222,11 @@ async def update_listing(
     if not item_id or not item_id.strip():
         return json.dumps({"error": "item_id required"})
     if title is None and description_html is None and price is None:
-        return json.dumps({
-            "error": "no fields to update — provide title, description_html, or price",
-        })
+        return json.dumps(
+            {
+                "error": "no fields to update — provide title, description_html, or price",
+            }
+        )
     if title is not None and len(title) > 80:
         return json.dumps({"error": f"title exceeds 80-char eBay limit (got {len(title)})"})
     if price is not None and price <= 0:
@@ -243,7 +245,8 @@ async def update_listing(
 
     # Fetch current state for diff
     current = await asyncio.to_thread(
-        execute_with_retry, "GetItem",
+        execute_with_retry,
+        "GetItem",
         {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
     )
     if current.reply.Item is None:
@@ -259,9 +262,13 @@ async def update_listing(
     )
 
     if not diff:
-        return json.dumps({
-            "item_id": item_id, "no_change": True, "message": "all fields identical",
-        })
+        return json.dumps(
+            {
+                "item_id": item_id,
+                "no_change": True,
+                "message": "all fields identical",
+            }
+        )
 
     if dry_run:
         return json.dumps({"dry_run": True, "item_id": item_id, "diff": diff}, indent=2)
@@ -273,7 +280,8 @@ async def update_listing(
 
     # Verify by re-fetching
     after_resp = await asyncio.to_thread(
-        execute_with_retry, "GetItem",
+        execute_with_retry,
+        "GetItem",
         {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
     )
     if after_resp.reply.Item is None:
@@ -286,12 +294,15 @@ async def update_listing(
             success=True,
             error="update applied but post-verify fetch returned empty item",
         )
-        return json.dumps({
-            "success": True,
-            "item_id": item_id,
-            "fields_updated": list(diff.keys()),
-            "warning": "update applied but post-verify fetch returned empty item",
-        }, indent=2)
+        return json.dumps(
+            {
+                "success": True,
+                "item_id": item_id,
+                "fields_updated": list(diff.keys()),
+                "warning": "update applied but post-verify fetch returned empty item",
+            },
+            indent=2,
+        )
     after = snapshot_listing(after_resp.reply.Item)
 
     # Audit log

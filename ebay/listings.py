@@ -55,13 +55,9 @@ def listing_to_dict(item: object) -> dict:
     return {
         "item_id": str(item.ItemID),
         "title": str(item.Title),
-        "subtitle": (
-            str(item.SubTitle) if hasattr(item, "SubTitle") and item.SubTitle else None
-        ),
+        "subtitle": (str(item.SubTitle) if hasattr(item, "SubTitle") and item.SubTitle else None),
         "condition_id": (
-            str(item.ConditionID)
-            if hasattr(item, "ConditionID") and item.ConditionID
-            else None
+            str(item.ConditionID) if hasattr(item, "ConditionID") and item.ConditionID else None
         ),
         "condition_name": (
             str(item.ConditionDisplayName)
