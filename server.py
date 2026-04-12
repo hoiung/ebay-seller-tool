@@ -25,6 +25,7 @@ from ebay.listings import (  # noqa: E402
     audit_log_write,
     build_revise_payload,
     compute_diff,
+    extract_shipping_details,
     listing_to_dict,
     snapshot_listing,
 )
@@ -183,6 +184,9 @@ async def get_listing_details(item_id: str) -> str:
         {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
     )
 
+    if response.reply.Item is None:
+        return json.dumps({"error": f"item {item_id} not found or no longer active"})
+
     result = listing_to_dict(response.reply.Item)
     log_debug(
         f"get_listing_details OK item_id={item_id} title={result['title'][:50]} "
@@ -242,6 +246,8 @@ async def update_listing(
         execute_with_retry, "GetItem",
         {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
     )
+    if current.reply.Item is None:
+        return json.dumps({"error": f"item {item_id} not found or no longer active"})
     before = snapshot_listing(current.reply.Item)
 
     diff = compute_diff(before, title, description_html, price)
@@ -260,8 +266,9 @@ async def update_listing(
     if dry_run:
         return json.dumps({"dry_run": True, "item_id": item_id, "diff": diff}, indent=2)
 
-    # Build and send ReviseFixedPriceItem payload
-    payload = build_revise_payload(item_id, title, description_html, price)
+    # Build and send ReviseFixedPriceItem payload — echo back current shipping config
+    shipping = extract_shipping_details(current.reply.Item)
+    payload = build_revise_payload(item_id, title, description_html, price, shipping)
     await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
 
     # Verify by re-fetching
@@ -269,6 +276,22 @@ async def update_listing(
         execute_with_retry, "GetItem",
         {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
     )
+    if after_resp.reply.Item is None:
+        log_debug(f"update_listing VERIFY_FAILED item_id={item_id} — item disappeared after update")
+        audit_log_write(
+            item_id=item_id,
+            fields_changed=list(diff.keys()),
+            before_length=before["description_length"],
+            after_length=0,
+            success=True,
+            error="update applied but post-verify fetch returned empty item",
+        )
+        return json.dumps({
+            "success": True,
+            "item_id": item_id,
+            "fields_updated": list(diff.keys()),
+            "warning": "update applied but post-verify fetch returned empty item",
+        }, indent=2)
     after = snapshot_listing(after_resp.reply.Item)
 
     # Audit log
