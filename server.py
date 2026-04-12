@@ -240,10 +240,11 @@ async def update_listing(
         return json.dumps({"error": f"title exceeds 80-char eBay limit (got {len(title)})"})
     if price is not None and price <= 0:
         return json.dumps({"error": "price must be > 0"})
-    if condition_id is not None and condition_id not in (1000, 1500, 3000, 7000):
+    if condition_id is not None and condition_id not in (1000, 1500, 3000):
         return json.dumps({
             "error": f"invalid condition_id {condition_id}. Valid: 1000=New, "
-            "1500=Opened-never used, 3000=Used, 7000=For parts or not working",
+            "1500=Opened-never used, 3000=Used. "
+            "7000 (For parts) is blocked — use eBay Seller Hub directly.",
         })
     if description_html is not None:
         description_html = description_html.strip()
@@ -269,6 +270,9 @@ async def update_listing(
     )
     if current.reply.Item is None:
         return json.dumps({"error": f"item {item_id} not found or no longer active"})
+
+    # Single listing_to_dict call — used for snapshot, diff, AND specifics merge
+    current_full = listing_to_dict(current.reply.Item)
     before = snapshot_listing(current.reply.Item)
 
     diff = compute_diff(
@@ -300,7 +304,6 @@ async def update_listing(
     # Item specifics: eBay replaces the entire block, so merge new values into existing
     merged_specifics = None
     if item_specifics is not None:
-        current_full = listing_to_dict(current.reply.Item)
         merged_specifics = dict(current_full.get("specifics", {}))
         for k, v in item_specifics.items():
             merged_specifics[k] = v if isinstance(v, list) else [v]
@@ -345,9 +348,14 @@ async def update_listing(
         before_length=before["description_length"],
         after_length=after["description_length"],
         success=True,
+        condition_before=before.get("condition_id"),
+        condition_after=after.get("condition_id"),
     )
 
-    log_debug(f"update_listing OK item_id={item_id} fields_updated={list(diff.keys())}")
+    log_debug(
+        f"update_listing OK item_id={item_id} fields_updated={list(diff.keys())} "
+        f"condition={before.get('condition_id')}->{after.get('condition_id')}"
+    )
 
     return json.dumps(
         {

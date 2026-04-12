@@ -309,6 +309,8 @@ def audit_log_write(
     success: bool,
     error: str | None = None,
     local_html_path: str | None = None,
+    condition_before: str | None = None,
+    condition_after: str | None = None,
 ) -> None:
     """Append one JSON line to the audit log.
 
@@ -316,7 +318,7 @@ def audit_log_write(
     is NOT rolled back for a log failure — but the caller is informed via
     the log_debug warning.
     """
-    entry = {
+    entry: dict = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "item_id": item_id,
         "fields_changed": fields_changed,
@@ -326,6 +328,9 @@ def audit_log_write(
         "error": error,
         "local_html_path": local_html_path,
     }
+    if condition_before or condition_after:
+        entry["condition_before"] = condition_before
+        entry["condition_after"] = condition_after
     try:
         _AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
         with open(_AUDIT_LOG_PATH, "a") as f:
