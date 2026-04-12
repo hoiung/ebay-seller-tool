@@ -93,6 +93,8 @@ def snapshot_listing(item: object) -> dict:
         "item_id": d["item_id"],
         "title": d["title"],
         "price": d["price"],
+        "condition_id": d["condition_id"],
+        "condition_name": d["condition_name"],
         "description_length": d["description_length"],
         "description_hash": hashlib.sha256(d["description_html"].encode()).hexdigest()[:16],
         "quantity": d["quantity"],
@@ -104,6 +106,9 @@ def compute_diff(
     title: str | None,
     description_html: str | None,
     price: float | None,
+    condition_id: int | None = None,
+    condition_description: str | None = None,
+    item_specifics: dict[str, str | list[str]] | None = None,
 ) -> dict:
     """Compute which fields would change and their before/after values."""
     diff: dict[str, dict] = {}
@@ -127,6 +132,15 @@ def compute_diff(
             before_price = 0.0
         if abs(price - before_price) > 0.001:
             diff["price"] = {"before": before.get("price"), "after": str(price)}
+    if condition_id is not None and str(condition_id) != before.get("condition_id"):
+        diff["condition_id"] = {
+            "before": before.get("condition_id"),
+            "after": str(condition_id),
+        }
+    if condition_description is not None:
+        diff["condition_description"] = {"after": condition_description}
+    if item_specifics is not None:
+        diff["item_specifics"] = {"after_count": len(item_specifics)}
     return diff
 
 
@@ -205,6 +219,9 @@ def build_revise_payload(
     description_html: str | None = None,
     price: float | None = None,
     shipping_details: dict | None = None,
+    condition_id: int | None = None,
+    condition_description: str | None = None,
+    item_specifics: dict[str, str | list[str]] | None = None,
 ) -> dict:
     """Build the ReviseFixedPriceItem payload dict.
 
@@ -215,6 +232,14 @@ def build_revise_payload(
     config. eBay requires shipping info on ReviseFixedPriceItem even for
     description-only updates. If None, a default free UK Royal Mail 2nd Class
     config is used (all our listings are free domestic shipping).
+
+    condition_id: eBay condition ID (1000=New, 1500=Open box, 2500=Seller
+    refurbished, 3000=Used).
+
+    condition_description: Free-text seller notes for eBay "Seller notes" field.
+
+    item_specifics: Dict of name -> value(s). Single string or list of strings.
+    Replaces the entire ItemSpecifics block on the listing.
     """
     item: dict = {"ItemID": item_id}
     if title is not None:
@@ -223,6 +248,18 @@ def build_revise_payload(
         item["Description"] = cdata_wrap(description_html)
     if price is not None:
         item["StartPrice"] = str(price)
+    if condition_id is not None:
+        item["ConditionID"] = str(condition_id)
+    if condition_description is not None:
+        item["ConditionDescription"] = condition_description
+    if item_specifics is not None:
+        nvl = []
+        for name, value in item_specifics.items():
+            if isinstance(value, list):
+                nvl.append({"Name": name, "Value": value})
+            else:
+                nvl.append({"Name": name, "Value": [value]})
+        item["ItemSpecifics"] = {"NameValueList": nvl}
 
     # eBay requires ShippingDetails on every ReviseFixedPriceItem call
     if shipping_details is not None:

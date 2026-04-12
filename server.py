@@ -202,18 +202,24 @@ async def update_listing(
     title: str | None = None,
     description_html: str | None = None,
     price: float | None = None,
+    condition_id: int | None = None,
+    condition_description: str | None = None,
+    item_specifics: dict | None = None,
     dry_run: bool = False,
 ) -> str:
-    """Update title, description HTML, and/or price on an existing listing.
+    """Update any listing field except quantity on an existing listing.
 
-    This tool intentionally cannot update quantity. Quantity changes are blocked
-    at input validation AND payload construction levels.
+    Supports: title, description, price, condition, condition description,
+    and item specifics. Quantity is intentionally blocked.
 
     Args:
         item_id: The eBay item ID to update.
         title: New title (max 80 chars). Optional.
         description_html: New description HTML. Optional.
         price: New price (must be > 0). Optional.
+        condition_id: eBay condition ID (1000=New, 1500=Open box, 3000=Used). Optional.
+        condition_description: Seller notes text for condition. Optional.
+        item_specifics: Dict of name->value(s) for item specifics. Optional.
         dry_run: If True, return diff without making changes. Default False.
 
     Returns:
@@ -221,27 +227,39 @@ async def update_listing(
     """
     if not item_id or not item_id.strip():
         return json.dumps({"error": "item_id required"})
-    if title is None and description_html is None and price is None:
-        return json.dumps(
-            {
-                "error": "no fields to update — provide title, description_html, or price",
-            }
-        )
+
+    updatable = [
+        title, description_html, price,
+        condition_id, condition_description, item_specifics,
+    ]
+    has_update = any(v is not None for v in updatable)
+    if not has_update:
+        return json.dumps({"error": "no fields to update"})
+
     if title is not None and len(title) > 80:
         return json.dumps({"error": f"title exceeds 80-char eBay limit (got {len(title)})"})
     if price is not None and price <= 0:
         return json.dumps({"error": "price must be > 0"})
+    if condition_id is not None and condition_id not in (1000, 1500, 2500, 3000):
+        return json.dumps({
+            "error": f"invalid condition_id {condition_id}. Valid: 1000=New, 1500=Open box, "
+            "2500=Seller refurbished, 3000=Used",
+        })
     if description_html is not None:
         description_html = description_html.strip()
         if not description_html:
             return json.dumps({"error": "description_html must not be empty"})
-        if len(description_html) < 50:
-            return json.dumps({"error": "description_html suspiciously short (< 50 chars)"})
         if "<" not in description_html or ">" not in description_html:
             return json.dumps({"error": "description_html must contain at least one HTML tag"})
 
-    fields = [f for f in ["title", "description_html", "price"] if locals().get(f) is not None]
-    log_debug(f"update_listing item_id={item_id} dry_run={dry_run} fields={fields}")
+    update_fields = [
+        f for f in [
+            "title", "description_html", "price",
+            "condition_id", "condition_description", "item_specifics",
+        ]
+        if locals().get(f) is not None
+    ]
+    log_debug(f"update_listing item_id={item_id} dry_run={dry_run} fields={update_fields}")
 
     # Fetch current state for diff
     current = await asyncio.to_thread(
@@ -253,7 +271,10 @@ async def update_listing(
         return json.dumps({"error": f"item {item_id} not found or no longer active"})
     before = snapshot_listing(current.reply.Item)
 
-    diff = compute_diff(before, title, description_html, price)
+    diff = compute_diff(
+        before, title, description_html, price,
+        condition_id, condition_description, item_specifics,
+    )
 
     log_debug(
         f"DIFF item_id={item_id} fields_to_change={list(diff.keys())} "
@@ -275,7 +296,10 @@ async def update_listing(
 
     # Build and send ReviseFixedPriceItem payload — echo back current shipping config
     shipping = extract_shipping_details(current.reply.Item)
-    payload = build_revise_payload(item_id, title, description_html, price, shipping)
+    payload = build_revise_payload(
+        item_id, title, description_html, price, shipping,
+        condition_id, condition_description, item_specifics,
+    )
     await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
 
     # Verify by re-fetching
