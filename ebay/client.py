@@ -35,7 +35,13 @@ def get_trading_api() -> Trading:
     if "EBAY_SITE_ID" not in os.environ:
         log_debug("EBAY_SITE_ID not set, defaulting to site_id=3 (eBay UK)")
 
-    log_debug(f"Creating Trading API connection (site_id={site_id})")
+    sandbox = os.environ.get("EBAY_SANDBOX", "false").lower() == "true"
+    if sandbox:
+        domain = "api.sandbox.ebay.com"
+        log_debug(f"Creating Trading API connection (site_id={site_id} SANDBOX={domain})")
+    else:
+        domain = "api.ebay.com"
+        log_debug(f"Creating Trading API connection (site_id={site_id} domain={domain})")
 
     return Trading(
         appid=app_id,
@@ -43,10 +49,19 @@ def get_trading_api() -> Trading:
         devid=dev_id,
         token=token,
         siteid=site_id,
+        domain=domain,
         config_file=None,  # CRITICAL: suppress ebaysdk YAML config search
         timeout=10,  # Per-call HTTP timeout. Fits within MAX_CUMULATIVE_TIMEOUT_SECONDS budget.
         warnings=False,
     )
+
+
+def reset_trading_api() -> None:
+    """Clear the cached Trading API connection so the next call creates a fresh one.
+
+    Useful for tests or scripts that need to switch environments (e.g. sandbox toggle).
+    """
+    get_trading_api.cache_clear()
 
 
 # Retry budget — total wall-clock time the entire retry sequence may consume.
