@@ -5,6 +5,7 @@ Provides tools for managing eBay listings from Claude Code.
 Uses eBay Trading API (XML) for listing CRUD and photo uploads.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -72,7 +73,8 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
     if per_page < 1 or per_page > 200:
         return json.dumps({"error": "per_page must be between 1 and 200"})
 
-    response = execute_with_retry(
+    response = await asyncio.to_thread(
+        execute_with_retry,
         "GetMyeBaySelling",
         {
             "ActiveList": {
