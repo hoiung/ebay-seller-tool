@@ -217,7 +217,7 @@ async def update_listing(
         title: New title (max 80 chars). Optional.
         description_html: New description HTML. Optional.
         price: New price (must be > 0). Optional.
-        condition_id: eBay condition ID (1000=New, 1500=Open box, 3000=Used). Optional.
+        condition_id: eBay condition ID (1000=New, 1500=Opened-never used, 3000=Used). Optional.
         condition_description: Seller notes text for condition. Optional.
         item_specifics: Dict of name->value(s) for item specifics. Optional.
         dry_run: If True, return diff without making changes. Default False.
@@ -240,10 +240,10 @@ async def update_listing(
         return json.dumps({"error": f"title exceeds 80-char eBay limit (got {len(title)})"})
     if price is not None and price <= 0:
         return json.dumps({"error": "price must be > 0"})
-    if condition_id is not None and condition_id not in (1000, 1500, 2500, 3000):
+    if condition_id is not None and condition_id not in (1000, 1500, 3000, 7000):
         return json.dumps({
-            "error": f"invalid condition_id {condition_id}. Valid: 1000=New, 1500=Open box, "
-            "2500=Seller refurbished, 3000=Used",
+            "error": f"invalid condition_id {condition_id}. Valid: 1000=New, "
+            "1500=Opened-never used, 3000=Used, 7000=For parts or not working",
         })
     if description_html is not None:
         description_html = description_html.strip()
@@ -296,9 +296,18 @@ async def update_listing(
 
     # Build and send ReviseFixedPriceItem payload — echo back current shipping config
     shipping = extract_shipping_details(current.reply.Item)
+
+    # Item specifics: eBay replaces the entire block, so merge new values into existing
+    merged_specifics = None
+    if item_specifics is not None:
+        current_full = listing_to_dict(current.reply.Item)
+        merged_specifics = dict(current_full.get("specifics", {}))
+        for k, v in item_specifics.items():
+            merged_specifics[k] = v if isinstance(v, list) else [v]
+
     payload = build_revise_payload(
         item_id, title, description_html, price, shipping,
-        condition_id, condition_description, item_specifics,
+        condition_id, condition_description, merged_specifics,
     )
     await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
 

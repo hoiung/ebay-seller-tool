@@ -233,8 +233,8 @@ def build_revise_payload(
     description-only updates. If None, a default free UK Royal Mail 2nd Class
     config is used (all our listings are free domestic shipping).
 
-    condition_id: eBay condition ID (1000=New, 1500=Open box, 2500=Seller
-    refurbished, 3000=Used).
+    condition_id: eBay condition ID (1000=New, 1500=Opened-never used,
+    3000=Used, 7000=For parts or not working).
 
     condition_description: Free-text seller notes for eBay "Seller notes" field.
 
