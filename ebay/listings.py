@@ -141,11 +141,17 @@ def build_revise_payload(
     title: str | None = None,
     description_html: str | None = None,
     price: float | None = None,
+    shipping_details: dict | None = None,
 ) -> dict:
     """Build the ReviseFixedPriceItem payload dict.
 
     NEVER includes a Quantity key at any nesting level — this is a safety
     invariant verified by whitebox test.
+
+    shipping_details: optional dict to echo back the listing's current shipping
+    config. eBay requires shipping info on ReviseFixedPriceItem even for
+    description-only updates. If None, a default free UK Royal Mail 2nd Class
+    config is used (all our listings are free domestic shipping).
     """
     item: dict = {"ItemID": item_id}
     if title is not None:
@@ -154,6 +160,20 @@ def build_revise_payload(
         item["Description"] = cdata_wrap(description_html)
     if price is not None:
         item["StartPrice"] = str(price)
+
+    # eBay requires ShippingDetails on every ReviseFixedPriceItem call
+    if shipping_details is not None:
+        item["ShippingDetails"] = shipping_details
+    else:
+        item["ShippingDetails"] = {
+            "ShippingType": "Flat",
+            "ShippingServiceOptions": {
+                "ShippingServicePriority": "1",
+                "ShippingService": "UK_RoyalMailSecondClassStandard",
+                "ShippingServiceCost": "0.00",
+                "FreeShipping": "true",
+            },
+        }
 
     payload = {"Item": item}
 
