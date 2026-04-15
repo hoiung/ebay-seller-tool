@@ -31,14 +31,14 @@
 
 **Context Window**: 1M tokens (Opus 4.6/Sonnet 4.6), 200K (Haiku 4.5)
 **Content Budget**: ~42K tokens (STANDARDS.md + CLAUDE.md + Issue loaded at session start)
-**Handover at**: 80% of model window (800K for 1M, 160K for Haiku)
+**Handover at**: 80% of model window (800K for 1M, 160K for Haiku) — STOP threshold, not routine. Warn at 70%. Keep working until 80%.
 **Issue Header**: `## Solo Assignment (SST3 Automated)`
 **Branch**: `solo/issue-{number}-{description}` (commit per file, no PR)
 **Merge**: Direct merge to main after Ralph Review passes (BEFORE user review - protects work)
 
 ### Execution Guardrails (Built-in)
 
-Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (80%+ warn, 90%+ STOP) → post-compact re-read → verification loop until clean → user-review-checklist.md.
+Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ warn, 80%+ STOP) → post-compact re-read → verification loop until clean → user-review-checklist.md.
 
 ### Branch Safety (CRITICAL — DO NOT VIOLATE)
 
@@ -139,6 +139,9 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
+
+
 
 
 
