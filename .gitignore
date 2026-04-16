@@ -33,3 +33,6 @@ Thumbs.db
 # Customer data (never commit)
 exports/
 orders/
+
+# Code review graph (local AST index, regenerable)
+.code-review-graph/
