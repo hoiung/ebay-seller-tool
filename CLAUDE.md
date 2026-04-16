@@ -121,7 +121,8 @@ Cleanup branch, close Issue
 ### MCP Configuration (Global)
 - **Location**: `~/.claude.json` (user scope)
 - **Verify**: Run `claude mcp list` or `/mcp` inside Claude Code
-- **Servers**: chrome-devtools, github-checkbox, github
+- **Servers**: chrome-devtools, github-checkbox, github, code-review-graph
+- **code-review-graph**: Local AST knowledge graph (SQLite, Tree-sitter). 6 tools: graph, query, review, config, setup, help. Local-only mode (`EMBEDDING_BACKEND=local`). Graph in `.code-review-graph/` (gitignored, regenerable).
 - **Guide**: `../dotfiles/docs/guides/mcp-configuration.md`
 - **Tool Selection**: See `../dotfiles/SST3/reference/tool-selection-guide.md`
 
@@ -141,6 +142,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
 
 
 
