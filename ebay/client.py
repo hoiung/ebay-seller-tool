@@ -73,6 +73,7 @@ def execute_with_retry(
     verb: str,
     data: dict,
     max_attempts: int = 3,
+    files: dict | None = None,
 ) -> object:
     """
     Execute a Trading API call with exponential backoff and a wall-clock budget.
@@ -89,6 +90,9 @@ def execute_with_retry(
         verb: API verb (e.g. "GetMyeBaySelling", "GetTokenStatus")
         data: Request payload dict
         max_attempts: Maximum retry attempts (default 3)
+        files: Optional multipart file dict for verbs like UploadSiteHostedPictures.
+            Default None preserves the original two-arg execute() call shape so
+            every existing caller behaviour is untouched.
 
     Returns:
         ebaysdk Response object with .reply attribute
@@ -113,7 +117,9 @@ def execute_with_retry(
         log_debug(f"API {verb} CALLING attempt={attempt + 1}/{max_attempts}")
         start_ms = time.monotonic() * 1000
         try:
-            response = api.execute(verb, data)
+            response = (
+                api.execute(verb, data, files=files) if files else api.execute(verb, data)
+            )
             duration_ms = time.monotonic() * 1000 - start_ms
             log_debug(
                 f"API {verb} OK duration_ms={duration_ms:.0f} attempt={attempt + 1}/{max_attempts}"
