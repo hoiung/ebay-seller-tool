@@ -8,11 +8,21 @@ duplicate serialisation logic elsewhere.
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ebay.client import log_debug
+
+_UUID_RE = re.compile(r"^[0-9A-F]{32}$")
+_HDD_CATEGORY_ID = "56083"
+_EBAY_UK_SITE_CURRENCY = "GBP"
+_EBAY_UK_COUNTRY = "GB"
+_MAX_TITLE_CHARS = 80
+_MIN_ITEM_SPECIFICS_KEYS = 20
+_MAX_PICTURE_URLS = 24
+_MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
 
 def listing_to_dict(item: object) -> dict:
@@ -280,6 +290,139 @@ def build_revise_payload(
     # Whitebox safety: verify no Quantity key leaked in
     _assert_no_quantity(payload)
 
+    return payload
+
+
+def build_add_payload(
+    title: str,
+    description_html: str,
+    price: float,
+    quantity: int,
+    condition_id: int,
+    condition_description: str | None,
+    item_specifics: dict[str, str | list[str]],
+    picture_urls: list[str],
+    uuid_hex: str,
+    shipping_details: dict | None = None,
+    return_policy: dict | None = None,
+    location_details: dict | None = None,
+) -> dict:
+    """Build the AddFixedPriceItem payload dict.
+
+    Add-path counterpart to build_revise_payload. Enforces the Add invariant
+    (_assert_requires_quantity) — the Revise invariant (_assert_no_quantity)
+    is intentionally NOT called here because Add MUST carry Quantity.
+
+    UUID (32-char uppercase hex) is emitted as Item.UUID for idempotent retry —
+    eBay returns DuplicateInvocationDetails on replay instead of creating
+    a second listing.
+
+    location_details: default reads EBAY_SELLER_LOCATION + EBAY_SELLER_POSTCODE
+    from the environment eagerly. auth.py validates these at startup, so an
+    unset env here is a programmer error and raises KeyError fast.
+    """
+    if not _UUID_RE.match(uuid_hex):
+        raise ValueError(
+            f"uuid_hex must match ^[0-9A-F]{{32}}$ (32 upper-hex chars); got {uuid_hex!r}"
+        )
+    if len(title) > _MAX_TITLE_CHARS:
+        raise ValueError(
+            f"title exceeds {_MAX_TITLE_CHARS}-char eBay limit (got {len(title)})"
+        )
+    if not picture_urls:
+        raise ValueError("picture_urls must contain at least 1 URL")
+    if len(picture_urls) > _MAX_PICTURE_URLS:
+        raise ValueError(
+            f"picture_urls must contain at most {_MAX_PICTURE_URLS} URLs "
+            f"(got {len(picture_urls)})"
+        )
+    joined_urls_len = sum(len(u) for u in picture_urls)
+    if joined_urls_len >= _MAX_PICTURE_URLS_JOINED_CHARS:
+        raise ValueError(
+            f"picture_urls total length {joined_urls_len} chars exceeds eBay "
+            f"<{_MAX_PICTURE_URLS_JOINED_CHARS} cap"
+        )
+    # Category 56083 mandates Brand + MPN; the canonical 21-field table also
+    # sets a ≥20-key floor (some sellers omit Colour / Country of Origin,
+    # but our listings enforce the full set).
+    if "Brand" not in item_specifics:
+        raise ValueError(
+            "item_specifics missing required field 'Brand' (category 56083 rejects payload)"
+        )
+    if "MPN" not in item_specifics:
+        raise ValueError(
+            "item_specifics missing required field 'MPN' (category 56083 rejects payload)"
+        )
+    if len(item_specifics) < _MIN_ITEM_SPECIFICS_KEYS:
+        raise ValueError(
+            f"item_specifics must have at least {_MIN_ITEM_SPECIFICS_KEYS} keys "
+            f"(got {len(item_specifics)}) — see research §1.3 canonical 21-field table"
+        )
+
+    if location_details is None:
+        location_details = {
+            "Country": _EBAY_UK_COUNTRY,
+            "Location": os.environ["EBAY_SELLER_LOCATION"],
+            "PostalCode": os.environ["EBAY_SELLER_POSTCODE"],
+            "Currency": _EBAY_UK_SITE_CURRENCY,
+        }
+    if shipping_details is None:
+        shipping_details = {
+            "ShippingType": "Flat",
+            "GlobalShipping": "true",
+            "ShippingServiceOptions": {
+                "ShippingServicePriority": "1",
+                "ShippingService": "UK_RoyalMailSecondClassStandard",
+                "ShippingServiceCost": {
+                    "value": "0.00",
+                    "_currencyID": location_details["Currency"],
+                },
+                "FreeShipping": "true",
+            },
+        }
+    if return_policy is None:
+        return_policy = {
+            "ReturnsAcceptedOption": "ReturnsNotAccepted",
+            "InternationalReturnsAcceptedOption": "ReturnsNotAccepted",
+        }
+
+    nvl = []
+    for name, value in item_specifics.items():
+        if isinstance(value, list):
+            nvl.append({"Name": name, "Value": value})
+        else:
+            nvl.append({"Name": name, "Value": [value]})
+
+    item: dict = {
+        "Title": title,
+        "Description": cdata_wrap(description_html),
+        "PrimaryCategory": {"CategoryID": _HDD_CATEGORY_ID},
+        "StartPrice": {
+            "value": f"{price:.2f}",
+            "_currencyID": location_details["Currency"],
+        },
+        "Quantity": str(int(quantity)),
+        "ConditionID": str(condition_id),
+        "ListingType": "FixedPriceItem",
+        "ListingDuration": "GTC",
+        "Currency": location_details["Currency"],
+        "Country": location_details["Country"],
+        "Location": location_details["Location"],
+        "PostalCode": location_details["PostalCode"],
+        "Site": "UK",
+        "DispatchTimeMax": "3",
+        "PaymentMethods": [],
+        "UUID": uuid_hex,
+        "PictureDetails": {"PictureURL": list(picture_urls)},
+        "ItemSpecifics": {"NameValueList": nvl},
+        "ShippingDetails": shipping_details,
+        "ReturnPolicy": return_policy,
+    }
+    if condition_description is not None:
+        item["ConditionDescription"] = condition_description
+
+    payload = {"Item": item}
+    _assert_requires_quantity(payload)
     return payload
 
 
