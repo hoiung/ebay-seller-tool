@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import traceback
 from functools import wraps
 
@@ -29,6 +30,11 @@ from ebay.listings import (  # noqa: E402
     listing_to_dict,
     snapshot_listing,
 )
+from ebay.photos import MAX_FILE_BYTES, preprocess_for_ebay, upload_one  # noqa: E402
+
+MAX_PHOTOS_PER_LISTING = 24
+MAX_PICTURE_URLS_JOINED_CHARS = 3975
+UPLOAD_RATE_LIMIT_SLEEP_SECONDS = 0.5
 
 mcp = FastMCP("ebay-seller-tool")
 
@@ -367,6 +373,91 @@ async def update_listing(
         },
         indent=2,
     )
+
+
+@mcp.tool()
+@with_error_handling
+async def upload_photos(photo_paths: list[str], dry_run: bool = False) -> str:
+    """Upload a list of local images to eBay Picture Services.
+
+    Each image is preprocessed (EXIF-transposed, RGB, ≤ 1600×1600 JPEG q90,
+    EXIF stripped) and uploaded ONE-PER-CALL because UploadSiteHostedPictures
+    accepts only one picture per request (eBay KB 1063). Photo ordering is
+    preserved end-to-end — photo_paths[0] ends up at PictureURL[0] which
+    becomes the listing gallery image.
+
+    Args:
+        photo_paths: Ordered list of local image paths. 1..24 paths.
+        dry_run: If True, skip the upload and return a preview of what would
+            happen (projected output sizes, per-path valid/rejected).
+
+    Returns:
+        JSON. On success: {success, urls, total_url_chars, warnings}.
+        On partial failure: {success: false, urls_uploaded_so_far,
+        failed_at_index, error}. On invalid input: {error}.
+    """
+    if not photo_paths:
+        return json.dumps({"error": "photo_paths must contain at least 1 path"})
+    if len(photo_paths) > MAX_PHOTOS_PER_LISTING:
+        return json.dumps({
+            "error": (
+                f"photo_paths exceeds eBay {MAX_PHOTOS_PER_LISTING}-image cap "
+                f"(got {len(photo_paths)})"
+            )
+        })
+
+    log_debug(f"upload_photos count={len(photo_paths)} dry_run={dry_run}")
+
+    if dry_run:
+        preview = []
+        for p in photo_paths:
+            try:
+                bytes_out = await asyncio.to_thread(preprocess_for_ebay, p)
+                preview.append({
+                    "path": p,
+                    "size_bytes_after_preprocess": len(bytes_out),
+                    "rejected": False,
+                })
+            except ValueError as e:
+                preview.append({"path": p, "rejected": True, "reason": str(e)})
+        return json.dumps({
+            "dry_run": True,
+            "would_upload": len([p for p in preview if not p["rejected"]]),
+            "preview": preview,
+        }, indent=2)
+
+    urls: list[str] = []
+    for idx, p in enumerate(photo_paths):
+        try:
+            bytes_out = await asyncio.to_thread(preprocess_for_ebay, p)
+            url = await asyncio.to_thread(upload_one, bytes_out)
+            urls.append(url)
+            if idx < len(photo_paths) - 1:
+                await asyncio.sleep(UPLOAD_RATE_LIMIT_SLEEP_SECONDS)
+        except Exception as e:
+            log_debug(f"upload_photos FAILED at index={idx} error={e!r}")
+            return json.dumps({
+                "success": False,
+                "urls_uploaded_so_far": urls,
+                "failed_at_index": idx,
+                "failed_path": p,
+                "error": str(e),
+            }, indent=2)
+
+    total_chars = sum(len(u) for u in urls)
+    warnings: list[str] = []
+    if total_chars >= MAX_PICTURE_URLS_JOINED_CHARS:
+        warnings.append(
+            f"total_url_chars={total_chars} exceeds eBay soft cap "
+            f"{MAX_PICTURE_URLS_JOINED_CHARS} — listing may reject PictureDetails"
+        )
+
+    return json.dumps({
+        "success": True,
+        "urls": urls,
+        "total_url_chars": total_chars,
+        "warnings": warnings,
+    }, indent=2)
 
 
 if __name__ == "__main__":
