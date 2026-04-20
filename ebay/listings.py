@@ -21,8 +21,10 @@ _EBAY_UK_SITE_CURRENCY = "GBP"
 _EBAY_UK_COUNTRY = "GB"
 _MAX_TITLE_CHARS = 80
 _MIN_ITEM_SPECIFICS_KEYS = 20
-_MAX_PICTURE_URLS = 24
-_MAX_PICTURE_URLS_JOINED_CHARS = 3975
+# Public — server.py imports these directly; single source of truth for the
+# two eBay PictureDetails caps (24 URLs, 3975 joined chars).
+MAX_PICTURE_URLS = 24
+MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
 
 def listing_to_dict(item: object) -> dict:
@@ -331,16 +333,16 @@ def build_add_payload(
         )
     if not picture_urls:
         raise ValueError("picture_urls must contain at least 1 URL")
-    if len(picture_urls) > _MAX_PICTURE_URLS:
+    if len(picture_urls) > MAX_PICTURE_URLS:
         raise ValueError(
-            f"picture_urls must contain at most {_MAX_PICTURE_URLS} URLs "
+            f"picture_urls must contain at most {MAX_PICTURE_URLS} URLs "
             f"(got {len(picture_urls)})"
         )
     joined_urls_len = sum(len(u) for u in picture_urls)
-    if joined_urls_len >= _MAX_PICTURE_URLS_JOINED_CHARS:
+    if joined_urls_len >= MAX_PICTURE_URLS_JOINED_CHARS:
         raise ValueError(
             f"picture_urls total length {joined_urls_len} chars exceeds eBay "
-            f"<{_MAX_PICTURE_URLS_JOINED_CHARS} cap"
+            f"<{MAX_PICTURE_URLS_JOINED_CHARS} cap"
         )
     # Category 56083 mandates Brand + MPN; the canonical 21-field table also
     # sets a ≥20-key floor (some sellers omit Colour / Country of Origin,
