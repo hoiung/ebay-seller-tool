@@ -1,0 +1,175 @@
+"""
+Hand-curated HDD MPN catalogue keyed by OEM model.
+
+Seeded from the 22 live listings exported to /tmp/ebay-listings-live.json as a
+one-off data read. Keys are the OEM model as it appears on the physical drive
+label (not HPE option / spare numbers). `-EXOS` suffix distinguishes the Exos
+label variant of a shared MPN (Seagate relabelled some drives without changing
+the underlying OEM MPN).
+
+Consumed by server.py::create_listing (P3.4) to fill in spec values that are
+not printed on the drive label (cache, family, height). Miss on OEM MPN here
+forces the operator to add a new row before the listing can be created — this
+is the anti-"silent default" guard.
+
+Required sub-keys: brand, family, capacity, rpm, interface, transfer_rate,
+cache, form_factor, height. `height` may be None for 3.5" drives only (they
+have no short/tall variant).
+"""
+
+HDD_SPECS: dict[str, dict[str, str | None]] = {
+    "ST2000NX0303": {
+        "brand": "Seagate",
+        "family": "Enterprise Capacity",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "ST2000NX0273": {
+        "brand": "Seagate",
+        "family": "Enterprise Capacity",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SAS",
+        "transfer_rate": "12G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "ST2000NX0253": {
+        "brand": "Seagate",
+        "family": "Enterprise Capacity",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "ST2000NX0253-EXOS": {
+        "brand": "Seagate",
+        "family": "Exos 7E2000",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "ST2000NX0403": {
+        "brand": "Seagate",
+        "family": "Exos 7E2000",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "ST4000NM0035": {
+        "brand": "Seagate",
+        "family": "Enterprise Capacity",
+        "capacity": "4TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    "ST3000NM0033": {
+        "brand": "Seagate",
+        "family": "Constellation ES.3",
+        "capacity": "3TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    "EG1200JEMDA": {
+        "brand": "Seagate",
+        "family": "Enterprise Performance 10K.8",
+        "capacity": "1.2TB",
+        "rpm": "10000 RPM",
+        "interface": "SAS",
+        "transfer_rate": "12G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "HUS724020ALA640": {
+        "brand": "HGST",
+        "family": "Ultrastar 7K4000",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    "HUS724030ALA640": {
+        "brand": "HGST",
+        "family": "Ultrastar 7K4000",
+        "capacity": "3TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    "HUS726040ALA614": {
+        "brand": "HGST",
+        "family": "Ultrastar 7K6000",
+        "capacity": "4TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    "MG04ACA400N": {
+        "brand": "Toshiba",
+        "family": "MG04 Series",
+        "capacity": "4TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    "AL14SEB090N": {
+        "brand": "Toshiba",
+        "family": "AL14SE",
+        "capacity": "900GB",
+        "rpm": "10000 RPM",
+        "interface": "SAS",
+        "transfer_rate": "12G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "HUC101030CSS600": {
+        "brand": "HGST",
+        "family": "Ultrastar C10K600",
+        "capacity": "300GB",
+        "rpm": "10000 RPM",
+        "interface": "SAS",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+}
