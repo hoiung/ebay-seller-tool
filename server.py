@@ -6,7 +6,6 @@ Uses eBay Trading API (XML) for listing CRUD and photo uploads.
 """
 
 import asyncio
-import glob
 import json
 import logging
 import os
@@ -27,6 +26,8 @@ from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.client import execute_with_retry, log_debug  # noqa: E402
 from ebay.hdd_specs import HDD_SPECS  # noqa: E402
 from ebay.listings import (  # noqa: E402
+    MAX_PICTURE_URLS,
+    MAX_PICTURE_URLS_JOINED_CHARS,
     audit_log_write,
     build_add_payload,
     build_revise_payload,
@@ -37,8 +38,9 @@ from ebay.listings import (  # noqa: E402
 )
 from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
 
-MAX_PHOTOS_PER_LISTING = 24
-MAX_PICTURE_URLS_JOINED_CHARS = 3975
+# Single source of truth for the per-listing photo cap is ebay/listings.py —
+# this alias keeps the old module-local name usable without duplicating the value.
+MAX_PHOTOS_PER_LISTING = MAX_PICTURE_URLS
 UPLOAD_RATE_LIMIT_SLEEP_SECONDS = 0.5
 
 # Condition string → eBay ConditionID (category 56083, research §1.5).
@@ -142,27 +144,45 @@ def _extract_oem_model(folder_path: str) -> str:
     return Path(folder_path).name
 
 
+_REQUIRED_SPEC_FIELDS = ("brand", "family", "capacity", "rpm", "interface", "form_factor", "cache")
+
+
 def _build_21_field_specifics(
     oem_model: str,
     title: str,
     has_caddy: bool,
     specs: dict[str, str | None],
 ) -> dict[str, str | list[str]]:
-    """Canonical 21-field ItemSpecifics per research §1.3."""
+    """Canonical 21-field ItemSpecifics per research §1.3.
+
+    Required-field contract: every HDD_SPECS entry has non-None values for
+    brand/family/capacity/rpm/interface/form_factor/cache (enforced by the
+    P1.9 seed test). `height` may be None for 3.5" drives only.
+
+    `Transfer Rate` is title-authoritative per P3.5; the HDD_SPECS
+    `transfer_rate` field exists as a catalogue reference and is NOT read
+    here — title is the ground truth for 12G vs 6G vs 3G.
+    """
+    missing = [k for k in _REQUIRED_SPEC_FIELDS if not specs.get(k)]
+    if missing:
+        raise ValueError(
+            f"HDD_SPECS[{oem_model!r}] has empty/None required field(s): {missing}. "
+            "Fix ebay/hdd_specs.py before creating listing."
+        )
     storage_format = "HDD with Caddy" if has_caddy else "HDD Only"
     specifics: dict[str, str | list[str]] = {
-        "Brand": specs["brand"] or "",
+        "Brand": specs["brand"],
         "MPN": oem_model,
         "Model": oem_model,
-        "Product Line": specs["family"] or "",
+        "Product Line": specs["family"],
         "Type": "Internal Hard Drive",
         "Drive Type(s) Supported": "HDD",
         "Storage Format": storage_format,
-        "Storage Capacity": specs["capacity"] or "",
-        "Interface": specs["interface"] or "",
-        "Form Factor": specs["form_factor"] or "",
-        "Rotation Speed": specs["rpm"] or "",
-        "Cache": specs["cache"] or "",
+        "Storage Capacity": specs["capacity"],
+        "Interface": specs["interface"],
+        "Form Factor": specs["form_factor"],
+        "Rotation Speed": specs["rpm"],
+        "Cache": specs["cache"],
         "Transfer Rate": _derive_transfer_rate(title),
         "Compatible With": "PC",
         "Features": ["Hot Swap", "24/7 Operation"],
@@ -173,16 +193,33 @@ def _build_21_field_specifics(
         "Unit Type": "Unit",
     }
     # Height applies to 2.5" drives only (3.5" has no 15mm/9.5mm variant).
-    if specs.get("height"):
-        specifics["Height"] = specs["height"] or ""
+    height = specs.get("height")
+    if height:
+        specifics["Height"] = height
     return specifics
 
 
 def _glob_label_photos(folder: Path) -> list[str]:
+    """Find Hoi's phone-camera label photos in a product folder.
+
+    Glob case-insensitively — iPhones and some Android transfers produce
+    uppercase .JPG while Hoi's primary Android writes .jpg. Dedup protects
+    against case-insensitive filesystems (WSL, macOS) that match both
+    patterns for the same file.
+    """
     if not folder.exists():
         return []
-    candidates = sorted(str(p) for p in folder.glob("IMG*.jpg"))
-    return [p for p in candidates if LABEL_PHOTO_REGEX.search(Path(p).name)]
+    seen: set[str] = set()
+    results: list[str] = []
+    for pattern in ("IMG*.jpg", "IMG*.JPG"):
+        for p in sorted(folder.glob(pattern)):
+            s = str(p)
+            if s in seen:
+                continue
+            seen.add(s)
+            if LABEL_PHOTO_REGEX.search(p.name):
+                results.append(s)
+    return results
 
 mcp = FastMCP("ebay-seller-tool")
 
@@ -371,7 +408,8 @@ async def update_listing(
         title: New title (max 80 chars). Optional.
         description_html: New description HTML. Optional.
         price: New price (must be > 0). Optional.
-        condition_id: eBay condition ID (1000=New, 1500=Opened-never used, 3000=Used). Optional.
+        condition_id: eBay condition ID (values from CONDITION_MAP —
+            1000=New, 1500=Opened, 2750=Used - Excellent, 3000=Used). Optional.
         condition_description: Seller notes text for condition. Optional.
         item_specifics: Dict of name->value(s) for item specifics. Optional.
         dry_run: If True, return diff without making changes. Default False.
@@ -394,10 +432,10 @@ async def update_listing(
         return json.dumps({"error": f"title exceeds 80-char eBay limit (got {len(title)})"})
     if price is not None and price <= 0:
         return json.dumps({"error": "price must be > 0"})
-    if condition_id is not None and condition_id not in (1000, 1500, 3000):
+    if condition_id is not None and condition_id not in set(CONDITION_MAP.values()):
         return json.dumps({
-            "error": f"invalid condition_id {condition_id}. Valid: 1000=New, "
-            "1500=Opened-never used, 3000=Used. "
+            "error": f"invalid condition_id {condition_id}. Valid: "
+            f"{sorted((v, k) for k, v in CONDITION_MAP.items())}. "
             "7000 (For parts) is blocked — use eBay Seller Hub directly.",
         })
     if description_html is not None:
@@ -636,14 +674,17 @@ async def create_listing(
         quantity: Initial stock count, >= 1.
         condition: One of {New, Opened, Used, Used - Excellent}.
         has_caddy: True → Storage Format = "HDD with Caddy"; else "HDD Only".
-        photo_paths: Ordered list of photo paths. If None, glob IMG*.jpg from
-            folder.
+        photo_paths: Ordered list of photo paths. If None, glob IMG*.jpg and
+            IMG*.JPG from folder (case-insensitive).
         description_html: Override the HTML file in the folder. If None, the
             tool resolves listing-<suffix>.html → listing.html → Jinja template.
         dry_run: If True, call VerifyAddFixedPriceItem (default). If False,
             call AddFixedPriceItem for real.
         picture_urls: Skip upload and use these URLs. If None, tool calls
-            upload_photos internally.
+            upload_photos internally — this uploads regardless of dry_run
+            because VerifyAddFixedPriceItem still needs real PictureURLs.
+            To do a pure dry-run without uploads, pre-upload separately and
+            pass the URL list here, OR mock the uploads.
 
     Returns:
         JSON — see module docstring for full return shape contract.
