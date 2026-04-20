@@ -67,14 +67,47 @@ claude
 
 ## MCP Tools
 
-| Tool | Description |
-|---|---|
-| `create_listing` | Create a new fixed-price eBay listing |
-| `update_listing` | Revise title, description, price, or quantity |
-| `bulk_update_descriptions` | Add/replace HTML across multiple listings |
-| `get_active_listings` | List all active listings with stats |
-| `update_inventory_quantity` | Update stock quantity for a listing |
-| `upload_photos` | Upload local photos to eBay Picture Services |
+| Tool | Status | Description |
+|---|---|---|
+| `get_active_listings` | Implemented | List all active listings with stats |
+| `get_listing_details` | Implemented | Full details for a single listing |
+| `update_listing` | Implemented | Revise title, description, price, condition, item specifics (quantity blocked) |
+| `upload_photos` | Implemented (2026-04-20) | Upload local photos to eBay Picture Services |
+| `create_listing` | Implemented (2026-04-20) | Create a new fixed-price eBay listing end-to-end |
+| `bulk_update_descriptions` | Future | Add/replace HTML across multiple listings |
+
+### Usage
+
+**Upload photos** (returns ordered eBay-hosted URLs):
+```python
+upload_photos(
+    photo_paths=["/path/to/IMG20260420090000.jpg", "/path/to/IMG20260420090001.jpg"],
+    dry_run=False,
+)
+```
+
+**Create listing** (end-to-end from a product folder — default `dry_run=True`):
+```python
+# Dry-run first — uses VerifyAddFixedPriceItem, no live listing created
+create_listing(
+    folder_path="/path/to/Hard Disks/2_5_inch/ST2000NX0253",
+    price=49.99,
+    quantity=1,
+    condition="Used",          # {New, Opened, Used, Used - Excellent}
+    has_caddy=False,
+    dry_run=True,              # default
+)
+
+# Apply — real AddFixedPriceItem. UUID-idempotent: same folder = same UUID.
+create_listing(
+    folder_path="/path/to/Hard Disks/2_5_inch/ST2000NX0253",
+    price=49.99,
+    quantity=1,
+    condition="Used",
+    has_caddy=False,
+    dry_run=False,
+)
+```
 
 ## Project Structure
 
