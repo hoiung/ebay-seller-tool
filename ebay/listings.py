@@ -284,7 +284,11 @@ def build_revise_payload(
 
 
 def _assert_no_quantity(d: dict | list, path: str = "") -> None:
-    """Recursively verify no Quantity key exists in the payload."""
+    """Recursively verify no Quantity key exists in the payload.
+
+    Revise-path invariant. Quantity on eBay is reserved as the single source
+    of truth for stock count — tool MUST NOT overwrite it via ReviseFixedPriceItem.
+    """
     if isinstance(d, dict):
         for k, v in d.items():
             if k.lower() == "quantity":
@@ -293,6 +297,27 @@ def _assert_no_quantity(d: dict | list, path: str = "") -> None:
     elif isinstance(d, list):
         for i, v in enumerate(d):
             _assert_no_quantity(v, f"{path}[{i}]")
+
+
+def _assert_requires_quantity(payload: dict, min: int = 1) -> None:
+    """Add-path invariant: Quantity MUST be present and >= min.
+
+    Opposite of _assert_no_quantity. AddFixedPriceItem refuses to create a
+    listing without an initial Quantity; this guard fails loudly at build time
+    rather than round-tripping to eBay with a malformed payload.
+    """
+    item = payload.get("Item", {})
+    q = item.get("Quantity")
+    if q is None:
+        raise ValueError("SAFETY: Add payload missing Quantity — refusing to build")
+    try:
+        qv = int(q)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"SAFETY: Add Quantity={q!r} not int-coercible — refusing"
+        ) from e
+    if qv < min:
+        raise ValueError(f"SAFETY: Add Quantity={qv} < min={min} — refusing")
 
 
 # --- Audit log ---
