@@ -426,3 +426,89 @@ def test_create_listing_transfer_rate_12g_from_title(tmp_path: Path) -> None:
     nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
     tr_row = next(r for r in nvl if r["Name"] == "Transfer Rate")
     assert tr_row["Value"] == ["12G"]
+
+
+def test_create_listing_transfer_rate_3g_from_title(tmp_path: Path) -> None:
+    """SATA II / 3Gb/s in title → Transfer Rate = 3G (P3.5 branch coverage)."""
+    folder = _mk_product_folder(
+        tmp_path,
+        oem_model="ST2000NX0253",
+        title='Seagate Enterprise 2TB 7200RPM 15mm 2.5" SATA II HDD ST2000NX0253',
+    )
+    server._create_listing_uuid_cache.clear()
+    captured: dict = {}
+
+    def fake_exec(verb: str, *args, **kwargs):
+        data = args[0] if args else {}
+        if verb == "UploadSiteHostedPictures":
+            r = MagicMock()
+            r.reply.SiteHostedPictureDetails.FullURL = "https://i.ebayimg.com/p/$_57.JPG"
+            return r
+        if verb == "VerifyAddFixedPriceItem":
+            captured["payload"] = data
+            return _fake_verify_response()
+        raise AssertionError(verb)
+
+    with patch("server.execute_with_retry", side_effect=fake_exec):
+        with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
+            with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
+                _run(server.create_listing(
+                    folder_path=str(folder), price=49.99, quantity=1,
+                    condition="Used", has_caddy=False, dry_run=True,
+                ))
+
+    nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
+    tr_row = next(r for r in nvl if r["Name"] == "Transfer Rate")
+    assert tr_row["Value"] == ["3G"]
+
+
+def test_create_listing_glob_case_insensitive_JPG(tmp_path: Path) -> None:
+    """_glob_label_photos discovers both .jpg and .JPG (iPhone naming)."""
+    folder = tmp_path / "ST2000NX0253"
+    folder.mkdir()
+    for name in ("IMG20260420090000.jpg", "IMG20260420090001.JPG"):
+        im = Image.new("RGB", (100, 100), (200, 100, 50))
+        buf = BytesIO()
+        im.save(buf, format="JPEG")
+        (folder / name).write_bytes(buf.getvalue())
+    found = server._glob_label_photos(folder)
+    assert len(found) == 2, f"expected lowercase AND uppercase JPG, got {found}"
+    assert any(p.endswith(".jpg") for p in found)
+    assert any(p.endswith(".JPG") for p in found)
+
+
+def test_build_21_field_specifics_raises_on_missing_required() -> None:
+    """Fail-Fast: HDD_SPECS with a None required field fails loud (no silent '')."""
+    broken = {
+        "brand": None,
+        "family": "Enterprise Capacity",
+        "capacity": "2TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    }
+    with pytest.raises(ValueError, match=r"empty/None required field"):
+        server._build_21_field_specifics(
+            "ST2000NX0253",
+            'Seagate 2TB 7200RPM 2.5" SATA III HDD',
+            has_caddy=False,
+            specs=broken,
+        )
+
+
+def test_update_listing_accepts_2750_used_excellent(tmp_path: Path) -> None:
+    """update_listing validation must accept 2750 (Used - Excellent) per CONDITION_MAP."""
+    # This is a pure validation test — no eBay API call needed because the
+    # validation happens before any call. We mock GetItem just in case.
+    with patch("server.execute_with_retry") as mock_exec:
+        mock_exec.return_value = MagicMock()
+        mock_exec.return_value.reply.Item = None
+        raw = _run(server.update_listing(
+            item_id="12345", condition_id=2750, dry_run=True,
+        ))
+    result = json.loads(raw)
+    # We expect either a "not found" or a diff — NOT an "invalid condition_id" error
+    assert "invalid condition_id" not in str(result)
