@@ -1,0 +1,31 @@
+# eBay UK fee schedule + cost assumptions.
+# Single source of truth for floor-price math + return-rate calculations.
+# Every value cites a public source URL — zero private data in this file.
+# Last verified 2026-04-24.
+ebay_uk:
+  fvf_rate: 0.1548            # 12.9% + 20% VAT. Electronics & Computers category.
+                              # source: https://www.ebay.co.uk/sellercentre/news/2026-january/rate-card-change
+  per_order_fee_gbp: 0.40     # Raised from 0.30 on 12 Feb 2026. eBay keeps on refunds.
+                              # source: https://www.valueaddedresource.net/ebay-raises-final-value-fees-in-uk-germany-2026/
+  marketplace_id: "EBAY_GB"   # Used by REST Analytics traffic_report filter.
+  site_id: 3                  # Used by ebaysdk Trading siteid kwarg.
+
+postage:
+  outbound_gbp: 3.50          # Evri ParcelShop 0-5kg tracked £2.62 + £0.88 buffer.
+                              # source: https://www.evri.com/our-services/our-prices
+  return_gbp: 3.50            # Seller pays on SNAD/faulty per eBay UK MBG.
+                              # source: https://www.ebay.co.uk/help/policies/ebay-money-back-guarantee-policy/ebay-money-back-guarantee-policy?id=4210
+
+packaging_gbp: 0.60           # jiffy bag + bubble + antistatic + label
+
+time_cost:
+  mode: sunk                  # "sunk" (default, hobby reseller — time amortised across life) or "marginal"
+                              # sunk => sale_gbp/return_gbp used as literal 0; marginal => computed from hourly_rate
+  sale_gbp: 0.0               # 0 under sunk mode. If marginal: ~25 min @ hourly_rate.
+  return_gbp: 0.0             # 0 under sunk mode. If marginal: ~45 min @ hourly_rate.
+  hourly_rate_gbp: 30.0       # reference value if mode switches to marginal later
+
+defaults:
+  cogs_gbp: 0.0               # zero-COGS baseline per project_ebay_zero_cogs_baseline memory
+  return_rate: 0.10           # used-HDD placeholder; replaced by live per-SKU rate when Phase 2 compute_return_rate available
+  target_margin: 0.15

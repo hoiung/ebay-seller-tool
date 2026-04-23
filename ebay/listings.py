@@ -27,6 +27,84 @@ MAX_PICTURE_URLS = 24
 MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
 
+def _parse_iso_ts(value: object) -> str | None:
+    """Coerce ebaysdk timestamp (may be datetime / str) to ISO-8601 Z string."""
+    if value is None or value == "":
+        return None
+    s = str(value)
+    if s.endswith("+00:00"):
+        s = s[:-6] + "Z"
+    return s
+
+
+def _flatten_shipping_for_output(item: object) -> dict[str, object] | None:
+    """Flattened shipping dict for analytics output.
+
+    Distinct from extract_shipping_details() which produces the Revise-payload
+    shape for echo-back. This one is consumer-facing summary data.
+    """
+    sd = getattr(item, "ShippingDetails", None)
+    if sd is None:
+        return None
+    sso = getattr(sd, "ShippingServiceOptions", None)
+    if sso is None:
+        return None
+    # ebaysdk may return list or single
+    first = sso[0] if isinstance(sso, list) else sso
+    service = getattr(first, "ShippingService", None)
+    cost_obj = getattr(first, "ShippingServiceCost", None)
+    free = getattr(first, "FreeShipping", None)
+    cost_val = None
+    if cost_obj is not None:
+        cost_val = getattr(cost_obj, "value", cost_obj)
+    try:
+        cost_float = float(cost_val) if cost_val is not None else None
+    except (TypeError, ValueError):
+        cost_float = None
+    free_bool = str(free).lower() == "true" if free is not None else None
+    out: dict[str, object] = {}
+    if service is not None:
+        out["service"] = str(service)
+    if cost_float is not None:
+        out["cost_gbp"] = cost_float
+    if free_bool is not None:
+        out["free"] = free_bool
+    return out or None
+
+
+def _flatten_return_policy_for_output(item: object) -> dict[str, object] | None:
+    """Flattened return policy for analytics output."""
+    rp = getattr(item, "ReturnPolicy", None)
+    if rp is None:
+        return None
+    accepted_raw = getattr(rp, "ReturnsAcceptedOption", None)
+    accepted = None
+    if accepted_raw is not None:
+        accepted = str(accepted_raw) == "ReturnsAccepted"
+    period = getattr(rp, "ReturnsWithinOption", None)
+    period_days = None
+    if period is not None:
+        ps = str(period)
+        # e.g. "Days_30", "Days_14" — strip prefix
+        if ps.startswith("Days_"):
+            try:
+                period_days = int(ps.split("_", 1)[1])
+            except (ValueError, IndexError):
+                period_days = None
+    buyer_pays_raw = getattr(rp, "ShippingCostPaidByOption", None)
+    buyer_pays = None
+    if buyer_pays_raw is not None:
+        buyer_pays = str(buyer_pays_raw) == "Buyer"
+    out: dict[str, object] = {}
+    if accepted is not None:
+        out["returns_accepted"] = accepted
+    if period_days is not None:
+        out["period_days"] = period_days
+    if buyer_pays is not None:
+        out["buyer_pays"] = buyer_pays
+    return out or None
+
+
 def listing_to_dict(item: object) -> dict:
     """Convert an ebaysdk Item response object to a plain dict.
 
@@ -64,6 +142,38 @@ def listing_to_dict(item: object) -> dict:
             else:
                 photos = [str(pic_url)]
 
+    # Issue #4 Phase 1.1 — surface fields already fetched but previously dropped.
+    selling_status = getattr(item, "SellingStatus", None)
+    quantity_sold = 0
+    if selling_status is not None:
+        quantity_sold = int(getattr(selling_status, "QuantitySold", 0) or 0)
+
+    listing_details = getattr(item, "ListingDetails", None)
+    start_time = None
+    end_time = None
+    relist_count = 0
+    if listing_details is not None:
+        start_time = _parse_iso_ts(getattr(listing_details, "StartTime", None))
+        end_time = _parse_iso_ts(getattr(listing_details, "EndTime", None))
+        relist_count = int(getattr(listing_details, "RelistCount", 0) or 0)
+
+    days_on_site = None
+    if start_time is not None:
+        try:
+            from datetime import datetime, timezone
+
+            start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            days_on_site = max(0, (datetime.now(timezone.utc) - start_dt).days)
+        except (ValueError, TypeError):
+            days_on_site = None
+
+    best_offer_count = int(getattr(item, "BestOfferCount", 0) or 0)
+    question_count = int(getattr(item, "QuestionCount", 0) or 0)
+    best_offer_enabled_raw = getattr(item, "BestOfferEnabled", None)
+    best_offer_enabled = None
+    if best_offer_enabled_raw is not None:
+        best_offer_enabled = str(best_offer_enabled_raw).lower() == "true"
+
     return {
         "item_id": str(item.ItemID),
         "title": str(item.Title),
@@ -88,8 +198,18 @@ def listing_to_dict(item: object) -> dict:
         "quantity_available": (
             int(item.QuantityAvailable) if hasattr(item, "QuantityAvailable") else None
         ),
+        "quantity_sold": quantity_sold,
         "watch_count": int(getattr(item, "WatchCount", 0) or 0),
         "view_count": int(getattr(item, "HitCount", 0) or 0),
+        "best_offer_count": best_offer_count,
+        "best_offer_enabled": best_offer_enabled,
+        "question_count": question_count,
+        "relist_count": relist_count,
+        "start_time": start_time,
+        "end_time": end_time,
+        "days_on_site": days_on_site,
+        "shipping": _flatten_shipping_for_output(item),
+        "return_policy": _flatten_return_policy_for_output(item),
         "listing_url": str(item.ListingDetails.ViewItemURL),
         "specifics": specifics,
         "description_html": description,

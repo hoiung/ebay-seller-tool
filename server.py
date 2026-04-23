@@ -22,6 +22,15 @@ load_dotenv()
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
+from ebay.analytics import (  # noqa: E402
+    compute_funnel,
+    compute_rank_health,
+    diagnose_listing,
+    floor_price as compute_floor_price,
+    price_verdict,
+    sell_through_rate,
+    summarise_feedback,
+)
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.client import execute_with_retry, log_debug  # noqa: E402
 from ebay.hdd_specs import HDD_SPECS  # noqa: E402
@@ -37,6 +46,13 @@ from ebay.listings import (  # noqa: E402
     snapshot_listing,
 )
 from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
+from ebay.selling import (  # noqa: E402
+    fetch_listing_cases,
+    fetch_listing_feedback,
+    fetch_seller_transactions,
+    fetch_sold_listings,
+    fetch_unsold_listings,
+)
 
 # Single source of truth for the per-listing photo cap is ebay/listings.py —
 # this alias keeps the old module-local name usable without duplicating the value.
@@ -323,18 +339,31 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
 
     listings = []
     for item in items:
+        # Re-use listing_to_dict for extended fields (Issue #4 Phase 1.2).
+        # Strip description_html/specifics to keep the listing-table shape lean.
+        full = listing_to_dict(item)
         selling_status = item.SellingStatus
         listing = {
-            "item_id": str(item.ItemID),
-            "title": str(item.Title),
+            "item_id": full["item_id"],
+            "title": full["title"],
             "price": {
                 "amount": str(selling_status.CurrentPrice.value),
                 "currency": str(selling_status.CurrentPrice._currencyID),
             },
             "quantity_available": int(item.QuantityAvailable),
-            "watch_count": int(getattr(item, "WatchCount", 0) or 0),
-            "view_count": int(getattr(item, "HitCount", 0) or 0),
-            "listing_url": str(item.ListingDetails.ViewItemURL),
+            "quantity_sold": full["quantity_sold"],
+            "watch_count": full["watch_count"],
+            "view_count": full["view_count"],
+            "best_offer_count": full["best_offer_count"],
+            "best_offer_enabled": full["best_offer_enabled"],
+            "question_count": full["question_count"],
+            "relist_count": full["relist_count"],
+            "start_time": full["start_time"],
+            "end_time": full["end_time"],
+            "days_on_site": full["days_on_site"],
+            "shipping": full["shipping"],
+            "return_policy": full["return_policy"],
+            "listing_url": full["listing_url"],
         }
         listings.append(listing)
 
@@ -969,6 +998,299 @@ async def create_listing(
                 "retry_hint": "call create_listing again with picture_urls=uploaded_urls",
             }, indent=2)
         raise
+
+
+@mcp.tool()
+@with_error_handling
+async def get_sold_listings(days: int = 30, page: int = 1, per_page: int = 25) -> str:
+    """Get recently SOLD listings from the seller's eBay store.
+
+    Wraps GetMyeBaySelling.SoldList. Useful for days-to-sell and sell-through
+    analytics. Read-only.
+
+    Args:
+        days: Lookback window in days (1-60). Default 30.
+        page: Page number (1-based). Default 1.
+        per_page: Entries per page (1-200). Default 25.
+
+    Returns:
+        JSON {total, page, per_page, listings[]} — each listing has item_id,
+        title, sold_price, quantity_sold, start_time, end_time, days_live,
+        best_offer_count, watch_count.
+    """
+    log_debug(f"get_sold_listings days={days} page={page} per_page={per_page}")
+    result = await fetch_sold_listings(days=days, page=page, per_page=per_page)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def get_unsold_listings(days: int = 60, page: int = 1, per_page: int = 25) -> str:
+    """Get recently ended UNSOLD listings (GTC no-sale).
+
+    Wraps GetMyeBaySelling.UnsoldList. Feeds sell-through-rate computation.
+
+    Args:
+        days: Lookback window in days (1-60). Default 60.
+        page: Page number (1-based). Default 1.
+        per_page: Entries per page (1-200). Default 25.
+    """
+    log_debug(f"get_unsold_listings days={days} page={page} per_page={per_page}")
+    result = await fetch_unsold_listings(days=days, page=page, per_page=per_page)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def get_seller_transactions(days: int = 30, page: int = 1) -> str:
+    """Get line-item transactions (paid orders) for the seller.
+
+    Wraps GetSellerTransactions. Provides per-transaction created/paid/shipped
+    timestamps and a derived days_to_sell metric.
+
+    Args:
+        days: Lookback window in days (1-30 — API max). Default 30.
+        page: Page number. Default 1.
+    """
+    log_debug(f"get_seller_transactions days={days} page={page}")
+    result = await fetch_seller_transactions(days=days, page=page)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def get_listing_feedback(item_id: str, days: int = 90) -> str:
+    """Get per-transaction buyer feedback for one listing.
+
+    Wraps GetFeedback(ItemID=X). Returns comments + Detailed Seller Ratings.
+    Aggregated `dsr_item_as_described_avg` is the explicit source for
+    analyse_listing's signals.dsr_item_as_described.
+
+    Args:
+        item_id: eBay item ID.
+        days: Filter window in days. Default 90.
+    """
+    log_debug(f"get_listing_feedback item_id={item_id} days={days}")
+    result = await fetch_listing_feedback(item_id=item_id, days=days)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def get_listing_cases(item_id: str, days: int = 90) -> str:
+    """Get open + closed resolution cases for one listing.
+
+    Wraps getUserCases with EBP_INR + EBP_SNAD filter. Diagnostic only —
+    the MCP never auto-responds to cases (never-dispute-customer rule).
+
+    Args:
+        item_id: eBay item ID.
+        days: Lookback window (1-90). Default 90.
+    """
+    log_debug(f"get_listing_cases item_id={item_id} days={days}")
+    result = await fetch_listing_cases(item_id=item_id, days=days)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def floor_price(
+    cogs: float | None = None,
+    return_rate: float | None = None,
+    postage_out: float | None = None,
+    postage_return: float | None = None,
+    packaging: float | None = None,
+    time_sale_gbp: float | None = None,
+    time_return_gbp: float | None = None,
+    fvf_rate: float | None = None,
+    per_order_fee: float | None = None,
+    target_margin: float | None = None,
+    postage_charged: float = 0.0,
+) -> str:
+    """Compute the break-even floor price for a listing.
+
+    All `None` defaults read from config/fees.yaml at call-time. Override
+    any parameter by passing a concrete value.
+
+    Formula:
+        fixed = cogs + per_order_fee + packaging + postage_out + time_sale
+        return_extra = postage_return + time_return
+        floor = (fixed + p*return_extra + (1-p)*fvf*postage_charged)
+              / ((1-p)*(1-fvf) - target_margin)
+
+    Returns:
+        JSON {floor_gbp, suggested_ceiling_gbp, inputs}.
+    """
+    log_debug(
+        f"floor_price cogs={cogs} return_rate={return_rate} target_margin={target_margin}"
+    )
+    result = compute_floor_price(
+        cogs=cogs,
+        return_rate=return_rate,
+        postage_out=postage_out,
+        postage_return=postage_return,
+        packaging=packaging,
+        time_sale_gbp=time_sale_gbp,
+        time_return_gbp=time_return_gbp,
+        fvf_rate=fvf_rate,
+        per_order_fee=per_order_fee,
+        target_margin=target_margin,
+        postage_charged=postage_charged,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def analyse_listing(
+    item_id: str,
+    window_days: int = 30,
+    include_cases: bool = False,
+) -> str:
+    """Diagnose a listing: funnel + signals + decision matrix + floor/ceiling.
+
+    Combines extended listing detail, seller transactions, buyer feedback
+    (+ optional resolution cases) and maps the result to a recommended action.
+
+    Args:
+        item_id: eBay item ID.
+        window_days: Signals window in days. Default 30.
+        include_cases: If True, call getUserCases for resolution-case data.
+            Default False (avoids extra API call at 10-listing scale).
+
+    Returns:
+        JSON with funnel / signals / multi_qty_note / rank_health_status /
+        diagnosis / recommended_action / floor_price_gbp / suggested_ceiling_gbp /
+        current_price_gbp / price_verdict.
+
+        Phase 2 fills funnel.impressions, funnel.ctr_pct,
+        signals.sales_conversion_rate_pct, and signals.return_rate_pct.
+    """
+    if not item_id or not item_id.strip():
+        return json.dumps({"error": "item_id required"})
+
+    log_debug(f"analyse_listing item_id={item_id} window_days={window_days} include_cases={include_cases}")
+
+    # 1. Extended listing detail (reuses ebay/listings.py single-source serialisation).
+    get_item_response = await asyncio.to_thread(
+        execute_with_retry,
+        "GetItem",
+        {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
+    )
+    if get_item_response.reply.Item is None:
+        return json.dumps({"error": f"item {item_id} not found or no longer active"})
+    listing = listing_to_dict(get_item_response.reply.Item)
+
+    # 2. Seller transactions in window → days-to-sell + quantity (complement listing.quantity_sold).
+    txns_result = await fetch_seller_transactions(days=min(window_days, 30))
+    per_item_txns = [t for t in txns_result["transactions"] if t["item_id"] == str(item_id)]
+    days_to_sell_values = [t["days_to_sell"] for t in per_item_txns if t["days_to_sell"] is not None]
+    days_to_sell_median = None
+    if days_to_sell_values:
+        sorted_values = sorted(days_to_sell_values)
+        mid = len(sorted_values) // 2
+        days_to_sell_median = (
+            sorted_values[mid]
+            if len(sorted_values) % 2 == 1
+            else (sorted_values[mid - 1] + sorted_values[mid]) / 2
+        )
+
+    # 3. Feedback aggregation.
+    feedback_result = await fetch_listing_feedback(item_id=item_id, days=90)
+    feedback_summary = summarise_feedback(feedback_result["entries"])
+
+    # 4. Cases (optional — gated by include_cases).
+    cases_summary: dict[str, object] = {"open_cases": None}
+    if include_cases:
+        cases_result = await fetch_listing_cases(item_id=item_id, days=90)
+        cases_summary = {"open_cases": cases_result["open_cases"]}
+
+    # 5. Sell-through (uses same window for sold + unsold).
+    sold_in_window = await fetch_sold_listings(days=min(window_days, 60), per_page=200)
+    unsold_in_window = await fetch_unsold_listings(days=min(window_days, 60), per_page=200)
+    sold_count = sum(1 for s in sold_in_window["listings"] if s["item_id"] == str(item_id))
+    unsold_count = sum(1 for u in unsold_in_window["listings"] if u["item_id"] == str(item_id))
+    str_pct = sell_through_rate(sold_count, unsold_count)
+
+    # 6. Funnel ratios — Phase 1 uses listing.view_count + listing.watch_count.
+    funnel = compute_funnel(
+        view_count=listing["view_count"],
+        watch_count=listing["watch_count"],
+        quantity_sold=listing["quantity_sold"],
+        question_count=listing["question_count"],
+        days_on_site=listing["days_on_site"],
+    )
+
+    # 7. Rank health (Phase 1 path — Phase 2 passes sales_conversion_rate_pct).
+    rank_health = compute_rank_health(
+        days_on_site=listing["days_on_site"],
+        watchers_per_100_views=float(funnel["watchers_per_100_views"] or 0.0),
+        sales_conversion_rate_pct=None,
+    )
+
+    # 8. Floor/ceiling — read defaults from config/fees.yaml.
+    floor_result = compute_floor_price()
+    floor_gbp = float(floor_result["floor_gbp"])
+    ceiling_gbp = float(floor_result["suggested_ceiling_gbp"])
+
+    # 9. Current price + verdict.
+    try:
+        current_price_gbp = float(listing["price"])
+    except (ValueError, TypeError):
+        current_price_gbp = None
+    verdict = price_verdict(
+        current_price=current_price_gbp,
+        floor=floor_gbp,
+        return_rate=float(floor_result["inputs"]["return_rate"]),
+        source="config/fees.yaml defaults — zero COGS, sunk time, 10% return rate",
+    )
+
+    signals: dict[str, object] = {
+        "sell_through_rate_pct": str_pct,
+        "days_to_sell_median": days_to_sell_median,
+        "feedback_positive_pct": feedback_summary["feedback_positive_pct"],
+        "dsr_item_as_described": feedback_summary["dsr_item_as_described"],
+        "sales_conversion_rate_pct": None,
+        "return_rate_pct": None,
+    }
+    if include_cases:
+        signals["open_cases"] = cases_summary["open_cases"]
+
+    # 10. Diagnosis + action.
+    diagnosis, action = diagnose_listing(
+        funnel=funnel,
+        signals=signals,
+        rank_health=rank_health,
+        price_gbp=current_price_gbp,
+        floor_gbp=floor_gbp,
+    )
+
+    multi_qty_note = None
+    if listing["quantity_sold"] > 0:
+        multi_qty_note = (
+            "Price/quantity revisions do not reset Cassini rank on multi-quantity "
+            "listings — sales history is preserved."
+        )
+        if rank_health == "STABLE" and action is not None:
+            action = f"{action} Rank is stable — price revisions do not reset Cassini ranking on multi-quantity listings."
+
+    return json.dumps(
+        {
+            "item_id": str(item_id),
+            "window_days": window_days,
+            "funnel": funnel,
+            "signals": signals,
+            "multi_qty_note": multi_qty_note,
+            "rank_health_status": rank_health,
+            "diagnosis": diagnosis,
+            "recommended_action": action,
+            "floor_price_gbp": floor_gbp,
+            "suggested_ceiling_gbp": ceiling_gbp,
+            "current_price_gbp": current_price_gbp,
+            "price_verdict": verdict,
+        },
+        indent=2,
+    )
 
 
 if __name__ == "__main__":
