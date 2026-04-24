@@ -115,3 +115,158 @@ def test_analyse_listing_sends_include_watch_count() -> None:
     assert payload["IncludeItemSpecifics"] == "true"
     # Issue #5 Phase 1 regression — the audit artefact's root cause.
     assert payload["IncludeWatchCount"] == "true"
+
+
+def test_analyse_listing_phase2_backfills_views() -> None:
+    """AC-5.4: full E2E wiring — Phase 2 backfill + absolute-signal STABLE.
+
+    Mocks the entire fetcher swarm analyse_listing depends on. Asserts:
+      - funnel.views == 76 (backfilled from Analytics API, not HitCount=0)
+      - funnel.watchers_per_100_views ≈ 9.21 (100 * 7 / 76)
+      - rank_health_status == "STABLE"
+      - diagnosis text does NOT contain 'Low views' or 'Rewrite title'
+    Regression guard for the 287260458724 failure.
+    """
+
+    async def fake_fetch_seller_transactions(**_):
+        return {"transactions": []}
+
+    async def fake_fetch_listing_feedback(**_):
+        return {"entries": []}
+
+    async def fake_fetch_listing_cases(**_):
+        return {"open_cases": 0}
+
+    async def fake_fetch_sold_listings(**_):
+        return {"listings": []}
+
+    async def fake_fetch_unsold_listings(**_):
+        return {"listings": []}
+
+    async def fake_fetch_traffic_report(*_, **__):
+        return {
+            "header": {
+                "metrics": [
+                    {"key": "LISTING_IMPRESSION_TOTAL"},
+                    {"key": "LISTING_VIEWS_TOTAL"},
+                    {"key": "TRANSACTION"},
+                    {"key": "SALES_CONVERSION_RATE"},
+                ]
+            },
+            "records": [
+                {
+                    "dimensionValues": [{"value": "999", "applicable": True}],
+                    "metricValues": [
+                        {"value": 3474, "applicable": True},
+                        {"value": 76, "applicable": True},
+                        {"value": 5, "applicable": True},
+                        {"value": 0.06, "applicable": True},
+                    ],
+                }
+            ],
+        }
+
+    async def fake_rest_compute_return_rate(**_):
+        return {"return_rate_pct": None}
+
+    item_stub = _fake_item("999")
+    # Raise items to match the 287260458724 scenario
+    item_stub.WatchCount = "7"
+    item_stub.SellingStatus.QuantitySold = "5"
+    # Listing is 30 days old so days_on_site >= 14 (STABLE eligibility)
+    from datetime import datetime, timedelta, timezone
+    start_30d = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    item_stub.ListingDetails = SimpleNamespace(
+        StartTime=start_30d, EndTime=None, ViewItemURL="https://ebay.co.uk/itm/999"
+    )
+
+    with patch("server.execute_with_retry", return_value=_reply(Item=item_stub)), \
+        patch("server.fetch_seller_transactions", side_effect=fake_fetch_seller_transactions), \
+        patch("server.fetch_listing_feedback", side_effect=fake_fetch_listing_feedback), \
+        patch("server.fetch_listing_cases", side_effect=fake_fetch_listing_cases), \
+        patch("server.fetch_sold_listings", side_effect=fake_fetch_sold_listings), \
+        patch("server.fetch_unsold_listings", side_effect=fake_fetch_unsold_listings), \
+        patch("server.fetch_traffic_report", side_effect=fake_fetch_traffic_report), \
+        patch("server.rest_compute_return_rate", side_effect=fake_rest_compute_return_rate):
+        tool = server.mcp._tool_manager._tools["analyse_listing"]
+        result_json = _run(tool.fn(item_id="999"))
+
+    parsed = json.loads(result_json)
+    assert "error" not in parsed, f"unexpected error: {parsed}"
+
+    # Phase 2 backfill
+    assert parsed["funnel"]["views"] == 76
+    assert parsed["funnel"]["impressions"] == 3474
+    assert parsed["funnel"]["watchers_per_100_views"] == 9.21  # 100 * 7 / 76
+    assert parsed["funnel"]["conversion_rate_pct_approx"] == 6.58  # 100 * 5 / 76
+    assert parsed["funnel"]["ctr_pct"] == 2.19  # 100 * 76 / 3474
+
+    # Rank + diagnosis
+    assert parsed["rank_health_status"] == "STABLE"
+    assert "Low views" not in parsed["diagnosis"]
+    assert parsed["recommended_action"] is None or "Rewrite title" not in parsed["recommended_action"]
+
+
+def test_analyse_listing_phase2_unavailable_returns_data_gap() -> None:
+    """AC-5.4 companion: Phase 2 unavailable + strong Phase 1 signals → data-gap diagnosis.
+
+    Simulates OAuth-unconfigured deployment: fetch_traffic_report raises
+    (e.g. PermissionError). Should degrade gracefully to data-gap diagnosis
+    with absolute-signal STABLE, not false-alarm 'Low views'.
+    """
+
+    async def fake_raises(*_, **__):
+        raise RuntimeError("OAuth not configured")
+
+    async def fake_empty(**_):
+        return {"transactions": [], "entries": [], "listings": [], "open_cases": 0}
+
+    async def fake_transactions(**_):
+        return {"transactions": []}
+
+    async def fake_feedback(**_):
+        return {"entries": []}
+
+    async def fake_cases(**_):
+        return {"open_cases": 0}
+
+    async def fake_sold_unsold(**_):
+        return {"listings": []}
+
+    async def fake_return_rate_raises(**_):
+        raise RuntimeError("OAuth not configured")
+
+    item_stub = _fake_item("999")
+    item_stub.WatchCount = "7"
+    item_stub.SellingStatus.QuantitySold = "5"
+    from datetime import datetime, timedelta, timezone
+    start_30d = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    item_stub.ListingDetails = SimpleNamespace(
+        StartTime=start_30d, EndTime=None, ViewItemURL="https://ebay.co.uk/itm/999"
+    )
+
+    with patch("server.execute_with_retry", return_value=_reply(Item=item_stub)), \
+        patch("server.fetch_seller_transactions", side_effect=fake_transactions), \
+        patch("server.fetch_listing_feedback", side_effect=fake_feedback), \
+        patch("server.fetch_listing_cases", side_effect=fake_cases), \
+        patch("server.fetch_sold_listings", side_effect=fake_sold_unsold), \
+        patch("server.fetch_unsold_listings", side_effect=fake_sold_unsold), \
+        patch("server.fetch_traffic_report", side_effect=fake_raises), \
+        patch("server.rest_compute_return_rate", side_effect=fake_return_rate_raises):
+        tool = server.mcp._tool_manager._tools["analyse_listing"]
+        result_json = _run(tool.fn(item_id="999"))
+
+    parsed = json.loads(result_json)
+    assert "error" not in parsed, f"unexpected error: {parsed}"
+
+    # Phase 1 only — view_count=None flows through
+    assert parsed["funnel"]["views"] is None
+    assert parsed["funnel"]["impressions"] is None
+
+    # Rank: absolute-signal fallback → STABLE
+    assert parsed["rank_health_status"] == "STABLE"
+
+    # Diagnosis: data-gap branch (NOT 'Low views')
+    assert "Data gap" in parsed["diagnosis"]
+    assert "Low views" not in parsed["diagnosis"]
+    assert parsed["recommended_action"] is None
