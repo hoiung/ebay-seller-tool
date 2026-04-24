@@ -166,10 +166,18 @@ def listing_to_dict(item: object) -> dict:
     start_time = None
     end_time = None
     relist_count = 0
+    promoted_listing = False
     if listing_details is not None:
         start_time = _parse_iso_ts(getattr(listing_details, "StartTime", None))
         end_time = _parse_iso_ts(getattr(listing_details, "EndTime", None))
         relist_count = int(getattr(listing_details, "RelistCount", 0) or 0)
+        # Phase 1.4 — Auto-Ads safety net. Doc 14 forbids Promoted Listings,
+        # but eBay's account-level Auto Ads rules can enrol listings without
+        # per-listing opt-in. Surfacing this field lets the weekly sweep
+        # detect accidental enrolment as a compliance breach.
+        promoted_raw = getattr(listing_details, "PromotedListing", None)
+        if promoted_raw is not None:
+            promoted_listing = str(promoted_raw).lower() == "true"
 
     days_on_site = None
     if start_time is not None:
@@ -224,6 +232,7 @@ def listing_to_dict(item: object) -> dict:
         "best_offer_enabled": best_offer_enabled,
         "question_count": question_count,
         "relist_count": relist_count,
+        "promoted_listing": promoted_listing,
         "start_time": start_time,
         "end_time": end_time,
         "days_on_site": days_on_site,
