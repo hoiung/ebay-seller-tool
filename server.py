@@ -32,6 +32,7 @@ from ebay.analytics import (  # noqa: E402
     summarise_feedback,
 )
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
+from ebay.browse import fetch_competitor_prices  # noqa: E402
 from ebay.client import execute_with_retry, log_debug  # noqa: E402
 from ebay.hdd_specs import HDD_SPECS  # noqa: E402
 from ebay.listings import (  # noqa: E402
@@ -46,6 +47,8 @@ from ebay.listings import (  # noqa: E402
     snapshot_listing,
 )
 from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
+from ebay.rest import compute_return_rate as rest_compute_return_rate  # noqa: E402
+from ebay.rest import fetch_listing_returns, fetch_traffic_report  # noqa: E402
 from ebay.selling import (  # noqa: E402
     fetch_listing_cases,
     fetch_listing_feedback,
@@ -415,6 +418,24 @@ async def get_listing_details(item_id: str) -> str:
     return json.dumps(result, indent=2)
 
 
+async def _measure_or_default_floor(item_id: str) -> tuple[dict, str]:
+    """Return (floor_price_result, return_rate_source).
+
+    Phase 4.1: prefer live compute_return_rate if available; fall back to defaults
+    if OAuth not configured or measurement fails.
+    """
+    try:
+        rr = await rest_compute_return_rate(item_id=item_id, days=90)
+        if rr.get("return_rate_pct") is not None:
+            return (
+                compute_floor_price(return_rate=float(rr["return_rate_pct"]) / 100.0),
+                "measured (Phase 2, 90d)",
+            )
+    except (PermissionError, ValueError) as e:
+        log_debug(f"floor_guard measured_rate_unavailable item_id={item_id} reason={e}")
+    return compute_floor_price(), "default"
+
+
 @mcp.tool()
 @with_error_handling
 async def update_listing(
@@ -426,11 +447,17 @@ async def update_listing(
     condition_description: str | None = None,
     item_specifics: dict | None = None,
     dry_run: bool = False,
+    current_analysis: dict | None = None,
 ) -> str:
     """Update any listing field except quantity on an existing listing.
 
     Supports: title, description, price, condition, condition description,
     and item specifics. Quantity is intentionally blocked.
+
+    Phase 4 guardrail: when `price` is provided, the tool refuses to revise
+    to a price below the computed floor (config/fees.yaml + measured per-SKU
+    return rate if Phase 2 OAuth available). Raise is loud — no silent clamp.
+    Guardrail is ADDITIVE: does NOT modify or reduce ItemSpecifics payload.
 
     Args:
         item_id: The eBay item ID to update.
@@ -442,6 +469,10 @@ async def update_listing(
         condition_description: Seller notes text for condition. Optional.
         item_specifics: Dict of name->value(s) for item specifics. Optional.
         dry_run: If True, return diff without making changes. Default False.
+        current_analysis: Optional — prior analyse_listing(item_id) output. If
+            supplied with dry_run=True, the dry-run response echoes it back
+            verbatim (no API re-fetch). Keeps update_listing decoupled from
+            analyse_listing.
 
     Returns:
         JSON with diff (dry_run) or success result with before/after snapshots.
@@ -516,8 +547,42 @@ async def update_listing(
             }
         )
 
+    # Phase 4 floor-price guardrail (AC 4.1).
+    floor_payload: dict[str, object] | None = None
+    if price is not None:
+        floor_result, rate_source = await _measure_or_default_floor(item_id)
+        floor_gbp = float(floor_result["floor_gbp"])
+        ceiling_gbp = float(floor_result["suggested_ceiling_gbp"])
+        return_rate = float(floor_result["inputs"]["return_rate"])
+        cogs_gbp = float(floor_result["inputs"]["cogs_gbp"])
+        verdict = price_verdict(
+            current_price=price, floor=floor_gbp, return_rate=return_rate, source=rate_source
+        )
+        floor_payload = {
+            "floor_gbp": floor_gbp,
+            "suggested_ceiling_gbp": ceiling_gbp,
+            "return_rate_source": rate_source,
+            "price_verdict": verdict,
+        }
+        if price < floor_gbp:
+            error_msg = (
+                f"Price £{price:.2f} below floor £{floor_gbp:.2f} "
+                f"(source: config/fees.yaml — COGS £{cogs_gbp:.2f}, return rate "
+                f"{return_rate:.1%} [{rate_source}]). "
+                "Raise price or revisit return-rate/margin assumptions."
+            )
+            return json.dumps(
+                {"error": error_msg, "floor_gbp": floor_gbp, "requested_price": price},
+                indent=2,
+            )
+
     if dry_run:
-        return json.dumps({"dry_run": True, "item_id": item_id, "diff": diff}, indent=2)
+        dry_response: dict[str, object] = {"dry_run": True, "item_id": item_id, "diff": diff}
+        if floor_payload is not None:
+            dry_response.update(floor_payload)
+        if current_analysis is not None:
+            dry_response["current_analysis"] = current_analysis
+        return json.dumps(dry_response, indent=2)
 
     # Build and send ReviseFixedPriceItem payload — echo back current shipping config
     shipping = extract_shipping_details(current.reply.Item)
@@ -578,16 +643,17 @@ async def update_listing(
         f"condition={before.get('condition_id')}->{after.get('condition_id')}"
     )
 
-    return json.dumps(
-        {
-            "success": True,
-            "item_id": item_id,
-            "fields_updated": list(diff.keys()),
-            "before": before,
-            "after": after,
-        },
-        indent=2,
-    )
+    success_response: dict[str, object] = {
+        "success": True,
+        "item_id": item_id,
+        "fields_updated": list(diff.keys()),
+        "before": before,
+        "after": after,
+    }
+    if floor_payload is not None:
+        success_response["floor_verdict"] = floor_payload["price_verdict"]
+        success_response["return_rate_source"] = floor_payload["return_rate_source"]
+    return json.dumps(success_response, indent=2)
 
 
 @mcp.tool()
@@ -1221,15 +1287,55 @@ async def analyse_listing(
         days_on_site=listing["days_on_site"],
     )
 
-    # 7. Rank health (Phase 1 path — Phase 2 passes sales_conversion_rate_pct).
+    # 6b. Phase 2 traffic report — best-effort; fail-fast already raises on auth.
+    traffic_sales_conversion_pct: float | None = None
+    traffic_return_rate_pct: float | None = None
+    rate_source = "default"
+    try:
+        traffic = await fetch_traffic_report([str(item_id)], days=min(window_days, 90))
+        records = traffic.get("records", []) or []
+        if records:
+            impressions = 0
+            views_total = 0
+            conversions = []
+            for rec in records:
+                metrics = {m["metricKey"]: m["value"] for m in rec.get("metrics", [])}
+                impressions += int(metrics.get("LISTING_IMPRESSION_TOTAL", 0) or 0)
+                views_total += int(metrics.get("LISTING_VIEWS_TOTAL", 0) or 0)
+                scr = metrics.get("SALES_CONVERSION_RATE")
+                if scr is not None:
+                    try:
+                        conversions.append(float(scr))
+                    except (ValueError, TypeError):
+                        pass
+            funnel["impressions"] = impressions
+            if impressions > 0 and views_total > 0:
+                funnel["ctr_pct"] = round(100.0 * views_total / impressions, 2)
+            if conversions:
+                traffic_sales_conversion_pct = round(sum(conversions) / len(conversions), 2)
+    except (PermissionError, ValueError) as e:
+        log_debug(f"analyse_listing traffic_report_skipped reason={e}")
+
+    try:
+        rr = await rest_compute_return_rate(item_id=item_id, days=90)
+        if rr.get("return_rate_pct") is not None:
+            traffic_return_rate_pct = float(rr["return_rate_pct"])
+            rate_source = "measured (Phase 2, 90d)"
+    except (PermissionError, ValueError) as e:
+        log_debug(f"analyse_listing return_rate_skipped reason={e}")
+
+    # 7. Rank health — Phase 2 feeds sales_conversion_rate_pct when live.
     rank_health = compute_rank_health(
         days_on_site=listing["days_on_site"],
         watchers_per_100_views=float(funnel["watchers_per_100_views"] or 0.0),
-        sales_conversion_rate_pct=None,
+        sales_conversion_rate_pct=traffic_sales_conversion_pct,
     )
 
-    # 8. Floor/ceiling — read defaults from config/fees.yaml.
-    floor_result = compute_floor_price()
+    # 8. Floor/ceiling — measured return rate (Phase 2) preferred over default.
+    if traffic_return_rate_pct is not None:
+        floor_result = compute_floor_price(return_rate=traffic_return_rate_pct / 100.0)
+    else:
+        floor_result = compute_floor_price()
     floor_gbp = float(floor_result["floor_gbp"])
     ceiling_gbp = float(floor_result["suggested_ceiling_gbp"])
 
@@ -1242,7 +1348,11 @@ async def analyse_listing(
         current_price=current_price_gbp,
         floor=floor_gbp,
         return_rate=float(floor_result["inputs"]["return_rate"]),
-        source="config/fees.yaml defaults — zero COGS, sunk time, 10% return rate",
+        source=(
+            f"config/fees.yaml defaults, return rate {rate_source}"
+            if rate_source == "default"
+            else f"measured return rate, {rate_source}"
+        ),
     )
 
     signals: dict[str, object] = {
@@ -1250,8 +1360,8 @@ async def analyse_listing(
         "days_to_sell_median": days_to_sell_median,
         "feedback_positive_pct": feedback_summary["feedback_positive_pct"],
         "dsr_item_as_described": feedback_summary["dsr_item_as_described"],
-        "sales_conversion_rate_pct": None,
-        "return_rate_pct": None,
+        "sales_conversion_rate_pct": traffic_sales_conversion_pct,
+        "return_rate_pct": traffic_return_rate_pct,
     }
     if include_cases:
         signals["open_cases"] = cases_summary["open_cases"]
@@ -1291,6 +1401,79 @@ async def analyse_listing(
         },
         indent=2,
     )
+
+
+@mcp.tool()
+@with_error_handling
+async def get_traffic_report(listing_ids: list[str], days: int = 30) -> str:
+    """REST Analytics traffic report — impressions, CTR, views, sales conversion.
+
+    Requires OAuth user-token with sell.analytics.readonly scope.
+
+    Args:
+        listing_ids: eBay item IDs.
+        days: Lookback window in days (1-90). Default 30.
+    """
+    log_debug(f"get_traffic_report ids={len(listing_ids)} days={days}")
+    result = await fetch_traffic_report(listing_ids=listing_ids, days=days)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def get_listing_returns(item_id: str, days: int = 90) -> str:
+    """Post-Order v2 return search. READ-ONLY (never-dispute-customer rule).
+
+    Requires OAuth user-token with sell.fulfillment.readonly scope.
+    """
+    log_debug(f"get_listing_returns item_id={item_id} days={days}")
+    result = await fetch_listing_returns(item_id=item_id, days=days)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def compute_return_rate(item_id: str, days: int = 90) -> str:
+    """Per-SKU return rate (joins sold count + returns). Phase 2 MCP tool.
+
+    Args:
+        item_id: eBay item ID.
+        days: Window for both sold-count and returns (1-90). Default 90.
+    """
+    log_debug(f"compute_return_rate item_id={item_id} days={days}")
+    result = await rest_compute_return_rate(item_id=item_id, days=days)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def find_competitor_prices(
+    part_number: str,
+    condition: str = "USED",
+    location_country: str = "GB",
+    limit: int = 50,
+) -> str:
+    """Browse API market-price scan. Excludes own seller (set EBAY_OWN_SELLER_USERNAME).
+
+    Uses app-token (client_credentials). Returns price distribution (min/p25/
+    median/p75/max) + shipping/best-offer/promoted rates + listings[].
+
+    Args:
+        part_number: MPN / model number to search.
+        condition: NEW | USED | USED_EXCELLENT | OPENED | FOR_PARTS.
+        location_country: ISO 2-letter country code. Default GB.
+        limit: Max listings to fetch (1-200). Default 50.
+    """
+    log_debug(
+        f"find_competitor_prices pn={part_number} cond={condition} country={location_country}"
+    )
+    result = await fetch_competitor_prices(
+        part_number=part_number,
+        condition=condition,
+        location_country=location_country,
+        limit=limit,
+    )
+    return json.dumps(result, indent=2)
 
 
 if __name__ == "__main__":
