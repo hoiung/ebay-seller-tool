@@ -70,7 +70,7 @@ def _sync_find_competitor_prices(
     best_offer_count = 0
     promoted_count = 0
     by_condition: dict[str, int] = {}
-    currency: str | None = None
+    currencies_seen: set[str] = set()
 
     for item in raw_listings:
         seller = (item.get("seller") or {}).get("username", "")
@@ -81,7 +81,7 @@ def _sync_find_competitor_prices(
             price_val = float(price_obj.get("value"))
         except (TypeError, ValueError):
             continue
-        currency = currency or price_obj.get("currency", "GBP")
+        currencies_seen.add(price_obj.get("currency", "GBP"))
         prices.append(price_val)
 
         shipping_options = item.get("shippingOptions") or []
@@ -114,6 +114,13 @@ def _sync_find_competitor_prices(
             }
         )
 
+    if len(currencies_seen) > 1:
+        raise ValueError(
+            f"Browse API response mixed currencies {sorted(currencies_seen)}; "
+            f"refusing to aggregate. Filter `itemLocationCountry` should prevent this."
+        )
+    currency = next(iter(currencies_seen)) if currencies_seen else "GBP"
+
     count = len(listings)
     if count == 0:
         return {
@@ -123,7 +130,7 @@ def _sync_find_competitor_prices(
             "median": None,
             "p75": None,
             "max": None,
-            "currency": currency or "GBP",
+            "currency": currency,
             "by_condition_dict": by_condition,
             "shipping_free_pct": None,
             "best_offer_enabled_pct": None,
@@ -139,7 +146,7 @@ def _sync_find_competitor_prices(
         "median": round(statistics.median(sorted_prices), 2),
         "p75": round(sorted_prices[min(count - 1, (3 * count) // 4)], 2),
         "max": round(sorted_prices[-1], 2),
-        "currency": currency or "GBP",
+        "currency": currency,
         "by_condition_dict": by_condition,
         "shipping_free_pct": round(100.0 * shipping_free_count / count, 1),
         "best_offer_enabled_pct": round(100.0 * best_offer_count / count, 1),
