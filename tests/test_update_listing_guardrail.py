@@ -162,5 +162,35 @@ def test_guardrail_error_message_cites_source() -> None:
         )
         result = _run(update_listing(item_id="999", price=5.00, dry_run=False))
     body = json.loads(result)
-    assert "measured" in body["error"] or "measured" in body.get("error", "")
-    assert "15.0%" in body["error"] or "15%" in body["error"]
+    err = body["error"]
+    assert err.startswith("Price £5.00 below floor £8.50"), f"unexpected prefix: {err!r}"
+    assert "measured (Phase 2, 90d)" in err
+    assert "15.0%" in err
+    assert "COGS £0.00" in err
+
+
+def test_guardrail_additive_only_21_field_invariance() -> None:
+    """AC 4.3c: guardrail must not reach ReviseFixedPriceItem when rejecting.
+
+    Proves the guardrail is additive-only by asserting that a below-floor price
+    never triggers the Revise path, so ItemSpecifics cannot possibly be mutated.
+    """
+    from server import update_listing
+
+    with patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]) as mock_exec, patch(
+        "server._measure_or_default_floor", new_callable=AsyncMock
+    ) as mock_floor:
+        mock_floor.return_value = (
+            {
+                "floor_gbp": 7.94,
+                "suggested_ceiling_gbp": 11.91,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
+            "default",
+        )
+        _run(update_listing(item_id="999", price=5.00, dry_run=False))
+    # Only the initial GetItem fetch happened — no Revise call.
+    assert mock_exec.call_count == 1
+    assert mock_exec.call_args_list[0].args[0] == "GetItem"
+    revise_calls = [c for c in mock_exec.call_args_list if c.args[0] == "ReviseFixedPriceItem"]
+    assert revise_calls == []

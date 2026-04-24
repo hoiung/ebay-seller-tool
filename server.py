@@ -15,6 +15,7 @@ import uuid
 from functools import wraps
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 
 # Load .env BEFORE importing ebay modules that read env vars
@@ -431,7 +432,7 @@ async def _measure_or_default_floor(item_id: str) -> tuple[dict, str]:
                 compute_floor_price(return_rate=float(rr["return_rate_pct"]) / 100.0),
                 "measured (Phase 2, 90d)",
             )
-    except (PermissionError, ValueError) as e:
+    except (PermissionError, ValueError, httpx.HTTPError) as e:
         log_debug(f"floor_guard measured_rate_unavailable item_id={item_id} reason={e}")
     return compute_floor_price(), "default"
 
@@ -1287,7 +1288,8 @@ async def analyse_listing(
         days_on_site=listing["days_on_site"],
     )
 
-    # 6b. Phase 2 traffic report — best-effort; fail-fast already raises on auth.
+    # 6b. Phase 2 traffic report — best-effort; fail-soft on auth/network/shape errors
+    # so OAuth-unconfigured MCPs still get Phase 1 diagnosis.
     traffic_sales_conversion_pct: float | None = None
     traffic_return_rate_pct: float | None = None
     rate_source = "default"
@@ -1313,7 +1315,7 @@ async def analyse_listing(
                 funnel["ctr_pct"] = round(100.0 * views_total / impressions, 2)
             if conversions:
                 traffic_sales_conversion_pct = round(sum(conversions) / len(conversions), 2)
-    except (PermissionError, ValueError) as e:
+    except (PermissionError, ValueError, httpx.HTTPError) as e:
         log_debug(f"analyse_listing traffic_report_skipped reason={e}")
 
     try:
@@ -1321,7 +1323,7 @@ async def analyse_listing(
         if rr.get("return_rate_pct") is not None:
             traffic_return_rate_pct = float(rr["return_rate_pct"])
             rate_source = "measured (Phase 2, 90d)"
-    except (PermissionError, ValueError) as e:
+    except (PermissionError, ValueError, httpx.HTTPError) as e:
         log_debug(f"analyse_listing return_rate_skipped reason={e}")
 
     # 7. Rank health — Phase 2 feeds sales_conversion_rate_pct when live.

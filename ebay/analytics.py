@@ -21,7 +21,6 @@ Worked example (zero COGS, sunk time, 10% return rate, 15% margin, £0 postage_c
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from ebay.fees import _load_fees_config
@@ -113,21 +112,6 @@ def floor_price(
             "postage_charged_gbp": postage_charged,
         },
     }
-
-
-def _parse_ebay_ts(value: str | None) -> datetime | None:
-    if value is None or not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-
-
-def _days_between(start: datetime | None, end: datetime | None) -> int | None:
-    if start is None or end is None:
-        return None
-    return max(0, (end - start).days)
 
 
 def compute_funnel(
@@ -307,11 +291,3 @@ def sell_through_rate(sold_count: int, unsold_count: int) -> float | None:
     if total == 0:
         return None
     return round(100.0 * sold_count / total, 2)
-
-
-def days_on_site_from_item(item_dict: dict[str, Any]) -> int | None:
-    """Extract days-on-site from a listing_to_dict result."""
-    start = _parse_ebay_ts(item_dict.get("start_time"))
-    if start is None:
-        return None
-    return _days_between(start, datetime.now(timezone.utc))

@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ebay.fees import _load_fees_config
 from ebay.oauth import get_oauth_session, raise_for_ebay_error
 
 # Traffic Report metric list from research §5.
@@ -62,8 +63,11 @@ def _sync_get_traffic_report(listing_ids: list[str], days: int, marketplace_id: 
 async def fetch_traffic_report(
     listing_ids: list[str],
     days: int = 30,
-    marketplace_id: str = "EBAY_GB",
+    marketplace_id: str | None = None,
 ) -> dict[str, Any]:
+    """REST Analytics traffic_report. marketplace_id defaults to config/fees.yaml value."""
+    if marketplace_id is None:
+        marketplace_id = str(_load_fees_config()["ebay_uk"]["marketplace_id"])
     return await asyncio.to_thread(_sync_get_traffic_report, listing_ids, days, marketplace_id)
 
 
@@ -109,6 +113,10 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
     returns_payload = await fetch_listing_returns(item_id=item_id, days=days)
     returns_list = returns_payload.get("returns", []) or returns_payload.get("members", [])
 
+    # Postage loss per return = outbound (already shipped, non-refundable) + return postage (seller pays MBG).
+    cfg = _load_fees_config()
+    postage_per_return = float(cfg["postage"]["outbound_gbp"]) + float(cfg["postage"]["return_gbp"])
+
     reasons: dict[str, int] = {}
     total_refunded = 0.0
     postage_loss = 0.0
@@ -120,7 +128,7 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
             total_refunded += float(refund.get("value", 0.0) or 0.0)
         except (ValueError, TypeError):
             pass
-        postage_loss += 7.0  # outbound + return postage placeholder; recalculated once config loaded
+        postage_loss += postage_per_return
 
     returns_opened = len(returns_list)
     rate = None

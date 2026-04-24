@@ -82,7 +82,11 @@ def test_fetch_listing_returns_happy_path() -> None:
     with patch("ebay.rest.get_oauth_session", return_value=fake_client):
         result = _run(rest.fetch_listing_returns(item_id="111", days=90))
     assert "returns" in result
-    assert fake_client.get.call_args.args[0] == "/post-order/v2/return/search"
+    call = fake_client.get.call_args
+    assert call.args[0] == "/post-order/v2/return/search"
+    params = call.kwargs.get("params") or call.args[1]
+    assert params["item_id"] == "111"
+    assert params["limit"] == 50
 
 
 def test_compute_return_rate_zero_sold() -> None:
@@ -106,13 +110,18 @@ def test_compute_return_rate_with_sales_and_returns() -> None:
     with patch("ebay.selling.fetch_sold_listings") as mock_sold, patch(
         "ebay.rest.fetch_listing_returns"
     ) as mock_returns:
-        async def sold(**_):
+        async def sold(**kwargs):
+            # AP #18: assert kwargs propagated explicitly
+            assert kwargs["days"] == 60  # min(90, 60) cap on GetMyeBaySelling window
+            assert kwargs["per_page"] == 200
             return {"listings": [
                 {"item_id": "111", "quantity_sold": 10},
                 {"item_id": "999", "quantity_sold": 5},
             ]}
 
-        async def returns(**_):
+        async def returns(**kwargs):
+            assert kwargs["item_id"] == "111"
+            assert kwargs["days"] == 90
             return {"returns": [
                 {"reason": "NOT_AS_DESCRIBED", "sellerTotalRefund": {"value": "25.00"}},
                 {"reason": "DAMAGED", "sellerTotalRefund": {"value": "30.00"}},
@@ -127,3 +136,5 @@ def test_compute_return_rate_with_sales_and_returns() -> None:
     assert result["return_rate_pct"] == 20.0
     assert result["return_reasons_dict"] == {"NOT_AS_DESCRIBED": 1, "DAMAGED": 1}
     assert result["total_refunded_gbp"] == 55.0
+    # postage_loss = 2 returns × (3.50 outbound + 3.50 return) = 14.00
+    assert result["estimated_postage_loss_gbp"] == 14.0

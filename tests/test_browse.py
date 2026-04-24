@@ -65,9 +65,17 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
         }
     )
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        result = _run(browse.fetch_competitor_prices(part_number="ST2000NM", condition="USED"))
+        result = _run(browse.fetch_competitor_prices(part_number="ST2000NM", condition="USED", limit=50))
     assert result["count"] == 1
     assert result["listings"][0]["seller"] == "othershop"
+    # AP #18: verify the filter + query propagated correctly to the HTTP call
+    call = fake.get.call_args
+    assert call.args[0] == "/buy/browse/v1/item_summary/search"
+    params = call.kwargs.get("params") or call.args[1]
+    assert params["q"] == "ST2000NM"
+    assert "conditionIds:{3000}" in params["filter"]
+    assert "itemLocationCountry:{GB}" in params["filter"]
+    assert params["limit"] == "50"
 
 
 def test_competitor_prices_empty_result(monkeypatch: pytest.MonkeyPatch) -> None:

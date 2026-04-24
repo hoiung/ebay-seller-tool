@@ -177,9 +177,11 @@ async def fetch_seller_transactions(days: int = 30, page: int = 1) -> dict[str, 
     if page < 1:
         raise ValueError(f"page must be >= 1; got {page}")
 
+    # eBay Trading API expects millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ
+    _ebay_ts_fmt = "%Y-%m-%dT%H:%M:%S.000Z"
     now = datetime.now(timezone.utc)
-    mod_time_to = now.isoformat().replace("+00:00", "Z")
-    mod_time_from = (now - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    mod_time_to = now.strftime(_ebay_ts_fmt)
+    mod_time_from = (now - timedelta(days=days)).strftime(_ebay_ts_fmt)
 
     response = await asyncio.to_thread(
         execute_with_retry,
