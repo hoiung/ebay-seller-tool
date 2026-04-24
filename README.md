@@ -157,7 +157,7 @@ ebay-seller-tool/
 
 ## Development Workflow
 
-This project uses [SST3-AI-Harness](https://github.com/hoiung/SST3-AI-Harness) for all development. SST3 is a 5-stage autonomous AI workflow (Research, Issue Creation, Triple-Check, Implementation, Post-Implementation Review) with mandatory quality gates, multi-tier code review (Ralph Review), and enforcement via pre-commit hooks. Every change follows the same process: issue-driven, branch-per-issue, verified before merge.
+This project uses [SST3-AI-Harness](https://github.com/hoiung/sst3-ai-harness) for all development. SST3 is a 5-stage autonomous AI workflow (Research, Issue Creation, Triple-Check, Implementation, Post-Implementation Review) with mandatory quality gates, multi-tier code review (Ralph Review), and enforcement via pre-commit hooks. Every change follows the same process: issue-driven, branch-per-issue, verified before merge.
 
 ## Research
 
