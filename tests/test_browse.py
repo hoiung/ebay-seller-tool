@@ -78,6 +78,39 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
     assert params["limit"] == "50"
 
 
+def test_competitor_prices_null_seller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-6.3: Browse API response with seller=null must not raise.
+
+    Observed edge case — some scraped / cached listings omit the seller
+    object entirely. ebay/browse.py:76 falls back via `(item.get("seller")
+    or {}).get("username", "")` which must yield empty string, and the
+    own-seller filter must pass it through.
+    """
+    monkeypatch.setenv("EBAY_OWN_SELLER_USERNAME", "myownshop")
+    fake = _fake_browse_client(
+        {
+            "itemSummaries": [
+                {
+                    "seller": None,  # explicit null
+                    "price": {"value": "25.00", "currency": "GBP"},
+                    "title": "Listing with null seller",
+                },
+                {
+                    # seller key entirely absent
+                    "price": {"value": "30.00", "currency": "GBP"},
+                    "title": "Listing with no seller key",
+                },
+            ]
+        }
+    )
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        result = _run(browse.fetch_competitor_prices(part_number="PN", condition="USED"))
+    # Both null-seller items must be retained (not filtered, not crashed).
+    assert result["count"] == 2
+    assert result["min"] == 25.0
+    assert result["max"] == 30.0
+
+
 def test_competitor_prices_empty_result(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EBAY_OWN_SELLER_USERNAME", "myownshop")
     fake = _fake_browse_client({"itemSummaries": []})
