@@ -1,10 +1,32 @@
 """
-Browse API wrapper (Issue #4 Phase 3).
+Browse API wrapper (Issue #4 Phase 3 + Issue #13 Phase 1.1/1.2).
 
 Uses app-token (client_credentials grant) via ebay/oauth.py get_browse_session().
 Seller exclusion is client-side (Browse supports sellers:{include-only}, no
 exclude filter) — own seller username sourced from EBAY_OWN_SELLER_USERNAME
 env var (private; NOT in public YAML).
+
+Per-listing dict (Issue #13 1.1/1.2 extensions):
+    item_id, title, price, currency, seller, condition, url
+        — original Issue #4 fields.
+    item_creation_date — ISO 8601 UTC string (`itemCreationDate`).
+        Defensive lookup: `item.get("itemCreationDate")`. None when absent.
+    image_url — primary thumbnail (`image.imageUrl`).
+        Defensive: `(item.get("image") or {}).get("imageUrl")`. None when absent.
+    additional_image_count — count of secondary images (`additionalImages`).
+        Defensive: `len(item.get("additionalImages") or [])`. 0 when absent.
+    seller_feedback_pct — seller positive feedback %.
+        Defensive: `(item.get("seller") or {}).get("feedbackPercentage")`.
+    seller_feedback_score — seller feedback count.
+        Defensive: `(item.get("seller") or {}).get("feedbackScore")`.
+    top_rated — Top Rated buying experience flag.
+        Defensive: `item.get("topRatedBuyingExperience")`. None when absent.
+    returns_accepted — bool.
+        Defensive: `(item.get("returnTerms") or {}).get("returnsAccepted")`.
+    returns_within_days — int (e.g. 30).
+        Defensive: `(item.get("returnTerms") or {}).get("returnsWithinDays")`.
+
+All defensive lookups: missing keys yield None (or 0 for additional_image_count) — never raise.
 """
 
 from __future__ import annotations
@@ -102,6 +124,9 @@ def _sync_find_competitor_prices(
         cond = item.get("condition", "UNKNOWN")
         by_condition[cond] = by_condition.get(cond, 0) + 1
 
+        seller_obj = item.get("seller") or {}
+        return_terms = item.get("returnTerms") or {}
+        image_obj = item.get("image") or {}
         listings.append(
             {
                 "item_id": item.get("itemId"),
@@ -111,6 +136,14 @@ def _sync_find_competitor_prices(
                 "seller": seller,
                 "condition": cond,
                 "url": item.get("itemWebUrl"),
+                "item_creation_date": item.get("itemCreationDate"),
+                "image_url": image_obj.get("imageUrl"),
+                "additional_image_count": len(item.get("additionalImages") or []),
+                "seller_feedback_pct": seller_obj.get("feedbackPercentage"),
+                "seller_feedback_score": seller_obj.get("feedbackScore"),
+                "top_rated": item.get("topRatedBuyingExperience"),
+                "returns_accepted": return_terms.get("returnsAccepted"),
+                "returns_within_days": return_terms.get("returnsWithinDays"),
             }
         )
 
