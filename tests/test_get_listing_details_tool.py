@@ -199,6 +199,9 @@ def test_analyse_listing_phase2_backfills_views() -> None:
     parsed = json.loads(result_json)
     assert "error" not in parsed, f"unexpected error: {parsed}"
 
+    # Bug 0.3 — Phase 2 success path surfaces phase2_available=True
+    assert parsed["phase2_available"] is True
+
     # Phase 2 backfill
     assert parsed["funnel"]["views"] == 76
     assert parsed["funnel"]["impressions"] == 3474
@@ -268,6 +271,9 @@ def test_analyse_listing_phase2_unavailable_returns_data_gap() -> None:
 
     parsed = json.loads(result_json)
     assert "error" not in parsed, f"unexpected error: {parsed}"
+
+    # Bug 0.3 — Phase 2 raised → phase2_available=False (no silent success)
+    assert parsed["phase2_available"] is False
 
     # Phase 1 only — view_count=None flows through
     assert parsed["funnel"]["views"] is None
