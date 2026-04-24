@@ -206,8 +206,12 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
     )
 
     # Returns via Post-Order.
+    # Canonical response key is "returns". The old "members" alternative did
+    # not appear in any documented or observed response shape — removed as
+    # dead code. See:
+    # https://developer.ebay.com/api-docs/sell/fulfillment/resources/return/methods/searchReturns
     returns_payload = await fetch_listing_returns(item_id=item_id, days=days)
-    returns_list = returns_payload.get("returns", []) or returns_payload.get("members", [])
+    returns_list = returns_payload.get("returns", [])
 
     # Postage loss per return = outbound (already shipped, non-refundable) + return postage (seller pays MBG).
     cfg = _load_fees_config()
@@ -216,6 +220,14 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
     reasons: dict[str, int] = {}
     total_refunded = 0.0
     postage_loss = 0.0
+    # Post-Order v2 field-name fallbacks — docs-only verification per AC-6.2:
+    # Post-Order v2 is a legacy internal eBay API with limited public docs
+    # (https://developer.ebay.com/api-docs/sell/fulfillment/ covers the newer
+    # Fulfillment API, not Post-Order). Without a live return in the store
+    # the canonical field name cannot be confirmed via probe. Both names are
+    # observed across different engagement types (seller-initiated vs
+    # buyer-initiated refund). Keeping both fallbacks as defensive decode
+    # until the first real return lets us diff against docs.
     for r in returns_list:
         reason = str(r.get("reason") or r.get("returnReason") or "UNKNOWN")
         reasons[reason] = reasons.get(reason, 0) + 1
