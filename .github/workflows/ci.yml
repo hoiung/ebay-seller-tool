@@ -63,3 +63,15 @@ jobs:
 
       - name: Secret detection (blocking)
         run: uv run python scripts/check-public-repo-secrets.py .
+
+      - name: Commit-message secret scan (blocking)
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python scripts/check-public-repo-secrets.py \
+            --scan-commit-messages \
+            --since ${{ github.event.before }}
+
+      - name: Run pytest
+        run: uv run pytest tests/ -x --timeout=120
