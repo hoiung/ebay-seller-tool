@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ebay.fees import _load_fees_config
-from ebay.oauth import get_oauth_session, raise_for_ebay_error
+from ebay.oauth import get_oauth_session, get_post_order_session, raise_for_ebay_error
 
 # Traffic Report metric list from research §5.
 _TRAFFIC_METRICS = (
@@ -84,7 +84,9 @@ def _sync_get_listing_returns(item_id: str, days: int) -> dict[str, Any]:
         "creation_date_range_from": creation_from,
         "limit": 50,
     }
-    with get_oauth_session() as client:
+    # Post-Order API rejects OAuth Bearer ('Bad scheme: Bearer' error) — uses IAF
+    # with Auth'N'Auth token instead. Verified live 2026-04-24.
+    with get_post_order_session() as client:
         response = client.get("/post-order/v2/return/search", params=params)
     raise_for_ebay_error(response)
     return response.json()

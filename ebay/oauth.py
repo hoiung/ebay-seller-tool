@@ -199,6 +199,29 @@ def get_oauth_session() -> httpx.Client:
     )
 
 
+def get_post_order_session() -> httpx.Client:
+    """Return httpx.Client with IAF (Auth'N'Auth) scheme — Post-Order API only.
+
+    eBay's Post-Order v2 API rejects OAuth Bearer with 'Bad scheme: Bearer' error.
+    It requires the legacy IAF scheme using the Auth'N'Auth token (same one used
+    by Trading API calls). Verified live 2026-04-24 against /return/search.
+    """
+    auth_token = os.environ.get("EBAY_AUTH_TOKEN")
+    if not auth_token:
+        raise PermissionError(
+            "EBAY_AUTH_TOKEN missing — required for Post-Order API (IAF scheme)"
+        )
+    return httpx.Client(
+        base_url=_base_url(),
+        headers={
+            "Authorization": f"IAF {auth_token}",
+            "Content-Type": "application/json",
+            "X-EBAY-C-MARKETPLACE-ID": os.environ.get("EBAY_MARKETPLACE_ID", "EBAY_GB"),
+        },
+        timeout=15.0,
+    )
+
+
 def get_browse_session() -> httpx.Client:
     """Return httpx.Client with a valid app-token Bearer header (Browse API)."""
     token = _get_app_access_token()

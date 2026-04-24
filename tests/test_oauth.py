@@ -89,3 +89,22 @@ def test_raise_for_ebay_error_detects_envelope() -> None:
     fake.json.return_value = {"errors": [{"message": "boom"}]}
     with pytest.raises(PermissionError, match="error envelope"):
         oauth.raise_for_ebay_error(fake)
+
+
+def test_post_order_session_uses_iaf_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Post-Order API rejects OAuth Bearer — must use IAF + Auth'N'Auth token."""
+    monkeypatch.setenv("EBAY_AUTH_TOKEN", "auth-n-auth-token-value")
+    client = oauth.get_post_order_session()
+    try:
+        auth = client.headers.get("Authorization")
+        assert auth is not None
+        assert auth.startswith("IAF "), f"expected IAF scheme, got {auth!r}"
+        assert "auth-n-auth-token-value" in auth
+    finally:
+        client.close()
+
+
+def test_post_order_session_missing_token_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EBAY_AUTH_TOKEN", raising=False)
+    with pytest.raises(PermissionError, match="EBAY_AUTH_TOKEN missing"):
+        oauth.get_post_order_session()
