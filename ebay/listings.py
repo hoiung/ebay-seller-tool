@@ -174,8 +174,6 @@ def listing_to_dict(item: object) -> dict:
     days_on_site = None
     if start_time is not None:
         try:
-            from datetime import datetime, timezone
-
             start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
             days_on_site = max(0, (datetime.now(timezone.utc) - start_dt).days)
         except (ValueError, TypeError):
