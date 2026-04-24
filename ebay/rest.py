@@ -54,8 +54,12 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
             "ctr_pct": float | None (computed from aggregated impressions/views),
             "sales_conversion_rate_pct": float | None (mean across records, * 100),
             "records_count": int,
-            "per_listing": [{"listing_id": str, "metrics": {key: value, ...}}, ...],
+            "per_listing": [{"listing_id": str | None, "metrics": {key: value, ...}}, ...],
         }
+
+    `listing_id` is None when the record's `dimensionValues[0].value` is
+    missing from the eBay response (rare; API typically always populates it).
+    Downstream consumers should null-check if they key by listing_id.
     """
     header = traffic.get("header") or {}
     metric_keys = [m["key"] for m in (header.get("metrics") or [])]
