@@ -60,6 +60,21 @@ uv run python scripts/oauth_setup.py
 
 `.env` keys (added for Phase 2-4): `EBAY_APP_CLIENT_ID`, `EBAY_APP_CLIENT_SECRET`, `EBAY_OAUTH_RU_NAME`, `EBAY_OAUTH_REFRESH_TOKEN`, `EBAY_OWN_SELLER_USERNAME`.
 
+### Required env vars
+
+Cross-referenced to `ebay/auth.py::REQUIRED_VARS` and `.env.example` line numbers. Boot exits with `SystemExit(1)` if any of these are unset or empty.
+
+| Variable | `.env.example` line | Read by |
+|---|---|---|
+| `EBAY_APP_ID` | 3 | `ebay/client.py` |
+| `EBAY_CERT_ID` | 4 | `ebay/client.py` |
+| `EBAY_DEV_ID` | 5 | `ebay/client.py` |
+| `EBAY_AUTH_TOKEN` | 9 | `ebay/client.py` |
+| `EBAY_SELLER_LOCATION` | 40 | `ebay/listings.py:499` (AddFixedPriceItem location) |
+| `EBAY_SELLER_POSTCODE` | 41 | `ebay/listings.py:500` (AddFixedPriceItem location) |
+
+Optional overrides (defaults apply when unset): `EBAY_MARKETPLACE_ID` (default `EBAY_GB`), `EBAY_OAUTH_BASE_URL` (default `https://api.ebay.com`), `EBAY_SANDBOX`, `EBAY_DEBUG`, `EBAY_DRIVE_ROOT`.
+
 ### Register with Claude Code
 
 ```bash
