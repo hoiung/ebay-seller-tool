@@ -62,11 +62,11 @@ def test_fetch_sold_listings_happy_path() -> None:
 
     assert result["total"] == 2
     assert len(result["listings"]) == 1
-    l = result["listings"][0]
-    assert l["item_id"] == "111"
-    assert l["sold_price"] == "25.00"
-    assert l["days_live"] == 9
-    assert l["watch_count"] == 3
+    listing = result["listings"][0]
+    assert listing["item_id"] == "111"
+    assert listing["sold_price"] == "25.00"
+    assert listing["days_live"] == 9
+    assert listing["watch_count"] == 3
 
     # AP #18 explicit kwarg propagation
     call_args = mock.call_args
@@ -110,13 +110,17 @@ def test_fetch_unsold_listings_happy_path() -> None:
                     StartTime="2026-02-01T10:00:00Z",
                     EndTime="2026-04-01T10:00:00Z",
                 ),
-                SellingStatus=SimpleNamespace(CurrentPrice=SimpleNamespace(value="20.00", _currencyID="GBP")),
+                SellingStatus=SimpleNamespace(
+                    CurrentPrice=SimpleNamespace(value="20.00", _currencyID="GBP")
+                ),
                 BestOfferCount="0",
                 WatchCount="1",
             )
         ),
     )
-    with patch("ebay.selling.execute_with_retry", return_value=_reply(UnsoldList=unsold_list)) as mock:
+    with patch(
+        "ebay.selling.execute_with_retry", return_value=_reply(UnsoldList=unsold_list)
+    ) as mock:
         result = _run(fetch_unsold_listings(days=60))
     assert result["total"] == 1
     assert result["listings"][0]["item_id"] == "222"
@@ -143,7 +147,9 @@ def test_fetch_seller_transactions_happy_path() -> None:
             )
         ]
     )
-    with patch("ebay.selling.execute_with_retry", return_value=_reply(TransactionArray=txn_array)) as mock:
+    with patch(
+        "ebay.selling.execute_with_retry", return_value=_reply(TransactionArray=txn_array)
+    ) as mock:
         result = _run(fetch_seller_transactions(days=30))
 
     assert len(result["transactions"]) == 1
@@ -175,7 +181,9 @@ def test_fetch_listing_feedback_happy_path() -> None:
             ShippingTimeRating="5",
         )
     )
-    with patch("ebay.selling.execute_with_retry", return_value=_reply(FeedbackDetailArray=fb_array)) as mock:
+    with patch(
+        "ebay.selling.execute_with_retry", return_value=_reply(FeedbackDetailArray=fb_array)
+    ) as mock:
         result = _run(fetch_listing_feedback(item_id="999", days=90))
 
     assert result["item_id"] == "999"

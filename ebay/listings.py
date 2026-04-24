@@ -467,15 +467,12 @@ def build_add_payload(
             f"uuid_hex must match ^[0-9A-F]{{32}}$ (32 upper-hex chars); got {uuid_hex!r}"
         )
     if len(title) > _MAX_TITLE_CHARS:
-        raise ValueError(
-            f"title exceeds {_MAX_TITLE_CHARS}-char eBay limit (got {len(title)})"
-        )
+        raise ValueError(f"title exceeds {_MAX_TITLE_CHARS}-char eBay limit (got {len(title)})")
     if not picture_urls:
         raise ValueError("picture_urls must contain at least 1 URL")
     if len(picture_urls) > MAX_PICTURE_URLS:
         raise ValueError(
-            f"picture_urls must contain at most {MAX_PICTURE_URLS} URLs "
-            f"(got {len(picture_urls)})"
+            f"picture_urls must contain at most {MAX_PICTURE_URLS} URLs (got {len(picture_urls)})"
         )
     joined_urls_len = sum(len(u) for u in picture_urls)
     if joined_urls_len >= MAX_PICTURE_URLS_JOINED_CHARS:
@@ -597,9 +594,7 @@ def _assert_requires_quantity(payload: dict, min: int = 1) -> None:
     try:
         qv = int(q)
     except (TypeError, ValueError) as e:
-        raise ValueError(
-            f"SAFETY: Add Quantity={q!r} not int-coercible — refusing"
-        ) from e
+        raise ValueError(f"SAFETY: Add Quantity={q!r} not int-coercible — refusing") from e
     if qv < min:
         raise ValueError(f"SAFETY: Add Quantity={qv} < min={min} — refusing")
 

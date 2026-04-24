@@ -15,7 +15,6 @@ import uuid
 from functools import wraps
 from pathlib import Path
 
-import httpx
 from dotenv import load_dotenv
 
 # Load .env BEFORE importing ebay modules that read env vars
@@ -27,10 +26,12 @@ from ebay.analytics import (  # noqa: E402
     compute_funnel,
     compute_rank_health,
     diagnose_listing,
-    floor_price as compute_floor_price,
     price_verdict,
     sell_through_rate,
     summarise_feedback,
+)
+from ebay.analytics import (  # noqa: E402
+    floor_price as compute_floor_price,
 )
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.browse import fetch_competitor_prices  # noqa: E402
@@ -150,9 +151,7 @@ def _resolve_description_html(
     # Fall back to Jinja template — caller hasn't authored HTML yet.
     template_path = Path(__file__).parent / "templates" / "listing_description.html"
     if not template_path.exists():
-        raise FileNotFoundError(
-            f"no listing HTML in {folder} and no template at {template_path}"
-        )
+        raise FileNotFoundError(f"no listing HTML in {folder} and no template at {template_path}")
     # Late import keeps startup cost down on the common path.
     from jinja2 import Template  # noqa: PLC0415
 
@@ -245,6 +244,7 @@ def _glob_label_photos(folder: Path) -> list[str]:
                 results.append(s)
     return results
 
+
 def _warn_missing_oauth_vars() -> None:
     """Issue #5 Phase 2: additive diagnostic for OAuth-gated tools.
 
@@ -268,8 +268,10 @@ def _warn_missing_oauth_vars() -> None:
         "compute_return_rate",
     ]
     log_debug(
-        "OAuth env vars missing=" + ",".join(missing)
-        + " — gated_tools_unavailable=" + ",".join(gated_tools)
+        "OAuth env vars missing="
+        + ",".join(missing)
+        + " — gated_tools_unavailable="
+        + ",".join(gated_tools)
         + " — fail-fast on first call preserved; see .env.example"
     )
 
@@ -336,7 +338,7 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
                     "EntriesPerPage": per_page,
                     "PageNumber": page,
                 },
-                # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
                 "IncludeWatchCount": "true",
             },
             # AC 1.13 Phase 1 sample invocation revealed ReturnPolicy + full
@@ -449,7 +451,7 @@ async def get_listing_details(item_id: str) -> str:
             "ItemID": item_id,
             "DetailLevel": "ReturnAll",
             "IncludeItemSpecifics": "true",
-            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
             "IncludeWatchCount": "true",
         },
     )
@@ -482,7 +484,10 @@ async def _measure_or_default_floor(item_id: str) -> tuple[dict, str]:
         # Documented fail-soft: guardrail must not block legitimate updates due
         # to a transient measurement issue (timeout, 5xx, unexpected response
         # shape). The default floor is always safe; measurement is best-effort.
-        log_debug(f"floor_guard measured_rate_unavailable item_id={item_id} reason={type(e).__name__}: {e}")
+        log_debug(
+            f"floor_guard measured_rate_unavailable item_id={item_id} "
+            f"reason={type(e).__name__}: {e}"
+        )
     return compute_floor_price(), "default"
 
 
@@ -531,8 +536,12 @@ async def update_listing(
         return json.dumps({"error": "item_id required"})
 
     updatable = [
-        title, description_html, price,
-        condition_id, condition_description, item_specifics,
+        title,
+        description_html,
+        price,
+        condition_id,
+        condition_description,
+        item_specifics,
     ]
     has_update = any(v is not None for v in updatable)
     if not has_update:
@@ -543,11 +552,13 @@ async def update_listing(
     if price is not None and price <= 0:
         return json.dumps({"error": "price must be > 0"})
     if condition_id is not None and condition_id not in set(CONDITION_MAP.values()):
-        return json.dumps({
-            "error": f"invalid condition_id {condition_id}. Valid: "
-            f"{sorted((v, k) for k, v in CONDITION_MAP.items())}. "
-            "7000 (For parts) is blocked — use eBay Seller Hub directly.",
-        })
+        return json.dumps(
+            {
+                "error": f"invalid condition_id {condition_id}. Valid: "
+                f"{sorted((v, k) for k, v in CONDITION_MAP.items())}. "
+                "7000 (For parts) is blocked — use eBay Seller Hub directly.",
+            }
+        )
     if description_html is not None:
         description_html = description_html.strip()
         if not description_html:
@@ -556,9 +567,14 @@ async def update_listing(
             return json.dumps({"error": "description_html must contain at least one HTML tag"})
 
     update_fields = [
-        f for f in [
-            "title", "description_html", "price",
-            "condition_id", "condition_description", "item_specifics",
+        f
+        for f in [
+            "title",
+            "description_html",
+            "price",
+            "condition_id",
+            "condition_description",
+            "item_specifics",
         ]
         if locals().get(f) is not None
     ]
@@ -572,7 +588,7 @@ async def update_listing(
             "ItemID": item_id,
             "DetailLevel": "ReturnAll",
             "IncludeItemSpecifics": "true",
-            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
             "IncludeWatchCount": "true",
         },
     )
@@ -584,8 +600,13 @@ async def update_listing(
     before = snapshot_listing(current.reply.Item)
 
     diff = compute_diff(
-        before, title, description_html, price,
-        condition_id, condition_description, item_specifics,
+        before,
+        title,
+        description_html,
+        price,
+        condition_id,
+        condition_description,
+        item_specifics,
     )
 
     log_debug(
@@ -651,8 +672,14 @@ async def update_listing(
             merged_specifics[k] = v if isinstance(v, list) else [v]
 
     payload = build_revise_payload(
-        item_id, title, description_html, price, shipping,
-        condition_id, condition_description, merged_specifics,
+        item_id,
+        title,
+        description_html,
+        price,
+        shipping,
+        condition_id,
+        condition_description,
+        merged_specifics,
     )
     await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
 
@@ -664,7 +691,7 @@ async def update_listing(
             "ItemID": item_id,
             "DetailLevel": "ReturnAll",
             "IncludeItemSpecifics": "true",
-            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
             "IncludeWatchCount": "true",
         },
     )
@@ -742,12 +769,14 @@ async def upload_photos(photo_paths: list[str], dry_run: bool = False) -> str:
     if not photo_paths:
         return json.dumps({"error": "photo_paths must contain at least 1 path"})
     if len(photo_paths) > MAX_PHOTOS_PER_LISTING:
-        return json.dumps({
-            "error": (
-                f"photo_paths exceeds eBay {MAX_PHOTOS_PER_LISTING}-image cap "
-                f"(got {len(photo_paths)})"
-            )
-        })
+        return json.dumps(
+            {
+                "error": (
+                    f"photo_paths exceeds eBay {MAX_PHOTOS_PER_LISTING}-image cap "
+                    f"(got {len(photo_paths)})"
+                )
+            }
+        )
 
     log_debug(f"upload_photos count={len(photo_paths)} dry_run={dry_run}")
 
@@ -756,18 +785,23 @@ async def upload_photos(photo_paths: list[str], dry_run: bool = False) -> str:
         for p in photo_paths:
             try:
                 bytes_out = await asyncio.to_thread(preprocess_for_ebay, p)
-                preview.append({
-                    "path": p,
-                    "size_bytes_after_preprocess": len(bytes_out),
-                    "rejected": False,
-                })
+                preview.append(
+                    {
+                        "path": p,
+                        "size_bytes_after_preprocess": len(bytes_out),
+                        "rejected": False,
+                    }
+                )
             except ValueError as e:
                 preview.append({"path": p, "rejected": True, "reason": str(e)})
-        return json.dumps({
-            "dry_run": True,
-            "would_upload": len([p for p in preview if not p["rejected"]]),
-            "preview": preview,
-        }, indent=2)
+        return json.dumps(
+            {
+                "dry_run": True,
+                "would_upload": len([p for p in preview if not p["rejected"]]),
+                "preview": preview,
+            },
+            indent=2,
+        )
 
     urls: list[str] = []
     for idx, p in enumerate(photo_paths):
@@ -779,13 +813,16 @@ async def upload_photos(photo_paths: list[str], dry_run: bool = False) -> str:
                 await asyncio.sleep(UPLOAD_RATE_LIMIT_SLEEP_SECONDS)
         except Exception as e:
             log_debug(f"upload_photos FAILED at index={idx} error={e!r}")
-            return json.dumps({
-                "success": False,
-                "urls_uploaded_so_far": urls,
-                "failed_at_index": idx,
-                "failed_path": p,
-                "error": str(e),
-            }, indent=2)
+            return json.dumps(
+                {
+                    "success": False,
+                    "urls_uploaded_so_far": urls,
+                    "failed_at_index": idx,
+                    "failed_path": p,
+                    "error": str(e),
+                },
+                indent=2,
+            )
 
     total_chars = sum(len(u) for u in urls)
     warnings: list[str] = []
@@ -795,12 +832,15 @@ async def upload_photos(photo_paths: list[str], dry_run: bool = False) -> str:
             f"{MAX_PICTURE_URLS_JOINED_CHARS} — listing may reject PictureDetails"
         )
 
-    return json.dumps({
-        "success": True,
-        "urls": urls,
-        "total_url_chars": total_chars,
-        "warnings": warnings,
-    }, indent=2)
+    return json.dumps(
+        {
+            "success": True,
+            "urls": urls,
+            "total_url_chars": total_chars,
+            "warnings": warnings,
+        },
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -855,10 +895,9 @@ async def create_listing(
     if quantity < 1:
         return json.dumps({"error": f"quantity must be >= 1 (got {quantity})"})
     if condition not in CONDITION_MAP:
-        return json.dumps({
-            "error": f"invalid condition {condition!r}. "
-            f"Valid: {sorted(CONDITION_MAP.keys())}"
-        })
+        return json.dumps(
+            {"error": f"invalid condition {condition!r}. Valid: {sorted(CONDITION_MAP.keys())}"}
+        )
     if not isinstance(has_caddy, bool):
         return json.dumps({"error": "has_caddy must be bool"})
     if photo_paths is not None and not photo_paths:
@@ -869,10 +908,9 @@ async def create_listing(
 
     # --- P3.4 HDD_SPECS lookup (fail loud on unknown MPN) ---
     if oem_model not in HDD_SPECS:
-        return json.dumps({
-            "error": f"Unknown MPN {oem_model}. "
-            "Add to ebay/hdd_specs.py before creating listing."
-        })
+        return json.dumps(
+            {"error": f"Unknown MPN {oem_model}. Add to ebay/hdd_specs.py before creating listing."}
+        )
     specs = HDD_SPECS[oem_model]
 
     # --- P3.3 HTML + title resolution ---
@@ -883,17 +921,18 @@ async def create_listing(
 
     title = _extract_title_from_html(resolved_html)
     if title is None:
-        return json.dumps({
-            "error": "could not derive title from HTML (no copy-block, no <h1>); "
-            "provide description_html with a copy-block or <h1>"
-        })
+        return json.dumps(
+            {
+                "error": "could not derive title from HTML (no copy-block, no <h1>); "
+                "provide description_html with a copy-block or <h1>"
+            }
+        )
 
     # --- P3.6 Title length gate (before wasting Verify quota) ---
     if len(title) > 80:
-        return json.dumps({
-            "error": f"derived title exceeds 80-char eBay limit "
-            f"(got {len(title)}): {title!r}"
-        })
+        return json.dumps(
+            {"error": f"derived title exceeds 80-char eBay limit (got {len(title)}): {title!r}"}
+        )
 
     # --- P3.7 UUID cache per folder for retry idempotency ---
     cache_key = str(folder.resolve())
@@ -912,19 +951,21 @@ async def create_listing(
         if photo_paths is None:
             photo_paths = _glob_label_photos(folder)
         if not photo_paths:
-            return json.dumps({
-                "error": f"no IMG*.jpg photos found in {folder} and picture_urls not supplied"
-            })
+            return json.dumps(
+                {"error": f"no IMG*.jpg photos found in {folder} and picture_urls not supplied"}
+            )
         # Internal call — reuse upload_photos MCP tool logic (keeps one code path).
         upload_json = await upload_photos(photo_paths, dry_run=False)
         upload_result = json.loads(upload_json)
         if not upload_result.get("success"):
-            return json.dumps({
-                "error": "photo upload failed",
-                "uploaded_urls": upload_result.get("urls_uploaded_so_far", []),
-                "failed_at_index": upload_result.get("failed_at_index"),
-                "upload_error": upload_result.get("error"),
-            })
+            return json.dumps(
+                {
+                    "error": "photo upload failed",
+                    "uploaded_urls": upload_result.get("urls_uploaded_so_far", []),
+                    "failed_at_index": upload_result.get("failed_at_index"),
+                    "upload_error": upload_result.get("error"),
+                }
+            )
         uploaded_urls = upload_result["urls"]
         picture_urls = uploaded_urls
 
@@ -974,23 +1015,26 @@ async def create_listing(
                     for f in fee_list
                 ]
             log_debug(f"VerifyAddFixedPriceItem OK errors={len(errors)} fees={len(fees_summary)}")
-            return json.dumps({
-                "dry_run": True,
-                "uuid": uuid_hex,
-                "folder": str(folder),
-                "oem_model": oem_model,
-                "title": title,
-                "picture_urls_count": len(picture_urls),
-                "fees": fees_summary,
-                "errors": errors,
-                "payload_preview": {
-                    "Quantity": payload["Item"]["Quantity"],
-                    "StartPrice": payload["Item"]["StartPrice"],
-                    "ConditionID": payload["Item"]["ConditionID"],
-                    "ItemSpecifics_count": len(item_specifics),
-                    "PictureURL_count": len(picture_urls),
+            return json.dumps(
+                {
+                    "dry_run": True,
+                    "uuid": uuid_hex,
+                    "folder": str(folder),
+                    "oem_model": oem_model,
+                    "title": title,
+                    "picture_urls_count": len(picture_urls),
+                    "fees": fees_summary,
+                    "errors": errors,
+                    "payload_preview": {
+                        "Quantity": payload["Item"]["Quantity"],
+                        "StartPrice": payload["Item"]["StartPrice"],
+                        "ConditionID": payload["Item"]["ConditionID"],
+                        "ItemSpecifics_count": len(item_specifics),
+                        "PictureURL_count": len(picture_urls),
+                    },
                 },
-            }, indent=2)
+                indent=2,
+            )
 
         # --- P3.11 Apply → AddFixedPriceItem ---
         log_debug(f"AddFixedPriceItem CALLING uuid={uuid_hex}")
@@ -1036,7 +1080,7 @@ async def create_listing(
                     "ItemID": new_item_id,
                     "DetailLevel": "ReturnAll",
                     "IncludeItemSpecifics": "true",
-                    # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                    # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
                     "IncludeWatchCount": "true",
                 },
             )
@@ -1066,9 +1110,7 @@ async def create_listing(
                     )
                 mpn_live = landed["specifics"].get("MPN", [None])[0]
                 if mpn_live != oem_model:
-                    verify_warnings.append(
-                        f"MPN drift: payload={oem_model!r} live={mpn_live!r}"
-                    )
+                    verify_warnings.append(f"MPN drift: payload={oem_model!r} live={mpn_live!r}")
             else:
                 verify_warnings.append("GetItem returned empty Item on post-create verify")
         except Exception as ve:
@@ -1087,24 +1129,27 @@ async def create_listing(
 
         # --- P3.14 Return shape ---
         listing_url = f"https://www.ebay.co.uk/itm/{new_item_id}"
-        return json.dumps({
-            "success": True,
-            "item_id": new_item_id,
-            "listing_url": listing_url,
-            "uuid": uuid_hex,
-            "duplicate_invocation": was_duplicate,
-            "fees": fees_summary,
-            "verify_warnings": verify_warnings,
-            "before": None,
-            "after": {
-                "title": title,
-                "oem_model": oem_model,
-                "condition_id": condition_id,
-                "quantity": quantity,
-                "price": f"{price:.2f}",
-                "picture_count": len(picture_urls),
+        return json.dumps(
+            {
+                "success": True,
+                "item_id": new_item_id,
+                "listing_url": listing_url,
+                "uuid": uuid_hex,
+                "duplicate_invocation": was_duplicate,
+                "fees": fees_summary,
+                "verify_warnings": verify_warnings,
+                "before": None,
+                "after": {
+                    "title": title,
+                    "oem_model": oem_model,
+                    "condition_id": condition_id,
+                    "quantity": quantity,
+                    "price": f"{price:.2f}",
+                    "picture_count": len(picture_urls),
+                },
             },
-        }, indent=2)
+            indent=2,
+        )
 
     except Exception as e:
         # Preserve uploaded URLs in the error dict so caller can retry without
@@ -1120,13 +1165,16 @@ async def create_listing(
                 error=str(e),
                 local_html_path=str(folder),
             )
-            return json.dumps({
-                "success": False,
-                "uuid": uuid_hex,
-                "error": str(e),
-                "uploaded_urls": uploaded_urls,
-                "retry_hint": "call create_listing again with picture_urls=uploaded_urls",
-            }, indent=2)
+            return json.dumps(
+                {
+                    "success": False,
+                    "uuid": uuid_hex,
+                    "error": str(e),
+                    "uploaded_urls": uploaded_urls,
+                    "retry_hint": "call create_listing again with picture_urls=uploaded_urls",
+                },
+                indent=2,
+            )
         raise
 
 
@@ -1251,9 +1299,7 @@ async def floor_price(
     Returns:
         JSON {floor_gbp, suggested_ceiling_gbp, inputs}.
     """
-    log_debug(
-        f"floor_price cogs={cogs} return_rate={return_rate} target_margin={target_margin}"
-    )
+    log_debug(f"floor_price cogs={cogs} return_rate={return_rate} target_margin={target_margin}")
     result = compute_floor_price(
         cogs=cogs,
         return_rate=return_rate,
@@ -1299,7 +1345,9 @@ async def analyse_listing(
     if not item_id or not item_id.strip():
         return json.dumps({"error": "item_id required"})
 
-    log_debug(f"analyse_listing item_id={item_id} window_days={window_days} include_cases={include_cases}")
+    log_debug(
+        f"analyse_listing item_id={item_id} window_days={window_days} include_cases={include_cases}"
+    )
 
     # 1. Extended listing detail (reuses ebay/listings.py single-source serialisation).
     get_item_response = await asyncio.to_thread(
@@ -1309,7 +1357,7 @@ async def analyse_listing(
             "ItemID": item_id,
             "DetailLevel": "ReturnAll",
             "IncludeItemSpecifics": "true",
-            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
             # This is THE call that produced the "0 watchers across all listings" audit artefact.
             "IncludeWatchCount": "true",
         },
@@ -1321,7 +1369,9 @@ async def analyse_listing(
     # 2. Seller transactions in window → days-to-sell + quantity (complement listing.quantity_sold).
     txns_result = await fetch_seller_transactions(days=min(window_days, 30))
     per_item_txns = [t for t in txns_result["transactions"] if t["item_id"] == str(item_id)]
-    days_to_sell_values = [t["days_to_sell"] for t in per_item_txns if t["days_to_sell"] is not None]
+    days_to_sell_values = [
+        t["days_to_sell"] for t in per_item_txns if t["days_to_sell"] is not None
+    ]
     days_to_sell_median = None
     if days_to_sell_values:
         sorted_values = sorted(days_to_sell_values)
@@ -1464,7 +1514,10 @@ async def analyse_listing(
             "listings — sales history is preserved."
         )
         if rank_health == "STABLE" and action is not None:
-            action = f"{action} Rank is stable — price revisions do not reset Cassini ranking on multi-quantity listings."
+            action = (
+                f"{action} Rank is stable — price revisions do not reset "
+                "Cassini ranking on multi-quantity listings."
+            )
 
     return json.dumps(
         {

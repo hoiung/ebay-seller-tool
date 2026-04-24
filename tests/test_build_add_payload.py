@@ -1,6 +1,6 @@
 """Unit tests for ebay.listings.build_add_payload (P2.2, P2.3, P1.6)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -36,7 +36,7 @@ VALID_UUID = "ABCDEF0123456789ABCDEF0123456789"
 
 def _minimal(**overrides: object) -> dict:
     base = {
-        "title": "Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5\" SATA III HDD ST2000NX0253",
+        "title": 'Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD ST2000NX0253',
         "description_html": "<html><body><h1>Drive</h1></body></html>",
         "price": 49.99,
         "quantity": 1,
@@ -69,8 +69,7 @@ def test_build_add_payload_full_payload_shape() -> None:
     assert item["ShippingDetails"]["GlobalShipping"] == "true"
     assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true"
     assert (
-        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["value"]
-        == "0.00"
+        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["value"] == "0.00"
     )
     assert item["ReturnPolicy"]["ReturnsAcceptedOption"] == "ReturnsNotAccepted"
     assert item["ReturnPolicy"]["InternationalReturnsAcceptedOption"] == "ReturnsNotAccepted"
@@ -200,19 +199,22 @@ def test_build_add_payload_cdata_wraps_description() -> None:
 def test_build_add_payload_features_list_preserved() -> None:
     payload = _minimal()
     features_row = next(
-        row for row in payload["Item"]["ItemSpecifics"]["NameValueList"]
+        row
+        for row in payload["Item"]["ItemSpecifics"]["NameValueList"]
         if row["Name"] == "Features"
     )
     assert features_row["Value"] == ["Hot Swap", "24/7 Operation"]
 
 
 def test_build_add_payload_custom_location_details_override_env() -> None:
-    payload = _minimal(location_details={
-        "Country": "US",
-        "Location": "New York",
-        "PostalCode": "10001",
-        "Currency": "USD",
-    })
+    payload = _minimal(
+        location_details={
+            "Country": "US",
+            "Location": "New York",
+            "PostalCode": "10001",
+            "Currency": "USD",
+        }
+    )
     assert payload["Item"]["Country"] == "US"
     assert payload["Item"]["Location"] == "New York"
     assert payload["Item"]["PostalCode"] == "10001"

@@ -35,8 +35,7 @@ def _mk_product_folder(
 
     # Synthesise listing-<suffix>.html with a copy-block title row
     resolved_title = (
-        title
-        or f'Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD {oem_model}'
+        title or f'Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD {oem_model}'
     )
     html = f"""<html><body>
 <div class="copy-block">
@@ -96,9 +95,7 @@ def _fake_getitem_response(
         MagicMock(Name="MPN", Value=mpn),
     ]
     r.reply.Item.ItemSpecifics.NameValueList = nvl
-    r.reply.Item.PictureDetails.PictureURL = [
-        f"https://i.ebayimg.com/x{i}" for i in range(photos)
-    ]
+    r.reply.Item.PictureDetails.PictureURL = [f"https://i.ebayimg.com/x{i}" for i in range(photos)]
     r.reply.Item.Description = "<html>...</html>"
     r.reply.Item.WatchCount = 0
     r.reply.Item.HitCount = 0
@@ -131,10 +128,16 @@ def test_create_listing_dry_run_calls_verify_not_add(tmp_path: Path) -> None:
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                raw = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=True,
-                ))
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
+                    )
+                )
 
     result = json.loads(raw)
     assert result["dry_run"] is True
@@ -161,19 +164,28 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title="Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5\" SATA III HDD ST2000NX0253",
-                qty=1, condition_id=3000, photos=2,
-                mpn="ST2000NX0253", brand="Seagate",
+                title='Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD ST2000NX0253',
+                qty=1,
+                condition_id=3000,
+                photos=2,
+                mpn="ST2000NX0253",
+                brand="Seagate",
             )
         raise AssertionError(f"unexpected verb {verb}")
 
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                raw = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=False,
-                ))
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
+                    )
+                )
 
     result = json.loads(raw)
     assert result["success"] is True
@@ -196,19 +208,28 @@ def test_create_listing_uuid_replay_returns_existing_itemid(tmp_path: Path) -> N
             return _fake_add_response("777777777", duplicate=True)
         if verb == "GetItem":
             return _fake_getitem_response(
-                title="Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5\" SATA III HDD ST2000NX0253",
-                qty=1, condition_id=3000, photos=2,
-                mpn="ST2000NX0253", brand="Seagate",
+                title='Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD ST2000NX0253',
+                qty=1,
+                condition_id=3000,
+                photos=2,
+                mpn="ST2000NX0253",
+                brand="Seagate",
             )
         raise AssertionError(f"unexpected verb {verb}")
 
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                raw = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=False,
-                ))
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
+                    )
+                )
 
     result = json.loads(raw)
     assert result["success"] is True
@@ -220,10 +241,17 @@ def test_create_listing_missing_photos_fails_loudly(tmp_path: Path) -> None:
     folder = _mk_product_folder(tmp_path, num_photos=0)
     server._create_listing_uuid_cache.clear()
 
-    raw = _run(server.create_listing(
-        folder_path=str(folder), price=49.99, quantity=1,
-        condition="Used", has_caddy=False, dry_run=True, picture_urls=None,
-    ))
+    raw = _run(
+        server.create_listing(
+            folder_path=str(folder),
+            price=49.99,
+            quantity=1,
+            condition="Used",
+            has_caddy=False,
+            dry_run=True,
+            picture_urls=None,
+        )
+    )
     result = json.loads(raw)
     assert "error" in result
     assert "no IMG*.jpg photos" in result["error"]
@@ -232,10 +260,16 @@ def test_create_listing_missing_photos_fails_loudly(tmp_path: Path) -> None:
 def test_create_listing_unknown_mpn_fails_loudly(tmp_path: Path) -> None:
     folder = _mk_product_folder(tmp_path, oem_model="ST9999NX9999")
 
-    raw = _run(server.create_listing(
-        folder_path=str(folder), price=49.99, quantity=1,
-        condition="Used", has_caddy=False, dry_run=True,
-    ))
+    raw = _run(
+        server.create_listing(
+            folder_path=str(folder),
+            price=49.99,
+            quantity=1,
+            condition="Used",
+            has_caddy=False,
+            dry_run=True,
+        )
+    )
     result = json.loads(raw)
     assert "error" in result
     assert "Unknown MPN" in result["error"]
@@ -246,11 +280,16 @@ def test_create_listing_unknown_mpn_fails_loudly(tmp_path: Path) -> None:
 def test_create_listing_invalid_condition_fails_loudly(tmp_path: Path) -> None:
     folder = _mk_product_folder(tmp_path)
 
-    raw = _run(server.create_listing(
-        folder_path=str(folder), price=49.99, quantity=1,
-        condition="Refurbished",  # not in CONDITION_MAP
-        has_caddy=False, dry_run=True,
-    ))
+    raw = _run(
+        server.create_listing(
+            folder_path=str(folder),
+            price=49.99,
+            quantity=1,
+            condition="Refurbished",  # not in CONDITION_MAP
+            has_caddy=False,
+            dry_run=True,
+        )
+    )
     result = json.loads(raw)
     assert "error" in result
     assert "invalid condition" in result["error"].lower()
@@ -260,10 +299,16 @@ def test_create_listing_title_over_80_chars_fails_loudly(tmp_path: Path) -> None
     long_title = "X" * 90
     folder = _mk_product_folder(tmp_path, title=long_title)
 
-    raw = _run(server.create_listing(
-        folder_path=str(folder), price=49.99, quantity=1,
-        condition="Used", has_caddy=False, dry_run=True,
-    ))
+    raw = _run(
+        server.create_listing(
+            folder_path=str(folder),
+            price=49.99,
+            quantity=1,
+            condition="Used",
+            has_caddy=False,
+            dry_run=True,
+        )
+    )
     result = json.loads(raw)
     assert "error" in result
     assert "80-char" in result["error"]
@@ -272,10 +317,16 @@ def test_create_listing_title_over_80_chars_fails_loudly(tmp_path: Path) -> None
 def test_create_listing_price_zero_fails_loudly(tmp_path: Path) -> None:
     folder = _mk_product_folder(tmp_path)
 
-    raw = _run(server.create_listing(
-        folder_path=str(folder), price=0.0, quantity=1,
-        condition="Used", has_caddy=False, dry_run=True,
-    ))
+    raw = _run(
+        server.create_listing(
+            folder_path=str(folder),
+            price=0.0,
+            quantity=1,
+            condition="Used",
+            has_caddy=False,
+            dry_run=True,
+        )
+    )
     result = json.loads(raw)
     assert "error" in result
     assert "price must be > 0" in result["error"]
@@ -298,15 +349,23 @@ def test_create_listing_partial_upload_failure_preserves_uploaded_urls(
             r = MagicMock()
             r.reply.SiteHostedPictureDetails.FullURL = f"https://i.ebayimg.com/p{idx}/$_57.JPG"
             return r
-        raise AssertionError(f"unexpected verb {verb} — Add/Verify should not fire after upload failure")
+        raise AssertionError(
+            f"unexpected verb {verb} — Add/Verify should not fire after upload failure"
+        )
 
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                raw = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=False,
-                ))
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
+                    )
+                )
 
     result = json.loads(raw)
     assert "error" in result
@@ -331,19 +390,28 @@ def test_create_listing_return_shape_matches_update_listing_schema(
             return _fake_add_response("123")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title="Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5\" SATA III HDD ST2000NX0253",
-                qty=1, condition_id=3000, photos=2,
-                mpn="ST2000NX0253", brand="Seagate",
+                title='Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD ST2000NX0253',
+                qty=1,
+                condition_id=3000,
+                photos=2,
+                mpn="ST2000NX0253",
+                brand="Seagate",
             )
         raise AssertionError(verb)
 
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                raw = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=False,
-                ))
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
+                    )
+                )
 
     result = json.loads(raw)
     # update_listing schema keys: success, item_id, fields_updated, before, after
@@ -356,10 +424,16 @@ def test_create_listing_return_shape_matches_update_listing_schema(
 
 
 def test_create_listing_rejects_non_directory(tmp_path: Path) -> None:
-    raw = _run(server.create_listing(
-        folder_path=str(tmp_path / "does-not-exist"),
-        price=49.99, quantity=1, condition="Used", has_caddy=False, dry_run=True,
-    ))
+    raw = _run(
+        server.create_listing(
+            folder_path=str(tmp_path / "does-not-exist"),
+            price=49.99,
+            quantity=1,
+            condition="Used",
+            has_caddy=False,
+            dry_run=True,
+        )
+    )
     result = json.loads(raw)
     assert "error" in result
     assert "not a directory" in result["error"]
@@ -382,14 +456,26 @@ def test_create_listing_uuid_cache_stable_across_calls(tmp_path: Path) -> None:
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                raw1 = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=True,
-                ))
-                raw2 = _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=True,
-                ))
+                raw1 = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
+                    )
+                )
+                raw2 = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
+                    )
+                )
     r1, r2 = json.loads(raw1), json.loads(raw2)
     assert r1["uuid"] == r2["uuid"]
 
@@ -418,10 +504,16 @@ def test_create_listing_transfer_rate_12g_from_title(tmp_path: Path) -> None:
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=True,
-                ))
+                _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
+                    )
+                )
 
     nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
     tr_row = next(r for r in nvl if r["Name"] == "Transfer Rate")
@@ -452,10 +544,16 @@ def test_create_listing_transfer_rate_3g_from_title(tmp_path: Path) -> None:
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
-                _run(server.create_listing(
-                    folder_path=str(folder), price=49.99, quantity=1,
-                    condition="Used", has_caddy=False, dry_run=True,
-                ))
+                _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
+                    )
+                )
 
     nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
     tr_row = next(r for r in nvl if r["Name"] == "Transfer Rate")
@@ -506,9 +604,13 @@ def test_update_listing_accepts_2750_used_excellent(tmp_path: Path) -> None:
     with patch("server.execute_with_retry") as mock_exec:
         mock_exec.return_value = MagicMock()
         mock_exec.return_value.reply.Item = None
-        raw = _run(server.update_listing(
-            item_id="12345", condition_id=2750, dry_run=True,
-        ))
+        raw = _run(
+            server.update_listing(
+                item_id="12345",
+                condition_id=2750,
+                dry_run=True,
+            )
+        )
     result = json.loads(raw)
     # We expect either a "not found" or a diff — NOT an "invalid condition_id" error
     assert "invalid condition_id" not in str(result)

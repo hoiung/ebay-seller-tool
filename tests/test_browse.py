@@ -65,7 +65,9 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
         }
     )
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        result = _run(browse.fetch_competitor_prices(part_number="ST2000NM", condition="USED", limit=50))
+        result = _run(
+            browse.fetch_competitor_prices(part_number="ST2000NM", condition="USED", limit=50)
+        )
     assert result["count"] == 1
     assert result["listings"][0]["seller"] == "othershop"
     # AP #18: verify the filter + query propagated correctly to the HTTP call

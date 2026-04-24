@@ -132,7 +132,9 @@ def _date_range(days: int) -> str:
     return f"[{start}T00:00:00.000Z..{end}T23:59:59.999Z]"
 
 
-def _sync_get_traffic_report(listing_ids: list[str], days: int, marketplace_id: str) -> dict[str, Any]:
+def _sync_get_traffic_report(
+    listing_ids: list[str], days: int, marketplace_id: str
+) -> dict[str, Any]:
     if not listing_ids:
         raise ValueError("listing_ids must contain at least one item")
     if days < 1 or days > 90:
@@ -202,7 +204,9 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
     sold_window = min(days, 60)
     sold_page = await fetch_sold_listings(days=sold_window, per_page=200)
     units_sold = sum(
-        l.get("quantity_sold", 0) for l in sold_page["listings"] if l["item_id"] == str(item_id)
+        lst.get("quantity_sold", 0)
+        for lst in sold_page["listings"]
+        if lst["item_id"] == str(item_id)
     )
 
     # Returns via Post-Order.
@@ -213,7 +217,8 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
     returns_payload = await fetch_listing_returns(item_id=item_id, days=days)
     returns_list = returns_payload.get("returns", [])
 
-    # Postage loss per return = outbound (already shipped, non-refundable) + return postage (seller pays MBG).
+    # Postage loss per return = outbound (already shipped, non-refundable)
+    # + return postage (seller pays MBG).
     cfg = _load_fees_config()
     postage_per_return = float(cfg["postage"]["outbound_gbp"]) + float(cfg["postage"]["return_gbp"])
 
