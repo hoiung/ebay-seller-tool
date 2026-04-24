@@ -26,6 +26,6 @@ time_cost:
   hourly_rate_gbp: 30.0       # reference value if mode switches to marginal later
 
 defaults:
-  cogs_gbp: 0.0               # zero-COGS baseline per project_ebay_zero_cogs_baseline memory
-  return_rate: 0.10           # used-HDD placeholder; replaced by live per-SKU rate when Phase 2 compute_return_rate available
+  cogs_gbp: 0.0               # default — override per-SKU when cost differs
+  return_rate: 0.10           # conservative placeholder; replaced by live per-SKU rate when Phase 2 compute_return_rate available
   target_margin: 0.15
