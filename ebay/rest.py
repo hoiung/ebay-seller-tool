@@ -53,9 +53,25 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
             "transactions": int (sum of TRANSACTION),
             "ctr_pct": float | None (computed from aggregated impressions/views),
             "sales_conversion_rate_pct": float | None (mean across records, * 100),
+            "search_impression_share_pct": float | None
+                (LISTING_IMPRESSION_SEARCH_RESULTS_PAGE / LISTING_IMPRESSION_TOTAL),
+            "store_impression_share_pct": float | None
+                (LISTING_IMPRESSION_STORE / LISTING_IMPRESSION_TOTAL),
+            "search_view_share_pct": float | None
+                (LISTING_VIEWS_SOURCE_SEARCH_RESULTS_PAGE / LISTING_VIEWS_TOTAL),
+            "organic_search_exposure_pct": float | None
+                (synonym of search_impression_share_pct, retained for callers
+                 that read the search-vs-paid framing rather than the funnel),
             "records_count": int,
             "per_listing": [{"listing_id": str | None, "metrics": {key: value, ...}}, ...],
         }
+
+    Note on CLICK_THROUGH_RATE: the API-provided CTR field is unreliable
+    (1% reported vs 2.19% computed from impressions/views on the real
+    287260458724 fixture — a ~2x divergence). We ignore the raw API CTR
+    and surface our own `ctr_pct` computed from the aggregated impression
+    + view counts. The API value is intentionally NOT exposed in the
+    return shape.
 
     `listing_id` is None when the record's `dimensionValues[0].value` is
     missing from the eBay response (rare; API typically always populates it).
@@ -78,6 +94,9 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
     impressions = 0
     views_total = 0
     transactions = 0
+    search_impressions = 0
+    store_impressions = 0
+    search_views = 0
     conversions: list[float] = []
     per_listing: list[dict[str, Any]] = []
 
@@ -103,6 +122,9 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
             impressions += int(metrics.get("LISTING_IMPRESSION_TOTAL") or 0)
             views_total += int(metrics.get("LISTING_VIEWS_TOTAL") or 0)
             transactions += int(metrics.get("TRANSACTION") or 0)
+            search_impressions += int(metrics.get("LISTING_IMPRESSION_SEARCH_RESULTS_PAGE") or 0)
+            store_impressions += int(metrics.get("LISTING_IMPRESSION_STORE") or 0)
+            search_views += int(metrics.get("LISTING_VIEWS_SOURCE_SEARCH_RESULTS_PAGE") or 0)
         except (TypeError, ValueError) as e:
             log_debug(
                 f"traffic_report_parse_skipped listing_id={listing_id} "
@@ -129,6 +151,18 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
     sales_conversion_rate_pct = (
         round(sum(conversions) / len(conversions), 2) if conversions else None
     )
+    search_impression_share_pct = (
+        round(100.0 * search_impressions / impressions, 2) if impressions > 0 else None
+    )
+    store_impression_share_pct = (
+        round(100.0 * store_impressions / impressions, 2) if impressions > 0 else None
+    )
+    search_view_share_pct = (
+        round(100.0 * search_views / views_total, 2) if views_total > 0 else None
+    )
+    # Synonym of search_impression_share_pct — surfaced under the search-vs-paid
+    # framing (organic = unpaid search-results-page exposure).
+    organic_search_exposure_pct = search_impression_share_pct
 
     return {
         "impressions": impressions,
@@ -136,6 +170,10 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
         "transactions": transactions,
         "ctr_pct": ctr_pct,
         "sales_conversion_rate_pct": sales_conversion_rate_pct,
+        "search_impression_share_pct": search_impression_share_pct,
+        "store_impression_share_pct": store_impression_share_pct,
+        "search_view_share_pct": search_view_share_pct,
+        "organic_search_exposure_pct": organic_search_exposure_pct,
         "records_count": len(records),
         "per_listing": per_listing,
     }
