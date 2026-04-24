@@ -49,7 +49,11 @@ from ebay.listings import (  # noqa: E402
 )
 from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
 from ebay.rest import compute_return_rate as rest_compute_return_rate  # noqa: E402
-from ebay.rest import fetch_listing_returns, fetch_traffic_report  # noqa: E402
+from ebay.rest import (  # noqa: E402
+    fetch_listing_returns,
+    fetch_traffic_report,
+    parse_traffic_report_response,
+)
 from ebay.selling import (  # noqa: E402
     fetch_listing_cases,
     fetch_listing_feedback,
@@ -1361,26 +1365,19 @@ async def analyse_listing(
     rate_source = "default"
     try:
         traffic = await fetch_traffic_report([str(item_id)], days=min(window_days, 90))
-        records = traffic.get("records", []) or []
-        if records:
-            impressions = 0
-            views_total = 0
-            conversions = []
-            for rec in records:
-                metrics = {m["metricKey"]: m["value"] for m in rec.get("metrics", [])}
-                impressions += int(metrics.get("LISTING_IMPRESSION_TOTAL", 0) or 0)
-                views_total += int(metrics.get("LISTING_VIEWS_TOTAL", 0) or 0)
-                scr = metrics.get("SALES_CONVERSION_RATE")
-                if scr is not None:
-                    try:
-                        conversions.append(float(scr))
-                    except (ValueError, TypeError):
-                        pass
-            funnel["impressions"] = impressions
-            if impressions > 0 and views_total > 0:
-                funnel["ctr_pct"] = round(100.0 * views_total / impressions, 2)
-            if conversions:
-                traffic_sales_conversion_pct = round(sum(conversions) / len(conversions), 2)
+        summary = parse_traffic_report_response(traffic)
+        if summary["records_count"] > 0:
+            funnel["impressions"] = summary["impressions"]
+            funnel["views"] = summary["views"]
+            funnel["ctr_pct"] = summary["ctr_pct"]
+            if summary["views"] > 0:
+                funnel["watchers_per_100_views"] = round(
+                    100.0 * listing["watch_count"] / summary["views"], 2
+                )
+                funnel["conversion_rate_pct_approx"] = round(
+                    100.0 * listing["quantity_sold"] / summary["views"], 2
+                )
+            traffic_sales_conversion_pct = summary["sales_conversion_rate_pct"]
     except Exception as e:
         # Documented fail-soft: Phase 2 enrichment is best-effort. On any failure
         # (auth, timeout, unexpected shape, network) fall back to Phase 1 diagnosis
@@ -1484,10 +1481,15 @@ async def get_traffic_report(listing_ids: list[str], days: int = 30) -> str:
     Args:
         listing_ids: eBay item IDs.
         days: Lookback window in days (1-90). Default 30.
+
+    Returns the parsed summary (impressions, views, transactions, ctr_pct,
+    sales_conversion_rate_pct, per_listing breakdown). Uses the same shared
+    parser as analyse_listing so values are consistent between the two tools.
     """
     log_debug(f"get_traffic_report ids={len(listing_ids)} days={days}")
-    result = await fetch_traffic_report(listing_ids=listing_ids, days=days)
-    return json.dumps(result, indent=2)
+    raw = await fetch_traffic_report(listing_ids=listing_ids, days=days)
+    summary = parse_traffic_report_response(raw)
+    return json.dumps(summary, indent=2)
 
 
 @mcp.tool()
