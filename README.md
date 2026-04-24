@@ -170,6 +170,23 @@ ebay-seller-tool/
     └── research/          # Decision logs and API research
 ```
 
+## Developer setup
+
+Clone and install the pre-commit hooks before making changes. Pre-commit runs the secret scanner + drift checks locally; CI runs the same checks on every push and pull request, so skipping the install means your push is where those errors surface.
+
+```bash
+git clone https://github.com/hoiung/ebay-seller-tool.git
+cd ebay-seller-tool
+uv sync                       # install project + dev deps
+uv run pre-commit install     # install the git hook
+```
+
+Verify the hooks work:
+
+```bash
+uv run pre-commit run --all-files
+```
+
 ## Development Workflow
 
 This project uses [SST3-AI-Harness](https://github.com/hoiung/sst3-ai-harness) for all development. SST3 is a 5-stage autonomous AI workflow (Research, Issue Creation, Triple-Check, Implementation, Post-Implementation Review) with mandatory quality gates, multi-tier code review (Ralph Review), and enforcement via pre-commit hooks. Every change follows the same process: issue-driven, branch-per-issue, verified before merge.
