@@ -1,7 +1,10 @@
 """Unit tests for ebay.selling Trading API wrappers (Issue #4 Phase 1).
 
 Mocks execute_with_retry to return canonical eBay responses. Every mock
-assertion uses call_args.kwargs explicitly to prove arg propagation (AP #18).
+assertion reads call_args.args[1] (the payload dict) explicitly to prove
+arg propagation (AP #18). execute_with_retry is called positionally — no
+**kwargs path exists in production, so args[1] is the only capture point;
+the mock does not accept **kwargs and cannot silently discard fields.
 """
 
 from __future__ import annotations
