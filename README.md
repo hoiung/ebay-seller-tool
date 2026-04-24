@@ -47,6 +47,19 @@ cp .env.example .env
 uv sync
 ```
 
+### OAuth Setup (Phase 2/3 analytics tools)
+
+Analytics + Post-Order + Browse tools need OAuth. Trading-API tools only need `EBAY_AUTH_TOKEN`.
+
+```bash
+# One-time consent for user-token (Analytics + Post-Order returns)
+uv run python scripts/oauth_setup.py
+# Browser opens; approve; paste the redirect URL when prompted.
+# Writes EBAY_OAUTH_REFRESH_TOKEN to .env.
+```
+
+`.env` keys (added for Phase 2-4): `EBAY_APP_CLIENT_ID`, `EBAY_APP_CLIENT_SECRET`, `EBAY_OAUTH_RU_NAME`, `EBAY_OAUTH_REFRESH_TOKEN`, `EBAY_OWN_SELLER_USERNAME`.
+
 ### Register with Claude Code
 
 ```bash
@@ -71,10 +84,18 @@ claude
 |---|---|---|
 | `get_active_listings` | Implemented | List all active listings with stats |
 | `get_listing_details` | Implemented | Full details for a single listing |
-| `update_listing` | Implemented | Revise title, description, price, condition, item specifics (quantity blocked) |
-| `upload_photos` | Implemented (2026-04-20) | Upload local photos to eBay Picture Services |
-| `create_listing` | Implemented (2026-04-20) | Create a new fixed-price eBay listing end-to-end |
-| `bulk_update_descriptions` | Future | Add/replace HTML across multiple listings |
+| `update_listing` | Implemented | Revise title, description, price, condition, item specifics (quantity blocked). **Phase 4**: refuses to revise below computed floor price. |
+| `upload_photos` | Implemented | Upload local photos to eBay Picture Services |
+| `create_listing` | Implemented | Create a new fixed-price eBay listing end-to-end |
+| `get_sold_listings` / `get_unsold_listings` | Implemented (#4 Phase 1) | GetMyeBaySelling SoldList/UnsoldList wrappers |
+| `get_seller_transactions` | Implemented (#4 Phase 1) | GetSellerTransactions with derived days-to-sell |
+| `get_listing_feedback` | Implemented (#4 Phase 1) | Per-transaction feedback + DSR aggregate |
+| `get_listing_cases` | Implemented (#4 Phase 1) | Resolution cases (EBP_INR + EBP_SNAD) — read-only |
+| `floor_price` | Implemented (#4 Phase 1) | Break-even price under return-risk scenarios |
+| `analyse_listing` | Implemented (#4 Phase 1) | Funnel + signals + diagnosis + floor/ceiling |
+| `get_traffic_report` | Implemented (#4 Phase 2) | REST Analytics: impressions, CTR, sales conversion |
+| `get_listing_returns` / `compute_return_rate` | Implemented (#4 Phase 2) | Post-Order v2 return search + per-SKU rate |
+| `find_competitor_prices` | Implemented (#4 Phase 3) | Browse API market scan with own-seller exclusion |
 
 ### Usage
 
