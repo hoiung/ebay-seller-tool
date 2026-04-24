@@ -12,7 +12,7 @@ Formula (Issue #4, research §4):
     denom  = (1 - p) * (1 - fvf) - target_margin
     floor  = num / denom
 
-Worked example (zero COGS, sunk time, 10% return rate, 15% margin, £0 postage_charged):
+Worked example (cogs=0, sunk time, 10% return rate, 15% margin, £0 postage_charged):
     fixed  = 0 + 0.40 + 0.60 + 3.50 + 0 = 4.50
     num    = 4.50 + 0.10 * 3.50 + 0.90 * 0.1548 * 0.0 = 4.85
     denom  = 0.90 * 0.8452 - 0.15 = 0.61068
