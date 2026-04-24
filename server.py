@@ -62,6 +62,7 @@ from ebay.selling import (  # noqa: E402
     fetch_sold_listings,
     fetch_unsold_listings,
 )
+from ebay.snapshots import append_snapshot  # noqa: E402
 from ebay.store import fetch_store_info  # noqa: E402
 
 # Single source of truth for the per-listing photo cap is ebay/listings.py —
@@ -743,6 +744,34 @@ async def update_listing(
     if floor_payload is not None:
         success_response["floor_verdict"] = floor_payload["price_verdict"]
         success_response["return_rate_source"] = floor_payload["return_rate_source"]
+
+    # Phase 5.2.2 — emit price_change snapshot only when price actually changed.
+    if "price" in diff:
+        try:
+            old_price_str = before.get("price")
+            try:
+                old_price = float(old_price_str) if old_price_str is not None else None
+            except (TypeError, ValueError):
+                old_price = None
+            append_snapshot(
+                "price_change",
+                str(item_id),
+                {
+                    "price_gbp": price,
+                    "old_price_gbp": old_price,
+                    "quantity": current_full.get("quantity"),
+                    "watch_count": current_full.get("watch_count"),
+                    "view_count": current_full.get("view_count"),
+                    "traffic_30d": None,
+                    "source": "update_listing",
+                },
+            )
+        except (OSError, ValueError) as e:
+            log_debug(
+                f"update_listing snapshot_append_failed item_id={item_id} "
+                f"reason={type(e).__name__}: {e}"
+            )
+
     return json.dumps(success_response, indent=2)
 
 
@@ -1536,24 +1565,54 @@ async def analyse_listing(
                 "Cassini ranking on multi-quantity listings."
             )
 
-    return json.dumps(
-        {
-            "item_id": str(item_id),
-            "window_days": window_days,
-            "phase2_available": phase2_available,
-            "funnel": funnel,
-            "signals": signals,
-            "multi_qty_note": multi_qty_note,
-            "rank_health_status": rank_health,
-            "diagnosis": diagnosis,
-            "recommended_action": action,
-            "floor_price_gbp": floor_gbp,
-            "suggested_ceiling_gbp": ceiling_gbp,
-            "current_price_gbp": current_price_gbp,
-            "price_verdict": verdict,
-        },
-        indent=2,
-    )
+    response_payload = {
+        "item_id": str(item_id),
+        "window_days": window_days,
+        "phase2_available": phase2_available,
+        "funnel": funnel,
+        "signals": signals,
+        "multi_qty_note": multi_qty_note,
+        "rank_health_status": rank_health,
+        "diagnosis": diagnosis,
+        "recommended_action": action,
+        "floor_price_gbp": floor_gbp,
+        "suggested_ceiling_gbp": ceiling_gbp,
+        "current_price_gbp": current_price_gbp,
+        "price_verdict": verdict,
+    }
+
+    # Phase 5.2.1 — only persist when Phase 2 is actually available; without
+    # traffic data the snapshot can't drive elasticity later.
+    if phase2_available:
+        try:
+            append_snapshot(
+                "analysis_baseline",
+                str(item_id),
+                {
+                    "price_gbp": current_price_gbp,
+                    "quantity": listing.get("quantity"),
+                    "watch_count": listing["watch_count"],
+                    "view_count": funnel.get("views"),
+                    "traffic_30d": {
+                        "impressions": funnel.get("impressions"),
+                        "views": funnel.get("views"),
+                        "ctr_pct": funnel.get("ctr_pct"),
+                        "sales_conversion_rate_pct": traffic_sales_conversion_pct,
+                        "search_impression_share_pct": search_impression_share_pct,
+                        "store_impression_share_pct": store_impression_share_pct,
+                        "search_view_share_pct": search_view_share_pct,
+                        "organic_search_exposure_pct": organic_search_exposure_pct,
+                    },
+                    "source": "analyse_listing",
+                },
+            )
+        except (OSError, ValueError) as e:
+            log_debug(
+                f"analyse_listing snapshot_append_failed item_id={item_id} "
+                f"reason={type(e).__name__}: {e}"
+            )
+
+    return json.dumps(response_payload, indent=2)
 
 
 @mcp.tool()
