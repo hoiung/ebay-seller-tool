@@ -241,6 +241,35 @@ def _glob_label_photos(folder: Path) -> list[str]:
                 results.append(s)
     return results
 
+def _warn_missing_oauth_vars() -> None:
+    """Issue #5 Phase 2: additive diagnostic for OAuth-gated tools.
+
+    fail-fast on first call to the OAuth-gated tools is preserved (oauth.py
+    + browse.py both raise PermissionError with explicit env-var names).
+    This warning is purely discoverability — surfaces the degraded state
+    at boot so the operator knows BEFORE reaching for an OAuth tool.
+    """
+    runtime_required = {
+        "EBAY_APP_CLIENT_ID": "Browse + Traffic Report + Post-Order v2 OAuth app auth",
+        "EBAY_APP_CLIENT_SECRET": "Browse + Traffic Report + Post-Order v2 OAuth app auth",
+        "EBAY_OWN_SELLER_USERNAME": "own-seller exclusion in find_competitor_prices",
+    }
+    missing = [k for k in runtime_required if not os.environ.get(k)]
+    if not missing:
+        return
+    gated_tools = [
+        "find_competitor_prices",
+        "get_traffic_report",
+        "get_listing_returns",
+        "compute_return_rate",
+    ]
+    log_debug(
+        "OAuth env vars missing=" + ",".join(missing)
+        + " — gated_tools_unavailable=" + ",".join(gated_tools)
+        + " — fail-fast on first call preserved; see .env.example"
+    )
+
+
 mcp = FastMCP("ebay-seller-tool")
 
 
@@ -251,6 +280,7 @@ if not os.environ.get("EBAY_DEBUG"):
 # Validate credentials at module load (runs whether invoked via __main__ or MCP framework)
 validate_credentials()
 check_token_expiry()
+_warn_missing_oauth_vars()
 
 
 def with_error_handling(func):
