@@ -436,8 +436,11 @@ async def _measure_or_default_floor(item_id: str) -> tuple[dict, str]:
                 compute_floor_price(return_rate=float(rr["return_rate_pct"]) / 100.0),
                 "measured (Phase 2, 90d)",
             )
-    except (PermissionError, ValueError, httpx.HTTPError) as e:
-        log_debug(f"floor_guard measured_rate_unavailable item_id={item_id} reason={e}")
+    except Exception as e:
+        # Documented fail-soft: guardrail must not block legitimate updates due
+        # to a transient measurement issue (timeout, 5xx, unexpected response
+        # shape). The default floor is always safe; measurement is best-effort.
+        log_debug(f"floor_guard measured_rate_unavailable item_id={item_id} reason={type(e).__name__}: {e}")
     return compute_floor_price(), "default"
 
 
@@ -1319,16 +1322,19 @@ async def analyse_listing(
                 funnel["ctr_pct"] = round(100.0 * views_total / impressions, 2)
             if conversions:
                 traffic_sales_conversion_pct = round(sum(conversions) / len(conversions), 2)
-    except (PermissionError, ValueError, httpx.HTTPError) as e:
-        log_debug(f"analyse_listing traffic_report_skipped reason={e}")
+    except Exception as e:
+        # Documented fail-soft: Phase 2 enrichment is best-effort. On any failure
+        # (auth, timeout, unexpected shape, network) fall back to Phase 1 diagnosis
+        # rather than killing the whole analyse_listing response.
+        log_debug(f"analyse_listing traffic_report_skipped reason={type(e).__name__}: {e}")
 
     try:
         rr = await rest_compute_return_rate(item_id=item_id, days=90)
         if rr.get("return_rate_pct") is not None:
             traffic_return_rate_pct = float(rr["return_rate_pct"])
             rate_source = "measured (Phase 2, 90d)"
-    except (PermissionError, ValueError, httpx.HTTPError) as e:
-        log_debug(f"analyse_listing return_rate_skipped reason={e}")
+    except Exception as e:
+        log_debug(f"analyse_listing return_rate_skipped reason={type(e).__name__}: {e}")
 
     # 7. Rank health — Phase 2 feeds sales_conversion_rate_pct when live.
     rank_health = compute_rank_health(
