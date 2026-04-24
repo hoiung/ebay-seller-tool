@@ -52,7 +52,9 @@ def _fake_item(item_id: str = "123") -> SimpleNamespace:
         HitCount="0",
         WatchCount="7",
         BestOfferCount="0",
-        PrimaryCategory=SimpleNamespace(CategoryID="56083", CategoryName="Internal Hard Disk Drives"),
+        PrimaryCategory=SimpleNamespace(
+            CategoryID="56083", CategoryName="Internal Hard Disk Drives"
+        ),
     )
 
 
@@ -175,19 +177,22 @@ def test_analyse_listing_phase2_backfills_views() -> None:
     item_stub.SellingStatus.QuantitySold = "5"
     # Listing is 30 days old so days_on_site >= 14 (STABLE eligibility)
     from datetime import datetime, timedelta, timezone
+
     start_30d = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     item_stub.ListingDetails = SimpleNamespace(
         StartTime=start_30d, EndTime=None, ViewItemURL="https://ebay.co.uk/itm/999"
     )
 
-    with patch("server.execute_with_retry", return_value=_reply(Item=item_stub)), \
-        patch("server.fetch_seller_transactions", side_effect=fake_fetch_seller_transactions), \
-        patch("server.fetch_listing_feedback", side_effect=fake_fetch_listing_feedback), \
-        patch("server.fetch_listing_cases", side_effect=fake_fetch_listing_cases), \
-        patch("server.fetch_sold_listings", side_effect=fake_fetch_sold_listings), \
-        patch("server.fetch_unsold_listings", side_effect=fake_fetch_unsold_listings), \
-        patch("server.fetch_traffic_report", side_effect=fake_fetch_traffic_report), \
-        patch("server.rest_compute_return_rate", side_effect=fake_rest_compute_return_rate):
+    with (
+        patch("server.execute_with_retry", return_value=_reply(Item=item_stub)),
+        patch("server.fetch_seller_transactions", side_effect=fake_fetch_seller_transactions),
+        patch("server.fetch_listing_feedback", side_effect=fake_fetch_listing_feedback),
+        patch("server.fetch_listing_cases", side_effect=fake_fetch_listing_cases),
+        patch("server.fetch_sold_listings", side_effect=fake_fetch_sold_listings),
+        patch("server.fetch_unsold_listings", side_effect=fake_fetch_unsold_listings),
+        patch("server.fetch_traffic_report", side_effect=fake_fetch_traffic_report),
+        patch("server.rest_compute_return_rate", side_effect=fake_rest_compute_return_rate),
+    ):
         tool = server.mcp._tool_manager._tools["analyse_listing"]
         result_json = _run(tool.fn(item_id="999"))
 
@@ -204,7 +209,9 @@ def test_analyse_listing_phase2_backfills_views() -> None:
     # Rank + diagnosis
     assert parsed["rank_health_status"] == "STABLE"
     assert "Low views" not in parsed["diagnosis"]
-    assert parsed["recommended_action"] is None or "Rewrite title" not in parsed["recommended_action"]
+    assert (
+        parsed["recommended_action"] is None or "Rewrite title" not in parsed["recommended_action"]
+    )
 
 
 def test_analyse_listing_phase2_unavailable_returns_data_gap() -> None:
@@ -240,19 +247,22 @@ def test_analyse_listing_phase2_unavailable_returns_data_gap() -> None:
     item_stub.WatchCount = "7"
     item_stub.SellingStatus.QuantitySold = "5"
     from datetime import datetime, timedelta, timezone
+
     start_30d = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     item_stub.ListingDetails = SimpleNamespace(
         StartTime=start_30d, EndTime=None, ViewItemURL="https://ebay.co.uk/itm/999"
     )
 
-    with patch("server.execute_with_retry", return_value=_reply(Item=item_stub)), \
-        patch("server.fetch_seller_transactions", side_effect=fake_transactions), \
-        patch("server.fetch_listing_feedback", side_effect=fake_feedback), \
-        patch("server.fetch_listing_cases", side_effect=fake_cases), \
-        patch("server.fetch_sold_listings", side_effect=fake_sold_unsold), \
-        patch("server.fetch_unsold_listings", side_effect=fake_sold_unsold), \
-        patch("server.fetch_traffic_report", side_effect=fake_raises), \
-        patch("server.rest_compute_return_rate", side_effect=fake_return_rate_raises):
+    with (
+        patch("server.execute_with_retry", return_value=_reply(Item=item_stub)),
+        patch("server.fetch_seller_transactions", side_effect=fake_transactions),
+        patch("server.fetch_listing_feedback", side_effect=fake_feedback),
+        patch("server.fetch_listing_cases", side_effect=fake_cases),
+        patch("server.fetch_sold_listings", side_effect=fake_sold_unsold),
+        patch("server.fetch_unsold_listings", side_effect=fake_sold_unsold),
+        patch("server.fetch_traffic_report", side_effect=fake_raises),
+        patch("server.rest_compute_return_rate", side_effect=fake_return_rate_raises),
+    ):
         tool = server.mcp._tool_manager._tools["analyse_listing"]
         result_json = _run(tool.fn(item_id="999"))
 

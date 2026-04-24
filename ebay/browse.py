@@ -95,7 +95,9 @@ def _sync_find_competitor_prices(
 
         if item.get("bestOfferEnabled"):
             best_offer_count += 1
-        if item.get("listingMarketplaceId") and "PROMOTED" in str(item.get("itemAffiliateWebUrl", "")):
+        if item.get("listingMarketplaceId") and "PROMOTED" in str(
+            item.get("itemAffiliateWebUrl", "")
+        ):
             promoted_count += 1
         cond = item.get("condition", "UNKNOWN")
         by_condition[cond] = by_condition.get(cond, 0) + 1

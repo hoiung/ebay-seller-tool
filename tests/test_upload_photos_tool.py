@@ -4,9 +4,8 @@ import asyncio
 import json
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from PIL import Image
 
 import server
@@ -103,10 +102,7 @@ def test_upload_photos_warns_on_joined_chars_over_cap(tmp_path: Path) -> None:
     """Hit the 3975-char soft cap — warnings list is populated but success=True."""
     paths = [str(_mk_photo(tmp_path, i)) for i in range(20)]
     # Each URL ~200 chars × 20 = 4000 chars > 3975
-    big_urls = [
-        "https://i.ebayimg.com/" + ("x" * 180) + f"/$_57.JPG?id={i}"
-        for i in range(20)
-    ]
+    big_urls = ["https://i.ebayimg.com/" + ("x" * 180) + f"/$_57.JPG?id={i}" for i in range(20)]
 
     with patch("server.upload_one", side_effect=big_urls):
         with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):

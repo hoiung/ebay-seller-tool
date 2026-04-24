@@ -23,9 +23,7 @@ from ebay.listings import _parse_iso_ts
 
 def _validate_window(days: int, max_days: int, tool_name: str) -> None:
     if not isinstance(days, int) or days < 1 or days > max_days:
-        raise ValueError(
-            f"{tool_name}: days must be int in [1, {max_days}]; got {days!r}"
-        )
+        raise ValueError(f"{tool_name}: days must be int in [1, {max_days}]; got {days!r}")
 
 
 def _as_list(node: Any) -> list:
@@ -61,7 +59,7 @@ async def fetch_sold_listings(days: int = 30, page: int = 1, per_page: int = 25)
                 "Sort": "TimeLeft",
                 "DurationInDays": days,
                 "Pagination": {"EntriesPerPage": per_page, "PageNumber": page},
-                # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
                 "IncludeWatchCount": "true",
             },
         },
@@ -79,7 +77,9 @@ async def fetch_sold_listings(days: int = 30, page: int = 1, per_page: int = 25)
         except (AttributeError, ValueError, TypeError):
             total = 0
 
-    orders = _as_list(getattr(getattr(sold_list, "OrderTransactionArray", None), "OrderTransaction", None))
+    orders = _as_list(
+        getattr(getattr(sold_list, "OrderTransactionArray", None), "OrderTransaction", None)
+    )
 
     listings: list[dict[str, Any]] = []
     for order in orders:
@@ -89,7 +89,9 @@ async def fetch_sold_listings(days: int = 30, page: int = 1, per_page: int = 25)
         item_node = getattr(transaction, "Item", None)
         if item_node is None:
             continue
-        start_t = _parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "StartTime", None))
+        start_t = _parse_iso_ts(
+            getattr(getattr(item_node, "ListingDetails", None), "StartTime", None)
+        )
         end_t = _parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "EndTime", None))
         txn_price_obj = getattr(transaction, "TransactionPrice", None)
         txn_price = str(getattr(txn_price_obj, "value", "")) if txn_price_obj is not None else ""
@@ -98,7 +100,9 @@ async def fetch_sold_listings(days: int = 30, page: int = 1, per_page: int = 25)
                 "item_id": str(getattr(item_node, "ItemID", "")),
                 "title": str(getattr(item_node, "Title", "")),
                 "sold_price": txn_price,
-                "currency": str(getattr(txn_price_obj, "_currencyID", "GBP")) if txn_price_obj is not None else "GBP",
+                "currency": str(getattr(txn_price_obj, "_currencyID", "GBP"))
+                if txn_price_obj is not None
+                else "GBP",
                 "quantity_sold": int(getattr(transaction, "QuantityPurchased", 0) or 0),
                 "start_time": start_t,
                 "end_time": end_t,
@@ -129,7 +133,7 @@ async def fetch_unsold_listings(
                 "Sort": "TimeLeft",
                 "DurationInDays": days,
                 "Pagination": {"EntriesPerPage": per_page, "PageNumber": page},
-                # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                # WatchCount needs explicit opt-in (DetailLevel=ReturnAll omits it).
                 "IncludeWatchCount": "true",
             },
         },
@@ -151,7 +155,9 @@ async def fetch_unsold_listings(
 
     listings: list[dict[str, Any]] = []
     for item_node in items:
-        start_t = _parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "StartTime", None))
+        start_t = _parse_iso_ts(
+            getattr(getattr(item_node, "ListingDetails", None), "StartTime", None)
+        )
         end_t = _parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "EndTime", None))
         price_obj = getattr(getattr(item_node, "SellingStatus", None), "CurrentPrice", None)
         listings.append(
@@ -159,7 +165,9 @@ async def fetch_unsold_listings(
                 "item_id": str(getattr(item_node, "ItemID", "")),
                 "title": str(getattr(item_node, "Title", "")),
                 "price": str(getattr(price_obj, "value", "")) if price_obj is not None else "",
-                "currency": str(getattr(price_obj, "_currencyID", "GBP")) if price_obj is not None else "GBP",
+                "currency": str(getattr(price_obj, "_currencyID", "GBP"))
+                if price_obj is not None
+                else "GBP",
                 "quantity_sold": 0,
                 "start_time": start_t,
                 "end_time": end_t,
@@ -199,7 +207,9 @@ async def fetch_seller_transactions(days: int = 30, page: int = 1) -> dict[str, 
     )
 
     txns_node = getattr(response.reply, "TransactionArray", None)
-    transactions = _as_list(getattr(txns_node, "Transaction", None)) if txns_node is not None else []
+    transactions = (
+        _as_list(getattr(txns_node, "Transaction", None)) if txns_node is not None else []
+    )
 
     results: list[dict[str, Any]] = []
     for t in transactions:
@@ -209,7 +219,9 @@ async def fetch_seller_transactions(days: int = 30, page: int = 1) -> dict[str, 
         paid = _parse_iso_ts(getattr(t, "PaidTime", None))
         shipped = _parse_iso_ts(getattr(t, "ShippedTime", None))
         start_listing = _parse_iso_ts(
-            getattr(getattr(item_node, "ListingDetails", None), "StartTime", None) if item_node else None
+            getattr(getattr(item_node, "ListingDetails", None), "StartTime", None)
+            if item_node
+            else None
         )
         results.append(
             {
@@ -218,8 +230,12 @@ async def fetch_seller_transactions(days: int = 30, page: int = 1) -> dict[str, 
                 "created_date": created,
                 "paid_time": paid,
                 "shipped_time": shipped,
-                "transaction_price": str(getattr(price_obj, "value", "")) if price_obj is not None else "",
-                "currency": str(getattr(price_obj, "_currencyID", "GBP")) if price_obj is not None else "GBP",
+                "transaction_price": str(getattr(price_obj, "value", ""))
+                if price_obj is not None
+                else "",
+                "currency": str(getattr(price_obj, "_currencyID", "GBP"))
+                if price_obj is not None
+                else "GBP",
                 "quantity_purchased": int(getattr(t, "QuantityPurchased", 0) or 0),
                 "days_to_sell": _days_from_to(start_listing, created),
             }
@@ -266,9 +282,14 @@ async def fetch_listing_feedback(item_id: str, days: int = 90) -> dict[str, Any]
                 pass
 
         dsr: dict[str, float] = {}
-        dsr_node = getattr(fb, "SellerDSR", None) or getattr(fb, "FeedbackRatingDetailArray", None)
+        getattr(fb, "SellerDSR", None) or getattr(fb, "FeedbackRatingDetailArray", None)
         # DSR may also be flat — best-effort extract
-        for attr in ("ItemAsDescribed", "CommunicationRating", "ShippingTimeRating", "ShippingAndHandlingCharges"):
+        for attr in (
+            "ItemAsDescribed",
+            "CommunicationRating",
+            "ShippingTimeRating",
+            "ShippingAndHandlingCharges",
+        ):
             v = getattr(fb, attr, None)
             if v is not None:
                 try:
@@ -290,7 +311,11 @@ async def fetch_listing_feedback(item_id: str, days: int = 90) -> dict[str, Any]
             }
         )
 
-    dsr_avg = round(sum(dsr_item_as_described) / len(dsr_item_as_described), 2) if dsr_item_as_described else None
+    dsr_avg = (
+        round(sum(dsr_item_as_described) / len(dsr_item_as_described), 2)
+        if dsr_item_as_described
+        else None
+    )
 
     return {
         "item_id": str(item_id),
@@ -328,7 +353,9 @@ async def fetch_listing_cases(item_id: str, days: int = 90) -> dict[str, Any]:
     for c in cases:
         results.append(
             {
-                "case_id": str(getattr(getattr(c, "CaseID", None), "Value", getattr(c, "CaseID", ""))),
+                "case_id": str(
+                    getattr(getattr(c, "CaseID", None), "Value", getattr(c, "CaseID", ""))
+                ),
                 "case_type": str(getattr(c, "CaseType", "")),
                 "case_status": str(getattr(c, "CaseStatus", "")),
                 "creation_date": _parse_iso_ts(getattr(c, "CreationDate", None)),

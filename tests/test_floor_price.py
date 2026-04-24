@@ -72,7 +72,9 @@ def test_floor_price_postage_charged_extra_fvf() -> None:
 
 
 def test_compute_funnel_basic() -> None:
-    f = compute_funnel(view_count=100, watch_count=5, quantity_sold=2, question_count=1, days_on_site=10)
+    f = compute_funnel(
+        view_count=100, watch_count=5, quantity_sold=2, question_count=1, days_on_site=10
+    )
     assert f["views"] == 100
     assert f["watchers"] == 5
     assert f["watchers_per_100_views"] == 5.0
@@ -84,7 +86,9 @@ def test_compute_funnel_basic() -> None:
 
 def test_compute_funnel_zero_views() -> None:
     # Genuine-zero path: view_count=0 (not None) → ratios stay 0.0
-    f = compute_funnel(view_count=0, watch_count=0, quantity_sold=0, question_count=0, days_on_site=None)
+    f = compute_funnel(
+        view_count=0, watch_count=0, quantity_sold=0, question_count=0, days_on_site=None
+    )
     assert f["watchers_per_100_views"] == 0.0
     assert f["conversion_rate_pct_approx"] == 0.0
     assert f["views_per_day"] is None
@@ -96,7 +100,9 @@ def test_compute_funnel_views_none() -> None:
     Preserves the data-gap signal so diagnose_listing can fire its data-gap
     branch instead of the false-alarm 'Low views — rewrite title' branch.
     """
-    f = compute_funnel(view_count=None, watch_count=7, quantity_sold=5, question_count=0, days_on_site=20)
+    f = compute_funnel(
+        view_count=None, watch_count=7, quantity_sold=5, question_count=0, days_on_site=20
+    )
     assert f["views"] is None
     assert f["watchers_per_100_views"] is None
     assert f["conversion_rate_pct_approx"] is None
@@ -108,15 +114,30 @@ def test_compute_funnel_views_none() -> None:
 
 
 def test_compute_rank_health_insufficient_data() -> None:
-    assert compute_rank_health(days_on_site=5, watchers_per_100_views=10.0, sales_conversion_rate_pct=None) == "INSUFFICIENT_DATA"
+    assert (
+        compute_rank_health(
+            days_on_site=5, watchers_per_100_views=10.0, sales_conversion_rate_pct=None
+        )
+        == "INSUFFICIENT_DATA"
+    )
 
 
 def test_compute_rank_health_stable_by_watchers() -> None:
-    assert compute_rank_health(days_on_site=20, watchers_per_100_views=5.0, sales_conversion_rate_pct=None) == "STABLE"
+    assert (
+        compute_rank_health(
+            days_on_site=20, watchers_per_100_views=5.0, sales_conversion_rate_pct=None
+        )
+        == "STABLE"
+    )
 
 
 def test_compute_rank_health_stable_by_conversion() -> None:
-    assert compute_rank_health(days_on_site=20, watchers_per_100_views=1.0, sales_conversion_rate_pct=3.0) == "STABLE"
+    assert (
+        compute_rank_health(
+            days_on_site=20, watchers_per_100_views=1.0, sales_conversion_rate_pct=3.0
+        )
+        == "STABLE"
+    )
 
 
 def test_compute_rank_health_stable_by_absolute_signals() -> None:
@@ -139,7 +160,12 @@ def test_compute_rank_health_stable_by_absolute_signals() -> None:
 
 
 def test_compute_rank_health_volatile() -> None:
-    assert compute_rank_health(days_on_site=20, watchers_per_100_views=1.0, sales_conversion_rate_pct=0.5) == "VOLATILE"
+    assert (
+        compute_rank_health(
+            days_on_site=20, watchers_per_100_views=1.0, sales_conversion_rate_pct=0.5
+        )
+        == "VOLATILE"
+    )
 
 
 def test_compute_rank_health_volatile_when_absolute_signals_too_weak() -> None:
@@ -169,7 +195,9 @@ def test_compute_rank_health_volatile_when_absolute_signals_too_weak() -> None:
 
 
 def test_diagnose_low_views() -> None:
-    funnel = compute_funnel(view_count=5, watch_count=0, quantity_sold=0, question_count=0, days_on_site=20)
+    funnel = compute_funnel(
+        view_count=5, watch_count=0, quantity_sold=0, question_count=0, days_on_site=20
+    )
     diag, action = diagnose_listing(funnel, {}, "VOLATILE", price_gbp=35.0, floor_gbp=7.94)
     assert "Low views" in diag
     assert action is not None
@@ -195,14 +223,18 @@ def test_diagnose_data_gap_aware() -> None:
 
 
 def test_diagnose_watchers_no_sale() -> None:
-    funnel = compute_funnel(view_count=100, watch_count=10, quantity_sold=0, question_count=0, days_on_site=20)
+    funnel = compute_funnel(
+        view_count=100, watch_count=10, quantity_sold=0, question_count=0, days_on_site=20
+    )
     diag, action = diagnose_listing(funnel, {}, "VOLATILE", price_gbp=35.0, floor_gbp=7.94)
     assert "price is the blocker" in diag
     assert "Drop price" in action or "Best Offer" in action
 
 
 def test_diagnose_healthy() -> None:
-    funnel = compute_funnel(view_count=100, watch_count=5, quantity_sold=2, question_count=0, days_on_site=20)
+    funnel = compute_funnel(
+        view_count=100, watch_count=5, quantity_sold=2, question_count=0, days_on_site=20
+    )
     diag, action = diagnose_listing(funnel, {}, "STABLE", price_gbp=35.0, floor_gbp=7.94)
     assert "Healthy" in diag
     assert action is None

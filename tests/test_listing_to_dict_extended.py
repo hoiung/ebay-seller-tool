@@ -1,6 +1,5 @@
 """Tests for the Phase 1.1 extension of listing_to_dict."""
 
-from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from ebay.listings import listing_to_dict

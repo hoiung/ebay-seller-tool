@@ -87,7 +87,7 @@ def floor_price(
     if denom <= 0:
         raise ValueError(
             f"target_margin {target_margin:.2%} unreachable at return_rate "
-            f"{p:.2%} and fvf {fvf_rate:.2%}: (1-p)(1-fvf)={((1-p)*(1-fvf_rate)):.4f} "
+            f"{p:.2%} and fvf {fvf_rate:.2%}: (1-p)(1-fvf)={((1 - p) * (1 - fvf_rate)):.4f} "
             f"<= target_margin. Lower target_margin or accept higher risk."
         )
 
@@ -210,7 +210,7 @@ def diagnose_listing(
     Decision matrix from research §2.3. Returns (text, action) — action is
     None when no change recommended.
     """
-    views = funnel.get("views")   # preserves None — data-gap branch fires first below
+    views = funnel.get("views")  # preserves None — data-gap branch fires first below
     watchers = funnel.get("watchers") or 0
     units_sold = funnel.get("units_sold") or 0
     watchers_per_100 = funnel.get("watchers_per_100_views") or 0.0
@@ -244,7 +244,8 @@ def diagnose_listing(
 
     if watchers >= 5 and units_sold == 0:
         return (
-            f"{watchers} watchers, 0 sold — price is the blocker (watchers = interested at higher price).",
+            f"{watchers} watchers, 0 sold — price is the blocker "
+            "(watchers = interested at higher price).",
             "Drop price 5-8% or enable Best Offer.",
         )
 
@@ -284,9 +285,7 @@ def price_verdict(
             f"BELOW FLOOR by £{abs(delta):.2f} — current £{current_price:.2f} "
             f"vs floor £{floor:.2f} (return rate {return_rate:.1%}, {source})"
         )
-    return (
-        f"OK — £{delta:.2f} above floor £{floor:.2f} (return rate {return_rate:.1%}, {source})"
-    )
+    return f"OK — £{delta:.2f} above floor £{floor:.2f} (return rate {return_rate:.1%}, {source})"
 
 
 def summarise_feedback(feedback_entries: list[dict[str, Any]]) -> dict[str, Any]:

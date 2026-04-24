@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -182,9 +181,11 @@ def test_fetch_listing_returns_happy_path() -> None:
 
 
 def test_compute_return_rate_zero_sold() -> None:
-    with patch("ebay.selling.fetch_sold_listings") as mock_sold, patch(
-        "ebay.rest.fetch_listing_returns"
-    ) as mock_returns:
+    with (
+        patch("ebay.selling.fetch_sold_listings") as mock_sold,
+        patch("ebay.rest.fetch_listing_returns") as mock_returns,
+    ):
+
         async def sold_empty(**_):
             return {"listings": []}
 
@@ -199,25 +200,31 @@ def test_compute_return_rate_zero_sold() -> None:
 
 
 def test_compute_return_rate_with_sales_and_returns() -> None:
-    with patch("ebay.selling.fetch_sold_listings") as mock_sold, patch(
-        "ebay.rest.fetch_listing_returns"
-    ) as mock_returns:
+    with (
+        patch("ebay.selling.fetch_sold_listings") as mock_sold,
+        patch("ebay.rest.fetch_listing_returns") as mock_returns,
+    ):
+
         async def sold(**kwargs):
             # AP #18: assert kwargs propagated explicitly
             assert kwargs["days"] == 60  # min(90, 60) cap on GetMyeBaySelling window
             assert kwargs["per_page"] == 200
-            return {"listings": [
-                {"item_id": "111", "quantity_sold": 10},
-                {"item_id": "999", "quantity_sold": 5},
-            ]}
+            return {
+                "listings": [
+                    {"item_id": "111", "quantity_sold": 10},
+                    {"item_id": "999", "quantity_sold": 5},
+                ]
+            }
 
         async def returns(**kwargs):
             assert kwargs["item_id"] == "111"
             assert kwargs["days"] == 90
-            return {"returns": [
-                {"reason": "NOT_AS_DESCRIBED", "sellerTotalRefund": {"value": "25.00"}},
-                {"reason": "DAMAGED", "sellerTotalRefund": {"value": "30.00"}},
-            ]}
+            return {
+                "returns": [
+                    {"reason": "NOT_AS_DESCRIBED", "sellerTotalRefund": {"value": "25.00"}},
+                    {"reason": "DAMAGED", "sellerTotalRefund": {"value": "30.00"}},
+                ]
+            }
 
         mock_sold.side_effect = sold
         mock_returns.side_effect = returns

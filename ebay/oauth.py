@@ -123,9 +123,7 @@ def _refresh_user_token() -> tuple[str, float]:
             "Refresh token may be revoked or expired — re-run scripts/oauth_setup.py."
         )
     if resp.status_code >= 400:
-        raise PermissionError(
-            f"OAuth refresh failed ({resp.status_code}): {resp.text}"
-        )
+        raise PermissionError(f"OAuth refresh failed ({resp.status_code}): {resp.text}")
 
     payload = resp.json()
     access = payload.get("access_token")
@@ -208,9 +206,7 @@ def get_post_order_session() -> httpx.Client:
     """
     auth_token = os.environ.get("EBAY_AUTH_TOKEN")
     if not auth_token:
-        raise PermissionError(
-            "EBAY_AUTH_TOKEN missing — required for Post-Order API (IAF scheme)"
-        )
+        raise PermissionError("EBAY_AUTH_TOKEN missing — required for Post-Order API (IAF scheme)")
     return httpx.Client(
         base_url=_base_url(),
         headers={
@@ -267,9 +263,7 @@ def raise_for_ebay_error(response: httpx.Response) -> None:
     """Fail-loud parser — raises if response.status >= 400 or eBay error envelope."""
     on_401_refresh_and_retry(response)
     if response.status_code >= 400:
-        raise PermissionError(
-            f"eBay API {response.status_code} on {response.url}: {response.text}"
-        )
+        raise PermissionError(f"eBay API {response.status_code} on {response.url}: {response.text}")
     try:
         payload: Any = response.json()
     except ValueError:
@@ -277,6 +271,4 @@ def raise_for_ebay_error(response: httpx.Response) -> None:
     if isinstance(payload, dict):
         for key in _KNOWN_JSON_ERROR_KEYS:
             if key in payload and payload[key]:
-                raise PermissionError(
-                    f"eBay API error envelope on {response.url}: {payload[key]}"
-                )
+                raise PermissionError(f"eBay API error envelope on {response.url}: {payload[key]}")

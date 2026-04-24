@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock, patch
 
 
 def _run(coro):
@@ -61,9 +59,10 @@ def _fake_get_item(price: str = "35.00") -> SimpleNamespace:
 def test_guardrail_rejects_below_floor() -> None:
     from server import update_listing
 
-    with patch("server.execute_with_retry", side_effect=[_fake_get_item()]) as _, patch(
-        "server._measure_or_default_floor", new_callable=AsyncMock
-    ) as mock_floor:
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item()]) as _,
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
         mock_floor.return_value = (
             {
                 "floor_gbp": 7.94,
@@ -84,9 +83,10 @@ def test_guardrail_accepts_at_exact_floor() -> None:
     from server import update_listing
 
     # current price 100.00, test price 7.94 - diff triggers
-    with patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]), patch(
-        "server._measure_or_default_floor", new_callable=AsyncMock
-    ) as mock_floor:
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
         mock_floor.return_value = (
             {
                 "floor_gbp": 7.94,
@@ -105,9 +105,10 @@ def test_guardrail_accepts_at_exact_floor() -> None:
 def test_guardrail_dry_run_no_current_analysis() -> None:
     from server import update_listing
 
-    with patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]), patch(
-        "server._measure_or_default_floor", new_callable=AsyncMock
-    ) as mock_floor:
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
         mock_floor.return_value = (
             {
                 "floor_gbp": 7.94,
@@ -126,9 +127,10 @@ def test_guardrail_dry_run_echoes_current_analysis() -> None:
     from server import update_listing
 
     analysis_input = {"item_id": "999", "rank_health_status": "STABLE"}
-    with patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]), patch(
-        "server._measure_or_default_floor", new_callable=AsyncMock
-    ) as mock_floor:
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
         mock_floor.return_value = (
             {
                 "floor_gbp": 7.94,
@@ -138,9 +140,7 @@ def test_guardrail_dry_run_echoes_current_analysis() -> None:
             "default",
         )
         result = _run(
-            update_listing(
-                item_id="999", price=35.0, dry_run=True, current_analysis=analysis_input
-            )
+            update_listing(item_id="999", price=35.0, dry_run=True, current_analysis=analysis_input)
         )
     body = json.loads(result)
     assert body["current_analysis"] == analysis_input
@@ -149,9 +149,10 @@ def test_guardrail_dry_run_echoes_current_analysis() -> None:
 def test_guardrail_error_message_cites_source() -> None:
     from server import update_listing
 
-    with patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]), patch(
-        "server._measure_or_default_floor", new_callable=AsyncMock
-    ) as mock_floor:
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
         mock_floor.return_value = (
             {
                 "floor_gbp": 8.50,
@@ -177,9 +178,10 @@ def test_guardrail_additive_only_21_field_invariance() -> None:
     """
     from server import update_listing
 
-    with patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]) as mock_exec, patch(
-        "server._measure_or_default_floor", new_callable=AsyncMock
-    ) as mock_floor:
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("100.00")]) as mock_exec,
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
         mock_floor.return_value = (
             {
                 "floor_gbp": 7.94,

@@ -30,6 +30,8 @@ target-version = "py311"
 # Modifying them locally would break the secret-rules-drift pre-commit hook.
 extend-exclude = [
     "scripts/check-public-repo-secrets.py",
+    "scripts/sst3_mirror_utils.py",
+    "scripts/check-mirror-drift.py",
 ]
 
 [tool.ruff.lint]

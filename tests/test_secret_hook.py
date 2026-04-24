@@ -13,8 +13,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 _REPO_ROOT = Path(__file__).parent.parent
 _SCRIPT = _REPO_ROOT / "scripts" / "check-public-repo-secrets.py"
 
@@ -44,9 +42,7 @@ def test_refresh_token_value_blocked(tmp_path: Path) -> None:
     bad = tmp_path / "bad_token.py"
     # Literal that would fire a real-world secret sniffer — use a plausible-looking
     # refresh_token assignment. Not a real token.
-    bad.write_text(
-        'EBAY_OAUTH_REFRESH_TOKEN = "v^1.1#i^1#f^0#p^3#I^3#r^1#t^Ul41Xz"\n'
-    )
+    bad.write_text('EBAY_OAUTH_REFRESH_TOKEN = "v^1.1#i^1#f^0#p^3#I^3#r^1#t^Ul41Xz"\n')
     code, out, err = _run_hook(bad)
     assert code != 0
 

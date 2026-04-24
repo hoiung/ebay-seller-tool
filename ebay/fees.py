@@ -22,9 +22,7 @@ def _load_fees_config() -> dict[str, Any]:
     """Load and cache fees.yaml. Override path via EBAY_FEES_CONFIG env var (tests)."""
     path = Path(os.environ.get("EBAY_FEES_CONFIG", _DEFAULT_CONFIG_PATH))
     if not path.exists():
-        raise FileNotFoundError(
-            f"fees config missing: {path} — expected at config/fees.yaml"
-        )
+        raise FileNotFoundError(f"fees config missing: {path} — expected at config/fees.yaml")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     _validate(data, path)
@@ -57,6 +55,4 @@ def _validate(data: dict, path: Path) -> None:
             raise ValueError(f"{path}: section {section!r} missing keys {missing}")
     mode = data["time_cost"]["mode"]
     if mode not in ("sunk", "marginal"):
-        raise ValueError(
-            f"{path}: time_cost.mode={mode!r} — must be 'sunk' or 'marginal'"
-        )
+        raise ValueError(f"{path}: time_cost.mode={mode!r} — must be 'sunk' or 'marginal'")
