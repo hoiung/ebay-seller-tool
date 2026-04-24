@@ -49,8 +49,13 @@ def _flatten_shipping_for_output(item: object) -> dict[str, object] | None:
     sso = getattr(sd, "ShippingServiceOptions", None)
     if sso is None:
         return None
-    # ebaysdk may return list or single
-    first = sso[0] if isinstance(sso, list) else sso
+    # ebaysdk may return list or single; guard against empty list edge case
+    if isinstance(sso, list):
+        if not sso:
+            return None
+        first = sso[0]
+    else:
+        first = sso
     service = getattr(first, "ShippingService", None)
     cost_obj = getattr(first, "ShippingServiceCost", None)
     free = getattr(first, "FreeShipping", None)

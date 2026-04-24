@@ -31,9 +31,18 @@ def get_trading_api() -> Trading:
     cert_id = os.environ["EBAY_CERT_ID"]
     dev_id = os.environ["EBAY_DEV_ID"]
     token = os.environ["EBAY_AUTH_TOKEN"]
-    site_id = os.environ.get("EBAY_SITE_ID", "3")
-    if "EBAY_SITE_ID" not in os.environ:
-        log_debug("EBAY_SITE_ID not set, defaulting to site_id=3 (eBay UK)")
+    if "EBAY_SITE_ID" in os.environ:
+        site_id = os.environ["EBAY_SITE_ID"]
+    else:
+        # Fall back to config/fees.yaml so a single source drives marketplace.
+        try:
+            from ebay.fees import _load_fees_config  # noqa: PLC0415
+
+            site_id = str(_load_fees_config()["ebay_uk"]["site_id"])
+            log_debug(f"EBAY_SITE_ID unset, using config/fees.yaml site_id={site_id}")
+        except (FileNotFoundError, KeyError, ValueError) as e:
+            site_id = "3"
+            log_debug(f"EBAY_SITE_ID unset, config fallback failed ({e}), defaulting to 3")
 
     sandbox = os.environ.get("EBAY_SANDBOX", "false").lower() == "true"
     if sandbox:
