@@ -326,3 +326,127 @@ def sell_through_rate(sold_count: int, unsold_count: int) -> float | None:
     if total == 0:
         return None
     return round(100.0 * sold_count / total, 2)
+
+
+# Issue #13 Phase 4 — under-pricing + over-pricing detectors.
+
+
+def compute_under_pricing(
+    live_price: float,
+    p25_clean: float | None,
+    units_sold_per_day: float | None,
+    days_to_sell_median: int | None,
+    category_velocity_median: float | None = None,
+    *,
+    p40_clean: float | None = None,
+    p55_clean: float | None = None,
+) -> dict[str, Any]:
+    """Detect under-pricing using a 3-signal scheme (per round-2 F-B + F6).
+
+    Signals (each True/False, None = undetermined → False for trigger logic):
+      A. live_price < p25_clean (cheaper than 75% of clean apple-to-apples)
+      B. units_sold_per_day > category_velocity_median (selling fast)
+      C. days_to_sell_median < 7 (recent sales clear within a week)
+
+    Trigger: 2-of-3 True → AMBER UNDERPRICED; 3-of-3 True → RED STRONGLY
+    UNDERPRICED. Recommendations are p40_clean (AMBER floor) and p55_clean
+    (RED ceiling) — pass these in when available; if not, recommendation
+    fields are None.
+
+    Args:
+        live_price: current eBay listing price (GBP).
+        p25_clean: 25th percentile of clean (apple-to-apples) comp prices.
+            None when no clean comps survive filtering.
+        units_sold_per_day: per-SKU sales velocity (computed from
+            fetch_sold_listings + window_days).
+        days_to_sell_median: median time-to-clear for sold units.
+        category_velocity_median: category-baseline velocity. None →
+            loaded from config/fees.yaml `under_pricing.velocity_median_default`.
+        p40_clean / p55_clean: optional concrete percentiles for recommendation.
+
+    Returns:
+        {
+            "verdict": "ok" | "AMBER" | "RED",
+            "signals": {"A": bool|None, "B": bool|None, "C": bool|None},
+            "recommended_floor": float | None,
+            "recommended_ceiling": float | None,
+        }
+    """
+    if category_velocity_median is None:
+        cfg = _load_fees_config()
+        category_velocity_median = float(
+            cfg.get("under_pricing", {}).get("velocity_median_default", 0.1)
+        )
+
+    a = (p25_clean is not None) and (live_price < p25_clean)
+    b = (units_sold_per_day is not None) and (units_sold_per_day > category_velocity_median)
+    c = (days_to_sell_median is not None) and (days_to_sell_median < 7)
+
+    triggered = sum(bool(s) for s in (a, b, c))
+    if triggered >= 3:
+        verdict = "RED"
+    elif triggered >= 2:
+        verdict = "AMBER"
+    else:
+        verdict = "ok"
+
+    recommended_floor: float | None = None
+    recommended_ceiling: float | None = None
+    if verdict in ("AMBER", "RED"):
+        recommended_floor = p40_clean
+        recommended_ceiling = p55_clean if verdict == "RED" else None
+
+    return {
+        "verdict": verdict,
+        "signals": {
+            "A": a if p25_clean is not None else None,
+            "B": b if units_sold_per_day is not None else None,
+            "C": c if days_to_sell_median is not None else None,
+        },
+        "recommended_floor": recommended_floor,
+        "recommended_ceiling": recommended_ceiling,
+    }
+
+
+def compute_over_pricing(
+    live_price: float,
+    p75_clean: float | None,
+    watchers: int,
+    units_sold: int,
+    days_on_site: int | None,
+    *,
+    p55_clean: float | None = None,
+    p65_clean: float | None = None,
+) -> dict[str, Any]:
+    """Detect over-pricing using a guarded heuristic.
+
+    Trigger (all 4 conditions): live_price > p75_clean AND watchers > 0
+    AND units_sold == 0 AND days_on_site > 21 → OVERPRICED.
+
+    Watchers > 0 means buyers are interested but not converting; combined
+    with stale (>21d) and zero sales tells us price is the blocker.
+    days_on_site<21 → 'ok' (insufficient data to draw the conclusion).
+
+    Recommendations: p55_clean (lower bound) - p65_clean (upper bound).
+    Or enable Best Offer to let buyers negotiate.
+
+    Returns same shape as `compute_under_pricing`. Verdicts: 'ok' | 'OVERPRICED'.
+    """
+    a = (p75_clean is not None) and (live_price > p75_clean)
+    b = watchers > 0
+    c = units_sold == 0
+    d = (days_on_site is not None) and (days_on_site > 21)
+
+    overpriced = a and b and c and d
+
+    return {
+        "verdict": "OVERPRICED" if overpriced else "ok",
+        "signals": {
+            "A_over_p75": a if p75_clean is not None else None,
+            "B_has_watchers": b,
+            "C_no_sales": c,
+            "D_stale_21d": d if days_on_site is not None else None,
+        },
+        "recommended_floor": p55_clean if overpriced else None,
+        "recommended_ceiling": p65_clean if overpriced else None,
+    }
