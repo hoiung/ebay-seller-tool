@@ -1401,10 +1401,16 @@ async def analyse_listing(
         log_debug(f"analyse_listing return_rate_skipped reason={type(e).__name__}: {e}")
 
     # 7. Rank health — Phase 2 feeds sales_conversion_rate_pct when live.
+    # None-preserving: when Phase 2 is unavailable, watchers_per_100_views
+    # may be None; absolute-signal fallback (watchers/units_sold kwargs)
+    # covers that case.
+    wp100 = funnel["watchers_per_100_views"]
     rank_health = compute_rank_health(
         days_on_site=listing["days_on_site"],
-        watchers_per_100_views=float(funnel["watchers_per_100_views"] or 0.0),
+        watchers_per_100_views=float(wp100) if wp100 is not None else None,
         sales_conversion_rate_pct=traffic_sales_conversion_pct,
+        watchers=listing["watch_count"],
+        units_sold=listing["quantity_sold"],
     )
 
     # 8. Floor/ceiling — measured return rate (Phase 2) preferred over default.
