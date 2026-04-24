@@ -303,6 +303,10 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
                     "PageNumber": page,
                 },
             },
+            # AC 1.13 Phase 1 sample invocation revealed ReturnPolicy + full
+            # ShippingDetails are omitted in the default response. ReturnAll
+            # surfaces those plus other extended fields needed by listing_to_dict.
+            "DetailLevel": "ReturnAll",
         },
     )
 

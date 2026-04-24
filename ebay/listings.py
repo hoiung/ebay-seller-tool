@@ -28,13 +28,22 @@ MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
 
 def _parse_iso_ts(value: object) -> str | None:
-    """Coerce ebaysdk timestamp (may be datetime / str) to ISO-8601 Z string."""
+    """Coerce ebaysdk timestamp (may be datetime / str) to ISO-8601 Z string.
+
+    ebaysdk returns datetime objects whose `str()` yields naive formats like
+    '2026-03-24 19:12:19'. eBay transmits timestamps in UTC — surface that
+    explicitly by appending 'Z' when the input has no tz suffix.
+    """
     if value is None or value == "":
         return None
     s = str(value)
     if s.endswith("+00:00"):
-        s = s[:-6] + "Z"
-    return s
+        return s[:-6] + "Z"
+    if s.endswith("Z"):
+        return s
+    # Replace space separator (datetime str()) with 'T', then add Z for UTC.
+    normalised = s.replace(" ", "T", 1)
+    return normalised + "Z"
 
 
 def _flatten_shipping_for_output(item: object) -> dict[str, object] | None:
