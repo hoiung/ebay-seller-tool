@@ -197,3 +197,139 @@ async def fetch_competitor_prices(
     return await asyncio.to_thread(
         _sync_find_competitor_prices, part_number, condition, location_country, limit
     )
+
+
+# Issue #13 Phase 2.1 — apple-to-apples competitor scoring + clean filter.
+#
+# Bundle keywords that disqualify a comp listing from being a price comparable
+# (these are NOT the product the buyer is searching for, so their price can
+# either inflate the median (kit upsells) or deflate it (joblot dumps)).
+_BUNDLE_KEYWORDS: tuple[str, ...] = (
+    "caddy",
+    "cables",
+    "warranty",
+    "kit",
+    " lot ",
+    "bundle",
+    "joblot",
+    "job lot",
+)
+
+
+def _parse_iso_age_days(creation_date: str | None) -> int | None:
+    """Parse ISO 8601 timestamp → integer days since now (UTC). None on parse failure."""
+    if not creation_date:
+        return None
+    try:
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(str(creation_date).replace("Z", "+00:00"))
+        return max(0, (datetime.now(timezone.utc) - dt).days)
+    except (ValueError, TypeError):
+        return None
+
+
+def score_apple_to_apple(own_listing: dict[str, Any], comp_item: dict[str, Any]) -> float:
+    """Score a competitor listing 0.0-1.0 across 5 dimensions × 0.2.
+
+    Dimensions:
+      1. Exact MPN substring in comp title (case-insensitive)
+      2. Comp title free of bundle keywords (caddy / kit / bundle / lot / etc.)
+      3. Form-factor match (own_listing.specifics["Form Factor"] in comp title)
+      4. Condition tier exact match (own.condition_name == comp.condition)
+      5. Listing age <200 days from item_creation_date
+         (skip → score 0.2 by default if date missing — spec 2.1.1)
+
+    Score 0.6+ is the suggested threshold for `filter_clean_competitors`.
+
+    Args:
+        own_listing: dict from listing_to_dict() — must have specifics +
+            condition_name. Defensive: missing keys do NOT raise.
+        comp_item: dict from fetch_competitor_prices() listings[] — must
+            have title, condition, item_creation_date. Defensive.
+
+    Returns:
+        float in [0.0, 1.0], rounded to 2dp.
+    """
+    score = 0.0
+    own_specifics = own_listing.get("specifics") or {}
+    comp_title = str(comp_item.get("title") or "")
+    comp_title_upper = comp_title.upper()
+    comp_title_lower = comp_title.lower()
+
+    # Dim 1 — MPN exact substring.
+    mpns = own_specifics.get("MPN") or []
+    if mpns and any(str(m).upper().strip() and str(m).upper().strip() in comp_title_upper
+                    for m in mpns):
+        score += 0.2
+
+    # Dim 2 — comp title is NOT a bundle.
+    if not any(kw in comp_title_lower for kw in _BUNDLE_KEYWORDS):
+        score += 0.2
+
+    # Dim 3 — form factor match (e.g. "3.5\"" present in comp title).
+    own_ff_list = own_specifics.get("Form Factor") or []
+    if own_ff_list:
+        norm_comp = comp_title_lower.replace('"', "").replace("'", "").replace(" ", "")
+        for ff in own_ff_list:
+            ff_norm = str(ff).lower().replace('"', "").replace("'", "").replace(" ", "")
+            if ff_norm and ff_norm in norm_comp:
+                score += 0.2
+                break
+
+    # Dim 4 — condition tier exact match.
+    own_cond = own_listing.get("condition_name")
+    comp_cond = comp_item.get("condition")
+    if own_cond and comp_cond and str(own_cond).strip() == str(comp_cond).strip():
+        score += 0.2
+
+    # Dim 5 — listing age <200 days. Missing date = +0.2 (per spec 2.1.1).
+    creation = comp_item.get("item_creation_date")
+    if creation is None:
+        score += 0.2
+    else:
+        age = _parse_iso_age_days(creation)
+        if age is not None and age < 200:
+            score += 0.2
+
+    return round(score, 2)
+
+
+def filter_clean_competitors(
+    own_listing: dict[str, Any],
+    comp_listings: list[dict[str, Any]],
+    threshold: float = 0.6,
+) -> list[dict[str, Any]]:
+    """Keep only competitor listings scoring >= threshold (default 0.6)."""
+    return [c for c in comp_listings if score_apple_to_apple(own_listing, c) >= threshold]
+
+
+def drop_stale_competitors(
+    comp_listings: list[dict[str, Any]],
+    drop_pct: float = 10.0,
+) -> list[dict[str, Any]]:
+    """Drop the oldest `drop_pct`% by item_creation_date (per round-2 F-F).
+
+    Listings with missing item_creation_date are RETAINED (we can't tell if
+    they're stale; filter_clean_competitors already penalises them via the
+    age dimension).
+
+    Run AFTER `filter_clean_competitors` and BEFORE percentile computation.
+    """
+    if drop_pct <= 0 or not comp_listings:
+        return list(comp_listings)
+    with_dates: list[tuple[dict[str, Any], int]] = []
+    undated: list[dict[str, Any]] = []
+    for c in comp_listings:
+        age = _parse_iso_age_days(c.get("item_creation_date"))
+        if age is None:
+            undated.append(c)
+        else:
+            with_dates.append((c, age))
+    if not with_dates:
+        return list(comp_listings)
+    # Oldest first (largest age days).
+    with_dates.sort(key=lambda x: x[1], reverse=True)
+    drop_count = int(len(with_dates) * drop_pct / 100.0)
+    kept = [c for c, _ in with_dates[drop_count:]]
+    return undated + kept
