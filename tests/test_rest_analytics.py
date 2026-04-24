@@ -124,7 +124,8 @@ def test_parse_traffic_report_empty_records() -> None:
 
 
 def test_parse_traffic_report_missing_dimension_value() -> None:
-    """Regression (Stage 5 L1-E): dim_vals=[{}] (value key absent) yields listing_id=None, NOT 'None' string.
+    """Regression (Stage 5 L1-E): dim_vals=[{}] (value key absent) yields
+    listing_id=None, NOT the string 'None'.
 
     Pre-fix the parser did `str(dim_vals[0].get("value"))` which coerced None
     to the string "None", silently corrupting per_listing output.
