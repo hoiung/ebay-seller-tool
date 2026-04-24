@@ -173,19 +173,27 @@ def compute_funnel(
 
 def compute_rank_health(
     days_on_site: int | None,
-    watchers_per_100_views: float,
+    watchers_per_100_views: float | None,
     sales_conversion_rate_pct: float | None,
+    watchers: int = 0,
+    units_sold: int = 0,
 ) -> str:
     """STABLE | VOLATILE | INSUFFICIENT_DATA per research §2.4.
 
     Uses Phase 2 sales_conversion_rate_pct when available; falls back to
-    Phase 1 watchers_per_100_views signal otherwise.
+    Phase 1 watchers_per_100_views signal otherwise. Absolute-signal
+    fallback (watchers >= 5 AND units_sold > 0) covers the case where
+    Phase 2 is unavailable / Traffic Report empty but the listing has a
+    strong sales history — per SKILL.md: multi-qty sales history
+    protects against price-revision rank resets.
     """
     if days_on_site is None or days_on_site < 14:
         return "INSUFFICIENT_DATA"
     if sales_conversion_rate_pct is not None and sales_conversion_rate_pct >= 2.0:
         return "STABLE"
-    if watchers_per_100_views >= 3.0:
+    if watchers_per_100_views is not None and watchers_per_100_views >= 3.0:
+        return "STABLE"
+    if watchers >= 5 and units_sold > 0:
         return "STABLE"
     return "VOLATILE"
 
@@ -202,20 +210,32 @@ def diagnose_listing(
     Decision matrix from research §2.3. Returns (text, action) — action is
     None when no change recommended.
     """
-    views = funnel.get("views") or 0
+    views = funnel.get("views")   # preserves None — data-gap branch fires first below
     watchers = funnel.get("watchers") or 0
     units_sold = funnel.get("units_sold") or 0
     watchers_per_100 = funnel.get("watchers_per_100_views") or 0.0
     conv_rate = funnel.get("conversion_rate_pct_approx") or 0.0
 
-    if views < 20:
+    # Data-gap branch — fires when Phase 2 Traffic Report is unavailable
+    # (OAuth not configured, Analytics API error) but Phase 1 signals
+    # are positive. Prevents the old "Low views — rewrite title" false
+    # alarm on listings with active watchers / prior sales.
+    if views is None and (watchers > 0 or units_sold > 0):
+        return (
+            f"Data gap: Phase 2 Traffic Report unavailable. "
+            f"Positive absolute signals present (watchers={watchers}, units_sold={units_sold}). "
+            f"Configure OAuth (sell.analytics.readonly) to enable full funnel diagnosis.",
+            None,
+        )
+
+    if views is not None and views < 20:
         return (
             "Low views — listing not being seen. Check title keywords, photos, "
             "and category — suggests Cassini exposure issue.",
             "Rewrite title with buyer search terms; refresh top photo.",
         )
 
-    if views >= 50 and watchers == 0 and units_sold == 0:
+    if views is not None and views >= 50 and watchers == 0 and units_sold == 0:
         return (
             f"{views} views, 0 watchers, 0 sold — buyers see but don't engage. "
             "Photos, title, or price are not landing.",
@@ -241,8 +261,9 @@ def diagnose_listing(
             None,
         )
 
+    views_str = views if views is not None else "N/A"
     return (
-        f"Middle-of-funnel: {views} views, {watchers} watchers, {units_sold} sold. "
+        f"Middle-of-funnel: {views_str} views, {watchers} watchers, {units_sold} sold. "
         "No clear single blocker — watch for 7 more days before acting.",
         None,
     )
