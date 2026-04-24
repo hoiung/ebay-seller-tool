@@ -62,6 +62,7 @@ from ebay.selling import (  # noqa: E402
     fetch_sold_listings,
     fetch_unsold_listings,
 )
+from ebay.store import fetch_store_info  # noqa: E402
 
 # Single source of truth for the per-listing photo cap is ebay/listings.py —
 # this alias keeps the old module-local name usable without duplicating the value.
@@ -1412,6 +1413,10 @@ async def analyse_listing(
     # so OAuth-unconfigured MCPs still get Phase 1 diagnosis.
     traffic_sales_conversion_pct: float | None = None
     traffic_return_rate_pct: float | None = None
+    search_impression_share_pct: float | None = None
+    store_impression_share_pct: float | None = None
+    search_view_share_pct: float | None = None
+    organic_search_exposure_pct: float | None = None
     rate_source = "default"
     phase2_available = False
     try:
@@ -1437,6 +1442,10 @@ async def analyse_listing(
                 funnel["watchers_per_100_views"] = 0.0
                 funnel["conversion_rate_pct_approx"] = 0.0
             traffic_sales_conversion_pct = summary["sales_conversion_rate_pct"]
+            search_impression_share_pct = summary["search_impression_share_pct"]
+            store_impression_share_pct = summary["store_impression_share_pct"]
+            search_view_share_pct = summary["search_view_share_pct"]
+            organic_search_exposure_pct = summary["organic_search_exposure_pct"]
             phase2_available = True
     except Exception as e:
         # Documented fail-soft: Phase 2 enrichment is best-effort. On any failure
@@ -1496,6 +1505,12 @@ async def analyse_listing(
         "dsr_item_as_described": feedback_summary["dsr_item_as_described"],
         "sales_conversion_rate_pct": traffic_sales_conversion_pct,
         "return_rate_pct": traffic_return_rate_pct,
+        # Phase 1.3.4 — surface the 4 new traffic-share signals so the weekly
+        # sweep + decision matrix can consume them. None when Phase 2 unavailable.
+        "search_impression_share_pct": search_impression_share_pct,
+        "store_impression_share_pct": store_impression_share_pct,
+        "search_view_share_pct": search_view_share_pct,
+        "organic_search_exposure_pct": organic_search_exposure_pct,
     }
     if include_cases:
         signals["open_cases"] = cases_summary["open_cases"]
@@ -1616,6 +1631,25 @@ async def find_competitor_prices(
         location_country=location_country,
         limit=limit,
     )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def get_store_info() -> str:
+    """GetStore wrapper — returns store name + custom categories.
+
+    Uses Auth'N'Auth (Trading API). No OAuth scope required.
+
+    Returns JSON: {store_name, store_categories: [{category_id, category_name,
+    category_order}], categories_count}.
+
+    `categories_count` is a convenience aggregate so the weekly sweep can
+    flag stores with 0 custom categories (cross-promotion disabled at root,
+    per Doc 14 L165 zero-store-impressions diagnosis).
+    """
+    log_debug("get_store_info called")
+    result = await fetch_store_info()
     return json.dumps(result, indent=2)
 
 
