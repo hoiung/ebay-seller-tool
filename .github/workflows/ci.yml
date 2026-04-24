@@ -13,6 +13,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # Commit-message scan step uses `git log <since>..HEAD` against the
+          # push's `before` sha. Default shallow-clone depth=1 misses that
+          # history, so fetch the full history for this run.
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v6
