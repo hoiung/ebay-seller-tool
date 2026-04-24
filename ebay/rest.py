@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ebay.client import log_debug
 from ebay.fees import _load_fees_config
 from ebay.oauth import get_oauth_session, get_post_order_session, raise_for_ebay_error
 
@@ -25,6 +26,99 @@ _TRAFFIC_METRICS = (
     "SALES_CONVERSION_RATE,"
     "TRANSACTION"
 )
+
+
+def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
+    """Positional decode of an eBay Analytics Traffic Report response.
+
+    Real API shape (verified 2026-04-24 live probe against item 287260458724):
+        traffic["header"]["metrics"][i] = {"key": "LISTING_IMPRESSION_TOTAL", ...}
+        traffic["records"][i]["dimensionValues"][0] = {"value": "<listing_id>", "applicable": bool}
+        traffic["records"][i]["metricValues"][i] = {"value": <num>, "applicable": bool}
+            # metricValues is POSITIONAL — values are indexed by header.metrics[i].key,
+            # NOT by an inline metricKey field.
+
+    The older assumption (each metric in `rec["metrics"] = [{metricKey, value}]`) did
+    not match any documented or observed response shape — it silently returned 0.
+
+    eBay's SALES_CONVERSION_RATE and CLICK_THROUGH_RATE are decimal fractions
+    (e.g. 0.06 for 6%). Converted here to the internal percentage convention so
+    downstream thresholds (`compute_rank_health >= 2.0` means 2%) evaluate
+    correctly.
+
+    Returns an aggregate across all records plus per-listing breakdown:
+        {
+            "impressions": int (sum of LISTING_IMPRESSION_TOTAL),
+            "views": int (sum of LISTING_VIEWS_TOTAL),
+            "transactions": int (sum of TRANSACTION),
+            "ctr_pct": float | None (computed from aggregated impressions/views),
+            "sales_conversion_rate_pct": float | None (mean across records, * 100),
+            "records_count": int,
+            "per_listing": [{"listing_id": str, "metrics": {key: value, ...}}, ...],
+        }
+    """
+    header = traffic.get("header") or {}
+    metric_keys = [m["key"] for m in (header.get("metrics") or [])]
+    records = traffic.get("records") or []
+
+    impressions = 0
+    views_total = 0
+    transactions = 0
+    conversions: list[float] = []
+    per_listing: list[dict[str, Any]] = []
+
+    for rec in records:
+        dim_vals = rec.get("dimensionValues") or []
+        listing_id = str(dim_vals[0].get("value")) if dim_vals else None
+        mvals = rec.get("metricValues") or []
+        metrics: dict[str, Any] = {}
+        for i in range(min(len(metric_keys), len(mvals))):
+            mv = mvals[i]
+            if mv.get("applicable", True):
+                metrics[metric_keys[i]] = mv.get("value")
+            else:
+                metrics[metric_keys[i]] = None
+
+        try:
+            impressions += int(metrics.get("LISTING_IMPRESSION_TOTAL") or 0)
+            views_total += int(metrics.get("LISTING_VIEWS_TOTAL") or 0)
+            transactions += int(metrics.get("TRANSACTION") or 0)
+        except (TypeError, ValueError) as e:
+            log_debug(
+                f"traffic_report_parse_skipped listing_id={listing_id} "
+                f"reason={type(e).__name__}: {e}"
+            )
+            continue
+
+        scr = metrics.get("SALES_CONVERSION_RATE")
+        if scr is not None:
+            try:
+                # eBay returns SALES_CONVERSION_RATE as a decimal fraction
+                # (0.06 for 6%). Multiply by 100 to match the percentage
+                # convention used by compute_rank_health thresholds.
+                conversions.append(float(scr) * 100.0)
+            except (ValueError, TypeError) as e:
+                log_debug(
+                    f"traffic_report_scr_skipped listing_id={listing_id} "
+                    f"value={scr!r} reason={type(e).__name__}"
+                )
+
+        per_listing.append({"listing_id": listing_id, "metrics": metrics})
+
+    ctr_pct = round(100.0 * views_total / impressions, 2) if impressions > 0 else None
+    sales_conversion_rate_pct = (
+        round(sum(conversions) / len(conversions), 2) if conversions else None
+    )
+
+    return {
+        "impressions": impressions,
+        "views": views_total,
+        "transactions": transactions,
+        "ctr_pct": ctr_pct,
+        "sales_conversion_rate_pct": sales_conversion_rate_pct,
+        "records_count": len(records),
+        "per_listing": per_listing,
+    }
 
 
 def _utc_date(offset_days: int = 0) -> str:
