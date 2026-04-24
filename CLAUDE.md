@@ -287,6 +287,7 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - eBay credentials (.env already gitignored)
 - Store username or eBay profile URL
 - File paths that reveal business folder structure
+- **Secret-scan alert logs** — when `issue-body-scan.yml` or commit-message-scan CI fires, log the event in the PRIVATE channel at `~/.claude/projects/-home-hoiung-DevProjects/memory/secret_scan_leak_log.md`. NEVER create a public GitHub issue for leak tracking — a `[Private]` prefix does NOT make an issue private. See `feedback_public_artefact_leaks_in_issues.md` for the rule.
 
 ## Documentation Links
 - Project README: `README.md`
