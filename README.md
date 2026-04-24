@@ -111,6 +111,11 @@ claude
 | `get_traffic_report` | Implemented (#4 Phase 2) | REST Analytics: impressions, CTR, sales conversion |
 | `get_listing_returns` / `compute_return_rate` | Implemented (#4 Phase 2) | Post-Order v2 return search + per-SKU rate |
 | `find_competitor_prices` | Implemented (#4 Phase 3) | Browse API market scan with own-seller exclusion |
+| `get_store_info` | Implemented (#13 Phase 1.5) | GetStore wrapper — store name + custom categories + count |
+
+### Data files (out-of-repo)
+
+Pricing-elasticity snapshots are appended to `~/.local/share/ebay-seller-tool/price_snapshots.jsonl` — outside the repo (user XDG data dir), so no `.gitignore` entry needed. Override path with `EBAY_SNAPSHOT_PATH` env var (used by tests). One JSON object per line; safe to stream via `jq` / pandas.
 
 ### Usage
 
