@@ -119,7 +119,7 @@ def test_analyse_listing_sends_include_watch_count() -> None:
     assert payload["IncludeWatchCount"] == "true"
 
 
-def test_analyse_listing_phase2_backfills_views() -> None:
+def test_analyse_listing_phase2_backfills_views(tmp_path, monkeypatch) -> None:
     """AC-5.4: full E2E wiring — Phase 2 backfill + absolute-signal STABLE.
 
     Mocks the entire fetcher swarm analyse_listing depends on. Asserts:
@@ -128,7 +128,12 @@ def test_analyse_listing_phase2_backfills_views() -> None:
       - rank_health_status == "STABLE"
       - diagnosis text does NOT contain 'Low views' or 'Rewrite title'
     Regression guard for the 287260458724 failure.
+
+    Also asserts Phase 5.2.1: snapshot is written with analysis_baseline event.
     """
+    # Phase 5.2.3 — redirect snapshot path so test doesn't pollute real file.
+    snap_path = tmp_path / "snap.jsonl"
+    monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(snap_path))
 
     async def fake_fetch_seller_transactions(**_):
         return {"transactions": []}
@@ -216,14 +221,29 @@ def test_analyse_listing_phase2_backfills_views() -> None:
         parsed["recommended_action"] is None or "Rewrite title" not in parsed["recommended_action"]
     )
 
+    # Phase 5.2.1 — happy path emits analysis_baseline snapshot.
+    assert snap_path.exists(), "analyse_listing should have written analysis_baseline snapshot"
+    lines = snap_path.read_text().strip().split("\n")
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["event"] == "analysis_baseline"
+    assert row["item_id"] == "999"
+    assert row["price_gbp"] == 35.0
+    assert row["source"] == "analyse_listing"
 
-def test_analyse_listing_phase2_unavailable_returns_data_gap() -> None:
+
+def test_analyse_listing_phase2_unavailable_returns_data_gap(tmp_path, monkeypatch) -> None:
     """AC-5.4 companion: Phase 2 unavailable + strong Phase 1 signals → data-gap diagnosis.
 
     Simulates OAuth-unconfigured deployment: fetch_traffic_report raises
     (e.g. PermissionError). Should degrade gracefully to data-gap diagnosis
     with absolute-signal STABLE, not false-alarm 'Low views'.
+
+    Also asserts Phase 5.2.1: snapshot is NOT written when phase2_available=False.
     """
+    # Phase 5.2.3 — redirect snapshot path. Phase2 unavailable → no snapshot expected.
+    snap_path = tmp_path / "snap.jsonl"
+    monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(snap_path))
 
     async def fake_raises(*_, **__):
         raise RuntimeError("OAuth not configured")
@@ -286,3 +306,8 @@ def test_analyse_listing_phase2_unavailable_returns_data_gap() -> None:
     assert "Data gap" in parsed["diagnosis"]
     assert "Low views" not in parsed["diagnosis"]
     assert parsed["recommended_action"] is None
+
+    # Phase 5.2.1 — Phase 2 unavailable → NO snapshot written (gated on phase2_available).
+    assert not snap_path.exists(), (
+        "snapshot should NOT be written when phase2_available=False"
+    )

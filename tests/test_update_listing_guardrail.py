@@ -56,6 +56,80 @@ def _fake_get_item(price: str = "35.00") -> SimpleNamespace:
     )
 
 
+def test_update_listing_writes_price_change_snapshot(tmp_path, monkeypatch) -> None:
+    """Phase 5.2.2 — update_listing emits price_change snapshot when price changes.
+
+    Full E2E flow: GetItem (current) → guardrail check → ReviseFixedPriceItem
+    → GetItem (verify) → assert JSONL has one price_change event.
+    """
+    snap_path = tmp_path / "snap.jsonl"
+    monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(snap_path))
+
+    from server import update_listing
+
+    # 3 sequential execute_with_retry calls: GetItem (before), ReviseFixedPriceItem,
+    # GetItem (verify). The Revise response shape is irrelevant here.
+    with (
+        patch(
+            "server.execute_with_retry",
+            side_effect=[
+                _fake_get_item("30.00"),  # before: price 30
+                SimpleNamespace(reply=SimpleNamespace()),  # ReviseFixedPriceItem ack
+                _fake_get_item("35.00"),  # after: price 35
+            ],
+        ),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {
+                "floor_gbp": 7.94,
+                "suggested_ceiling_gbp": 50.00,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
+            "default",
+        )
+        result = _run(update_listing(item_id="999", price=35.0, dry_run=False))
+
+    body = json.loads(result)
+    assert body.get("success") is True
+
+    assert snap_path.exists(), "update_listing should have appended price_change snapshot"
+    lines = snap_path.read_text().strip().split("\n")
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["event"] == "price_change"
+    assert row["item_id"] == "999"
+    assert row["price_gbp"] == 35.0
+    assert row["old_price_gbp"] == 30.0
+    assert row["source"] == "update_listing"
+
+
+def test_update_listing_no_snapshot_when_price_unchanged(tmp_path, monkeypatch) -> None:
+    """Phase 5.2.2 — same price → no price_change snapshot."""
+    snap_path = tmp_path / "snap.jsonl"
+    monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(snap_path))
+
+    from server import update_listing
+
+    # Updating only the title, NOT the price.
+    with (
+        patch(
+            "server.execute_with_retry",
+            side_effect=[
+                _fake_get_item("35.00"),
+                SimpleNamespace(reply=SimpleNamespace()),
+                _fake_get_item("35.00"),
+            ],
+        ),
+    ):
+        result = _run(update_listing(item_id="999", title="New title", dry_run=False))
+
+    body = json.loads(result)
+    assert body.get("success") is True
+    # No price field changed → no price_change snapshot.
+    assert not snap_path.exists()
+
+
 def test_guardrail_rejects_below_floor() -> None:
     from server import update_listing
 
