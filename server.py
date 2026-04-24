@@ -1413,6 +1413,7 @@ async def analyse_listing(
     traffic_sales_conversion_pct: float | None = None
     traffic_return_rate_pct: float | None = None
     rate_source = "default"
+    phase2_available = False
     try:
         traffic = await fetch_traffic_report([str(item_id)], days=min(window_days, 90))
         summary = parse_traffic_report_response(traffic)
@@ -1436,6 +1437,7 @@ async def analyse_listing(
                 funnel["watchers_per_100_views"] = 0.0
                 funnel["conversion_rate_pct_approx"] = 0.0
             traffic_sales_conversion_pct = summary["sales_conversion_rate_pct"]
+            phase2_available = True
     except Exception as e:
         # Documented fail-soft: Phase 2 enrichment is best-effort. On any failure
         # (auth, timeout, unexpected shape, network) fall back to Phase 1 diagnosis
@@ -1523,6 +1525,7 @@ async def analyse_listing(
         {
             "item_id": str(item_id),
             "window_days": window_days,
+            "phase2_available": phase2_available,
             "funnel": funnel,
             "signals": signals,
             "multi_qty_note": multi_qty_note,
