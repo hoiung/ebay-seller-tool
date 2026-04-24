@@ -115,7 +115,7 @@ def floor_price(
 
 
 def compute_funnel(
-    view_count: int,
+    view_count: int | None,
     watch_count: int,
     quantity_sold: int,
     question_count: int,
@@ -123,24 +123,39 @@ def compute_funnel(
 ) -> dict[str, float | int | None]:
     """Derive Phase 1 funnel ratios from fields already in GetMyeBaySelling response.
 
-    Phase 2 fills funnel.impressions + funnel.ctr_pct + signals.sales_conversion_rate_pct
-    from REST Traffic Report (overriding conversion_rate_pct_approx here).
+    `view_count=None` means the Trading API HitCount field is absent / deprecated
+    (the current eBay reality — see ebay/listings.py). In that case every
+    view-dependent ratio is also None so the data-gap signal propagates to
+    diagnose_listing / compute_rank_health.
+
+    `view_count=0` is the GENUINE-ZERO case (eBay returned HitCount=0 on a
+    legacy listing that still populates the field). Ratios stay at 0.0.
+
+    Phase 2 fills funnel.impressions + funnel.ctr_pct + funnel.views and
+    recomputes watchers_per_100_views / conversion_rate_pct_approx from the
+    Analytics API LISTING_VIEWS_TOTAL; see server.py::analyse_listing.
     """
-    views_per_day: float | None = None
-    if days_on_site and days_on_site > 0 and view_count > 0:
-        views_per_day = round(view_count / days_on_site, 2)
+    if view_count is None:
+        views_per_day: float | None = None
+        watchers_per_100: float | None = None
+        questions_per_100: float | None = None
+        conversion_approx: float | None = None
+    else:
+        views_per_day = None
+        if days_on_site and days_on_site > 0 and view_count > 0:
+            views_per_day = round(view_count / days_on_site, 2)
 
-    watchers_per_100 = 0.0
-    if view_count > 0:
-        watchers_per_100 = round(100.0 * watch_count / view_count, 2)
+        watchers_per_100 = 0.0
+        if view_count > 0:
+            watchers_per_100 = round(100.0 * watch_count / view_count, 2)
 
-    questions_per_100 = 0.0
-    if view_count > 0:
-        questions_per_100 = round(100.0 * question_count / view_count, 2)
+        questions_per_100 = 0.0
+        if view_count > 0:
+            questions_per_100 = round(100.0 * question_count / view_count, 2)
 
-    conversion_approx = 0.0
-    if view_count > 0:
-        conversion_approx = round(100.0 * quantity_sold / view_count, 2)
+        conversion_approx = 0.0
+        if view_count > 0:
+            conversion_approx = round(100.0 * quantity_sold / view_count, 2)
 
     return {
         "impressions": None,
