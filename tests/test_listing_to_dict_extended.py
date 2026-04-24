@@ -60,6 +60,38 @@ def test_listing_to_dict_surfaces_new_fields() -> None:
     assert d["return_policy"]["returns_accepted"] is True
     assert d["return_policy"]["period_days"] == 30
     assert d["return_policy"]["buyer_pays"] is False
+    # Phase 1.4 — promoted_listing absent on default fixture → False
+    assert d["promoted_listing"] is False
+
+
+def test_listing_to_dict_promoted_listing_true() -> None:
+    """Phase 1.4.2 — PromotedListing=true surfaces as True."""
+    item = _build_item(
+        ListingDetails=SimpleNamespace(
+            ViewItemURL="https://www.ebay.co.uk/itm/12345",
+            StartTime="2026-03-15T10:22:00Z",
+            EndTime="2026-04-14T10:22:00Z",
+            RelistCount="0",
+            PromotedListing="true",
+        )
+    )
+    d = listing_to_dict(item)
+    assert d["promoted_listing"] is True
+
+
+def test_listing_to_dict_promoted_listing_false_default() -> None:
+    """Phase 1.4.2 — PromotedListing absent or 'false' → False."""
+    item = _build_item(
+        ListingDetails=SimpleNamespace(
+            ViewItemURL="https://www.ebay.co.uk/itm/12345",
+            StartTime="2026-03-15T10:22:00Z",
+            EndTime="2026-04-14T10:22:00Z",
+            RelistCount="0",
+            PromotedListing="false",
+        )
+    )
+    d = listing_to_dict(item)
+    assert d["promoted_listing"] is False
 
 
 def test_listing_to_dict_handles_missing_optional_fields() -> None:
