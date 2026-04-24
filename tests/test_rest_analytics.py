@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +12,8 @@ import httpx
 import pytest
 
 from ebay import oauth, rest
+
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def setup_function() -> None:
@@ -47,9 +51,31 @@ def test_traffic_report_empty_ids() -> None:
 
 
 def test_traffic_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = _fake_client_with_response(
-        200, {"records": [{"metrics": [{"metricKey": "LISTING_IMPRESSION_TOTAL", "value": 500}]}]}
-    )
+    # Real API shape: header.metrics[i].key + records[i].metricValues[i] positional.
+    # The old fake shape ({"metrics": [{"metricKey": ..., "value": ...}]}) silently
+    # locked in a parser bug (AC-1.3 contract fix).
+    fake_payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "TRANSACTION"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            {
+                "dimensionValues": [{"value": "111", "applicable": True}],
+                "metricValues": [
+                    {"value": 500, "applicable": True},
+                    {"value": 20, "applicable": True},
+                    {"value": 2, "applicable": True},
+                    {"value": 0.1, "applicable": True},
+                ],
+            }
+        ],
+    }
+    fake_client = _fake_client_with_response(200, fake_payload)
     with patch("ebay.rest.get_oauth_session", return_value=fake_client):
         result = _run(rest.fetch_traffic_report(["111", "222"], days=30))
     assert "records" in result
@@ -58,6 +84,71 @@ def test_traffic_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     params = call_args.kwargs.get("params") or call_args.args[1]
     assert "listing_ids:{111|222}" in params["filter"]
     assert "marketplace_ids:{EBAY_GB}" in params["filter"]
+
+    # Contract: parser decodes positional metricValues against header.metrics[i].key
+    summary = rest.parse_traffic_report_response(result)
+    assert summary["impressions"] == 500
+    assert summary["views"] == 20
+    assert summary["transactions"] == 2
+    assert summary["ctr_pct"] == 4.0  # 100 * 20 / 500
+    assert summary["sales_conversion_rate_pct"] == 10.0  # 0.1 * 100 (decimal → percent)
+
+
+def test_traffic_report_real_fixture_parses() -> None:
+    """AC-1.4: real live-probe response for item 287260458724.
+
+    Fixture captured 2026-04-24 against the live eBay Analytics API.
+    Confirms the parser decodes the real response shape correctly.
+    """
+    with open(_FIXTURES / "traffic_report_real.json") as f:
+        real = json.load(f)
+    summary = rest.parse_traffic_report_response(real)
+    assert summary["impressions"] == 3474
+    assert summary["views"] == 76
+    assert summary["transactions"] == 5
+    assert summary["ctr_pct"] == 2.19  # 100 * 76 / 3474
+    assert summary["sales_conversion_rate_pct"] == 6.0  # 0.06 * 100
+    assert summary["records_count"] == 1
+    assert summary["per_listing"][0]["listing_id"] == "287260458724"
+
+
+def test_parse_traffic_report_empty_records() -> None:
+    """Empty records → zero aggregates + None rates, no exception."""
+    summary = rest.parse_traffic_report_response({"header": {"metrics": []}, "records": []})
+    assert summary["impressions"] == 0
+    assert summary["views"] == 0
+    assert summary["transactions"] == 0
+    assert summary["ctr_pct"] is None
+    assert summary["sales_conversion_rate_pct"] is None
+    assert summary["records_count"] == 0
+    assert summary["per_listing"] == []
+
+
+def test_parse_traffic_report_non_applicable_filtered() -> None:
+    """applicable=False metric values are coerced to None and excluded from sums."""
+    payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            {
+                "dimensionValues": [{"value": "999"}],
+                "metricValues": [
+                    {"value": 100, "applicable": True},
+                    {"value": 5, "applicable": True},
+                    {"value": 0.5, "applicable": False},  # non-applicable SCR
+                ],
+            }
+        ],
+    }
+    summary = rest.parse_traffic_report_response(payload)
+    assert summary["impressions"] == 100
+    assert summary["views"] == 5
+    assert summary["sales_conversion_rate_pct"] is None  # non-applicable excluded
 
 
 def test_fetch_listing_returns_requires_item_id() -> None:
