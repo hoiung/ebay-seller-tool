@@ -7,3 +7,13 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+  # ebay-seller-tool is uv-managed (pyproject.toml + uv.lock). Dependabot native
+  # uv ecosystem support bumps both files atomically; the legacy `pip` ecosystem
+  # would update only pyproject.toml and leave uv.lock stale. (#442 Stage 5.)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "python"
