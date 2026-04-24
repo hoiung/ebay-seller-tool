@@ -107,6 +107,11 @@ def test_traffic_report_real_fixture_parses() -> None:
     assert summary["transactions"] == 5
     assert summary["ctr_pct"] == 2.19  # 100 * 76 / 3474
     assert summary["sales_conversion_rate_pct"] == 6.0  # 0.06 * 100
+    # Phase 1.3.3 — 4 new aggregate signals from search/store breakdown
+    assert summary["search_impression_share_pct"] == 100.0
+    assert summary["store_impression_share_pct"] == 0.0
+    assert summary["search_view_share_pct"] == 57.89  # 100 * 44 / 76
+    assert summary["organic_search_exposure_pct"] == 100.0  # synonym of search_imp_share
     assert summary["records_count"] == 1
     assert summary["per_listing"][0]["listing_id"] == "287260458724"
 
@@ -119,6 +124,11 @@ def test_parse_traffic_report_empty_records() -> None:
     assert summary["transactions"] == 0
     assert summary["ctr_pct"] is None
     assert summary["sales_conversion_rate_pct"] is None
+    # Phase 1.3.1 — new aggregate signals also None when no impressions/views
+    assert summary["search_impression_share_pct"] is None
+    assert summary["store_impression_share_pct"] is None
+    assert summary["search_view_share_pct"] is None
+    assert summary["organic_search_exposure_pct"] is None
     assert summary["records_count"] == 0
     assert summary["per_listing"] == []
 
