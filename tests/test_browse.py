@@ -146,3 +146,85 @@ def test_competitor_prices_distribution(monkeypatch: pytest.MonkeyPatch) -> None
     assert result["max"] == 50.0
     assert result["median"] == 30.0
     assert result["shipping_free_pct"] == 100.0
+
+
+def test_competitor_prices_mixed_currency_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bug 0.1 — multi-currency Browse response must raise.
+
+    Filter `itemLocationCountry` should prevent this in production, but
+    if eBay ever returns mixed currencies the aggregate min/median/max are
+    meaningless. Raise loudly rather than silently latching the first one.
+    """
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    fake = _fake_browse_client(
+        {
+            "itemSummaries": [
+                {
+                    "itemId": "1",
+                    "title": "GBP item",
+                    "price": {"value": "30.00", "currency": "GBP"},
+                    "seller": {"username": "a"},
+                    "condition": "Used",
+                },
+                {
+                    "itemId": "2",
+                    "title": "EUR item",
+                    "price": {"value": "32.00", "currency": "EUR"},
+                    "seller": {"username": "b"},
+                    "condition": "Used",
+                },
+            ]
+        }
+    )
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        with pytest.raises(ValueError, match=r"mixed currencies.*EUR.*GBP"):
+            _run(browse.fetch_competitor_prices(part_number="PN", condition="USED"))
+
+
+def _run_distribution(prices_in: list[float], monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Helper for small-N distribution tests."""
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    items = [
+        {
+            "itemId": str(i),
+            "title": "foo",
+            "price": {"value": str(price), "currency": "GBP"},
+            "seller": {"username": f"s{i}"},
+            "condition": "Used",
+        }
+        for i, price in enumerate(prices_in)
+    ]
+    fake = _fake_browse_client({"itemSummaries": items})
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        return _run(browse.fetch_competitor_prices(part_number="PN", condition="USED"))
+
+
+@pytest.mark.parametrize(
+    ("prices_in", "expected_min", "expected_p25", "expected_p75", "expected_max"),
+    [
+        # Bug 0.2 — small-N percentile coverage. Issue spec:
+        # N=2: p25==min, p75==max
+        # N=3: p25==sorted[0], p75==sorted[2]
+        # N=4: p25==sorted[1], p75==sorted[3]
+        # N=5: p25==sorted[1], p75==sorted[3]
+        ([10.0, 20.0], 10.0, 10.0, 20.0, 20.0),
+        ([10.0, 20.0, 30.0], 10.0, 10.0, 30.0, 30.0),
+        ([10.0, 20.0, 30.0, 40.0], 10.0, 20.0, 40.0, 40.0),
+        ([10.0, 20.0, 30.0, 40.0, 50.0], 10.0, 20.0, 40.0, 50.0),
+    ],
+)
+def test_competitor_prices_small_n_percentiles(
+    monkeypatch: pytest.MonkeyPatch,
+    prices_in: list[float],
+    expected_min: float,
+    expected_p25: float,
+    expected_p75: float,
+    expected_max: float,
+) -> None:
+    """Bug 0.2 — verify p25/p75 for N=2..5 match issue-spec ranks."""
+    result = _run_distribution(prices_in, monkeypatch)
+    assert result["count"] == len(prices_in)
+    assert result["min"] == expected_min
+    assert result["p25"] == expected_p25
+    assert result["p75"] == expected_p75
+    assert result["max"] == expected_max
