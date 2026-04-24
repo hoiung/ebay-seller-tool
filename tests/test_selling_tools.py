@@ -70,6 +70,9 @@ def test_fetch_sold_listings_happy_path() -> None:
     assert call_args.args[0] == "GetMyeBaySelling"
     assert call_args.args[1]["SoldList"]["DurationInDays"] == 30
     assert call_args.args[1]["SoldList"]["Pagination"]["EntriesPerPage"] == 25
+    # Issue #5 Phase 1 regression: IncludeWatchCount opt-in flag MUST be present.
+    # DetailLevel=ReturnAll does NOT include WatchCount — explicit flag required.
+    assert call_args.args[1]["SoldList"]["IncludeWatchCount"] == "true"
 
 
 def test_fetch_sold_listings_days_out_of_range_raises() -> None:
@@ -116,6 +119,8 @@ def test_fetch_unsold_listings_happy_path() -> None:
     assert result["listings"][0]["item_id"] == "222"
     assert result["listings"][0]["days_live"] == 59
     assert mock.call_args.args[1]["UnsoldList"]["DurationInDays"] == 60
+    # Issue #5 Phase 1 regression: IncludeWatchCount opt-in flag MUST be present.
+    assert mock.call_args.args[1]["UnsoldList"]["IncludeWatchCount"] == "true"
 
 
 def test_fetch_seller_transactions_happy_path() -> None:
