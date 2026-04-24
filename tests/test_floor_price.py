@@ -83,10 +83,28 @@ def test_compute_funnel_basic() -> None:
 
 
 def test_compute_funnel_zero_views() -> None:
+    # Genuine-zero path: view_count=0 (not None) → ratios stay 0.0
     f = compute_funnel(view_count=0, watch_count=0, quantity_sold=0, question_count=0, days_on_site=None)
     assert f["watchers_per_100_views"] == 0.0
     assert f["conversion_rate_pct_approx"] == 0.0
     assert f["views_per_day"] is None
+
+
+def test_compute_funnel_views_none() -> None:
+    """AC-5.1: view_count=None → every view-dependent ratio is None, not 0.0.
+
+    Preserves the data-gap signal so diagnose_listing can fire its data-gap
+    branch instead of the false-alarm 'Low views — rewrite title' branch.
+    """
+    f = compute_funnel(view_count=None, watch_count=7, quantity_sold=5, question_count=0, days_on_site=20)
+    assert f["views"] is None
+    assert f["watchers_per_100_views"] is None
+    assert f["conversion_rate_pct_approx"] is None
+    assert f["views_per_day"] is None
+    assert f["questions_per_100_views"] is None
+    # Non-view fields still populated from raw counts
+    assert f["watchers"] == 7
+    assert f["units_sold"] == 5
 
 
 def test_compute_rank_health_insufficient_data() -> None:
@@ -101,8 +119,53 @@ def test_compute_rank_health_stable_by_conversion() -> None:
     assert compute_rank_health(days_on_site=20, watchers_per_100_views=1.0, sales_conversion_rate_pct=3.0) == "STABLE"
 
 
+def test_compute_rank_health_stable_by_absolute_signals() -> None:
+    """AC-5.2: Phase-2-unavailable fallback — watchers >= 5 AND units_sold > 0 → STABLE.
+
+    Matches the live 287260458724 scenario before the decision-tree fix: both
+    ratio signals are None (Phase 2 unavailable), but 7 watchers + 5 sold over
+    20 days is clearly a healthy listing.
+    """
+    assert (
+        compute_rank_health(
+            days_on_site=20,
+            watchers_per_100_views=None,
+            sales_conversion_rate_pct=None,
+            watchers=7,
+            units_sold=5,
+        )
+        == "STABLE"
+    )
+
+
 def test_compute_rank_health_volatile() -> None:
     assert compute_rank_health(days_on_site=20, watchers_per_100_views=1.0, sales_conversion_rate_pct=0.5) == "VOLATILE"
+
+
+def test_compute_rank_health_volatile_when_absolute_signals_too_weak() -> None:
+    """Absolute-signal fallback requires BOTH watchers>=5 AND units_sold>0."""
+    # 4 watchers, 10 sold — below watchers threshold
+    assert (
+        compute_rank_health(
+            days_on_site=20,
+            watchers_per_100_views=None,
+            sales_conversion_rate_pct=None,
+            watchers=4,
+            units_sold=10,
+        )
+        == "VOLATILE"
+    )
+    # 10 watchers, 0 sold — below units_sold threshold
+    assert (
+        compute_rank_health(
+            days_on_site=20,
+            watchers_per_100_views=None,
+            sales_conversion_rate_pct=None,
+            watchers=10,
+            units_sold=0,
+        )
+        == "VOLATILE"
+    )
 
 
 def test_diagnose_low_views() -> None:
@@ -110,6 +173,25 @@ def test_diagnose_low_views() -> None:
     diag, action = diagnose_listing(funnel, {}, "VOLATILE", price_gbp=35.0, floor_gbp=7.94)
     assert "Low views" in diag
     assert action is not None
+
+
+def test_diagnose_data_gap_aware() -> None:
+    """AC-5.3: views=None + positive absolute signals → data-gap diagnosis, NOT 'Low views'.
+
+    Regression guard for the 287260458724 failure: pre-fix engine returned
+    'Low views — rewrite title' on a listing with 7 watchers + 5 sold. Post-fix
+    the data-gap branch fires instead.
+    """
+    funnel = compute_funnel(
+        view_count=None, watch_count=7, quantity_sold=5, question_count=0, days_on_site=20
+    )
+    diag, action = diagnose_listing(funnel, {}, "STABLE", price_gbp=35.0, floor_gbp=7.94)
+    assert "Data gap" in diag
+    assert "Low views" not in diag
+    assert "Rewrite title" not in diag
+    assert "watchers=7" in diag
+    assert "units_sold=5" in diag
+    assert action is None
 
 
 def test_diagnose_watchers_no_sale() -> None:
