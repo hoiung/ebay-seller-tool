@@ -84,6 +84,32 @@ HDD_SPECS: dict[str, dict[str, str | None]] = {
         "form_factor": "3.5 in",
         "height": None,
     },
+    # Source: Fabrikam Series-Gamma 2.5" Product Manual 100807728a (MDL-A07 + MDL-A06)
+    # https://www.Fabrikam.com/www-content/product-content/Fabrikam-laptop-fam/series-gamma_25/en-us/docs/100807728a.pdf
+    # Series-Gamma 2.5" family is 5400 RPM SMR (laptop/NAS), SATA 6Gb/s, 128 MB cache.
+    # MDL-A06 = 4TB variant at 15mm z-height; MDL-A07 = 2TB variant at 7mm z-height.
+    "MDL-A06": {
+        "brand": "Fabrikam",
+        "family": "Series-Gamma",
+        "capacity": "4TB",
+        "rpm": "5400 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "MDL-A07": {
+        "brand": "Fabrikam",
+        "family": "Series-Gamma",
+        "capacity": "2TB",
+        "rpm": "5400 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "7mm",
+    },
     "MDL-A08": {
         "brand": "Fabrikam",
         "family": "Series-Delta-3",
