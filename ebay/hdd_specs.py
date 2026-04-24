@@ -84,6 +84,32 @@ HDD_SPECS: dict[str, dict[str, str | None]] = {
         "form_factor": "3.5 in",
         "height": None,
     },
+    # Source: Seagate BarraCuda 2.5" Product Manual 100807728a (ST2000LM015 + ST4000LM016)
+    # https://www.seagate.com/www-content/product-content/seagate-laptop-fam/barracuda_25/en-us/docs/100807728a.pdf
+    # BarraCuda 2.5" family is 5400 RPM SMR (laptop/NAS), SATA 6Gb/s, 128 MB cache.
+    # ST4000LM016 = 4TB variant at 15mm z-height; ST2000LM015 = 2TB variant at 7mm z-height.
+    "ST4000LM016": {
+        "brand": "Seagate",
+        "family": "BarraCuda",
+        "capacity": "4TB",
+        "rpm": "5400 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
+    "ST2000LM015": {
+        "brand": "Seagate",
+        "family": "BarraCuda",
+        "capacity": "2TB",
+        "rpm": "5400 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "2.5 in",
+        "height": "7mm",
+    },
     "ST3000NM0033": {
         "brand": "Seagate",
         "family": "Constellation ES.3",

@@ -48,6 +48,7 @@ def test_hdd_specs_form_factor_allowed(key: str) -> None:
 @pytest.mark.parametrize("key", list(HDD_SPECS.keys()))
 def test_hdd_specs_height_allowed(key: str) -> None:
     height = HDD_SPECS[key]["height"]
-    assert height in {"15mm", "9.5mm", None}
+    # 7mm is the BarraCuda 2.5" slim z-height (e.g. ST2000LM015 per 100807728a.pdf).
+    assert height in {"15mm", "9.5mm", "7mm", None}
     if height is None:
         assert HDD_SPECS[key]["form_factor"] == "3.5 in"
