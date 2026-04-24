@@ -302,6 +302,8 @@ async def get_active_listings(page: int = 1, per_page: int = 25) -> str:
                     "EntriesPerPage": per_page,
                     "PageNumber": page,
                 },
+                # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                "IncludeWatchCount": "true",
             },
             # AC 1.13 Phase 1 sample invocation revealed ReturnPolicy + full
             # ShippingDetails are omitted in the default response. ReturnAll
@@ -409,7 +411,13 @@ async def get_listing_details(item_id: str) -> str:
     response = await asyncio.to_thread(
         execute_with_retry,
         "GetItem",
-        {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
+        {
+            "ItemID": item_id,
+            "DetailLevel": "ReturnAll",
+            "IncludeItemSpecifics": "true",
+            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            "IncludeWatchCount": "true",
+        },
     )
 
     if response.reply.Item is None:
@@ -526,7 +534,13 @@ async def update_listing(
     current = await asyncio.to_thread(
         execute_with_retry,
         "GetItem",
-        {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
+        {
+            "ItemID": item_id,
+            "DetailLevel": "ReturnAll",
+            "IncludeItemSpecifics": "true",
+            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            "IncludeWatchCount": "true",
+        },
     )
     if current.reply.Item is None:
         return json.dumps({"error": f"item {item_id} not found or no longer active"})
@@ -612,7 +626,13 @@ async def update_listing(
     after_resp = await asyncio.to_thread(
         execute_with_retry,
         "GetItem",
-        {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
+        {
+            "ItemID": item_id,
+            "DetailLevel": "ReturnAll",
+            "IncludeItemSpecifics": "true",
+            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            "IncludeWatchCount": "true",
+        },
     )
     if after_resp.reply.Item is None:
         log_debug(f"update_listing VERIFY_FAILED item_id={item_id} — item disappeared after update")
@@ -982,6 +1002,8 @@ async def create_listing(
                     "ItemID": new_item_id,
                     "DetailLevel": "ReturnAll",
                     "IncludeItemSpecifics": "true",
+                    # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                    "IncludeWatchCount": "true",
                 },
             )
             if verify_resp.reply.Item is not None:
@@ -1249,7 +1271,14 @@ async def analyse_listing(
     get_item_response = await asyncio.to_thread(
         execute_with_retry,
         "GetItem",
-        {"ItemID": item_id, "DetailLevel": "ReturnAll", "IncludeItemSpecifics": "true"},
+        {
+            "ItemID": item_id,
+            "DetailLevel": "ReturnAll",
+            "IncludeItemSpecifics": "true",
+            # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+            # This is THE call that produced the "0 watchers across all listings" audit artefact.
+            "IncludeWatchCount": "true",
+        },
     )
     if get_item_response.reply.Item is None:
         return json.dumps({"error": f"item {item_id} not found or no longer active"})
