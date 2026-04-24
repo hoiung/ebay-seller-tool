@@ -123,6 +123,36 @@ def test_parse_traffic_report_empty_records() -> None:
     assert summary["per_listing"] == []
 
 
+def test_parse_traffic_report_missing_dimension_value() -> None:
+    """Regression (Stage 5 L1-E): dim_vals=[{}] (value key absent) yields listing_id=None, NOT 'None' string.
+
+    Pre-fix the parser did `str(dim_vals[0].get("value"))` which coerced None
+    to the string "None", silently corrupting per_listing output.
+    """
+    payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+            ]
+        },
+        "records": [
+            {
+                # dimensionValues exists but value key missing
+                "dimensionValues": [{}],
+                "metricValues": [
+                    {"value": 10, "applicable": True},
+                    {"value": 2, "applicable": True},
+                ],
+            }
+        ],
+    }
+    summary = rest.parse_traffic_report_response(payload)
+    assert summary["per_listing"][0]["listing_id"] is None
+    # Python None, not the string "None"
+    assert summary["per_listing"][0]["listing_id"] != "None"
+
+
 def test_parse_traffic_report_non_applicable_filtered() -> None:
     """applicable=False metric values are coerced to None and excluded from sums."""
     payload = {
