@@ -60,6 +60,16 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
     header = traffic.get("header") or {}
     metric_keys = [m["key"] for m in (header.get("metrics") or [])]
     records = traffic.get("records") or []
+    if not metric_keys and records:
+        # Real eBay responses always include header.metrics alongside records.
+        # An empty metric_keys means the API returned an unexpected shape
+        # (deprecated endpoint, sandbox without data, truncated response).
+        # Log loudly so operators can distinguish this from genuine zero traffic.
+        log_debug(
+            f"traffic_report_empty_metrics records={len(records)} "
+            f"marketplace={traffic.get('filter', 'unknown')!r} — "
+            f"API returned records without metrics header, aggregates will be 0"
+        )
 
     impressions = 0
     views_total = 0
@@ -69,7 +79,13 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
 
     for rec in records:
         dim_vals = rec.get("dimensionValues") or []
-        listing_id = str(dim_vals[0].get("value")) if dim_vals else None
+        # Guard against dim_vals=[{}] where value is missing — str(None) would
+        # produce the string "None" and silently corrupt per_listing output.
+        listing_id: str | None = None
+        if dim_vals:
+            raw_id = dim_vals[0].get("value")
+            if raw_id is not None:
+                listing_id = str(raw_id)
         mvals = rec.get("metricValues") or []
         metrics: dict[str, Any] = {}
         for i in range(min(len(metric_keys), len(mvals))):
@@ -234,13 +250,24 @@ async def compute_return_rate(item_id: str, days: int = 90) -> dict[str, Any]:
     # buyer-initiated refund). Keeping both fallbacks as defensive decode
     # until the first real return lets us diff against docs.
     for r in returns_list:
-        reason = str(r.get("reason") or r.get("returnReason") or "UNKNOWN")
+        raw_reason = r.get("reason") or r.get("returnReason")
+        if raw_reason is None:
+            log_debug(
+                f"post_order_reason_missing item_id={item_id} "
+                f"return_id={r.get('returnId') or r.get('return_id')!r} — "
+                f"neither 'reason' nor 'returnReason' key present"
+            )
+        reason = str(raw_reason or "UNKNOWN")
         reasons[reason] = reasons.get(reason, 0) + 1
         refund = r.get("sellerTotalRefund") or r.get("buyerTotalRefund") or {}
         try:
             total_refunded += float(refund.get("value", 0.0) or 0.0)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            log_debug(
+                f"post_order_refund_parse_failed item_id={item_id} "
+                f"return_id={r.get('returnId') or r.get('return_id')!r} "
+                f"refund={refund!r} reason={type(e).__name__}: {e}"
+            )
         postage_loss += postage_per_return
 
     returns_opened = len(returns_list)
