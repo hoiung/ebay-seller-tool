@@ -9,6 +9,10 @@ name: Issue/PR body secret scan
 #     instead (red X in the run list, notifies Hoi via configured GH notifications).
 #   - The script itself suppresses matched content from stdout; only line numbers
 #     + categories are printed to the Actions log.
+#
+# Canonical template: dotfiles/github/workflows/issue-body-scan.yml (#442 GAP 2.1a).
+# Propagated to each public mirror's .github/workflows/issue-body-scan.yml via
+# drift-manifest.json vendored_files entry. DO NOT hand-edit mirror copies.
 
 on:
   issues:
@@ -17,6 +21,13 @@ on:
     types: [created, edited]
   pull_request:
     types: [opened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   scan:
@@ -32,11 +43,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-      - name: Install dependencies
-        run: uv sync
+          python-version: '3.12'
       - name: Scan issue/PR body + comments
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,7 +53,7 @@ jobs:
             echo "No issue/PR number in event context; skipping scan."
             exit 0
           fi
-          uv run python scripts/check-public-repo-secrets.py \
+          python3 scripts/check-public-repo-secrets.py \
             --scan-issue-body \
             --issue-number "$NUMBER" \
             --repo "${{ github.repository }}"
