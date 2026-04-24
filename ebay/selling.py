@@ -61,6 +61,8 @@ async def fetch_sold_listings(days: int = 30, page: int = 1, per_page: int = 25)
                 "Sort": "TimeLeft",
                 "DurationInDays": days,
                 "Pagination": {"EntriesPerPage": per_page, "PageNumber": page},
+                # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                "IncludeWatchCount": "true",
             },
         },
     )
@@ -127,6 +129,8 @@ async def fetch_unsold_listings(
                 "Sort": "TimeLeft",
                 "DurationInDays": days,
                 "Pagination": {"EntriesPerPage": per_page, "PageNumber": page},
+                # Trading API: WatchCount requires explicit opt-in; DetailLevel=ReturnAll does NOT include it.
+                "IncludeWatchCount": "true",
             },
         },
     )
