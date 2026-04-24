@@ -1,0 +1,80 @@
+# Title + content knobs for the data-driven listing decision toolkit (#13).
+#
+# Single home for non-pricing-math title configuration. Pricing math (floor
+# defaults, fees, postage) lives in config/fees.yaml — kept separate because
+# that's the established home for fee-calculation knobs.
+
+title:
+  # Filler words that buyers do NOT search by — strip from titles to free up
+  # character budget. Per round-2 F-B research. Each entry is matched as a
+  # word-bounded phrase (case-insensitive) before tokenisation.
+  filler_words:
+    - "100% new"
+    - "fast shipping"
+    - "uk stock"
+    - "dispatch"
+    - "next day"
+    - "tracked"
+    - "free shipping"
+    - "quick delivery"
+    - "genuine"
+    - "excellent"
+    - "condition"
+    - "mint"
+    - "unwanted"
+    - "clearance"
+    - "bundle"
+    - "job lot"
+    - "joblot"
+    - "mixed"
+    - "sale"
+    - "offer"
+    - "price"
+    - "reduced"
+    - "bargain"
+    - "bulk"
+    - "wholesale"
+
+  # Preserved 2-3-grams. These collocations are kept as single tokens during
+  # tokenisation so "Enterprise Capacity" doesn't decompose into two unrelated
+  # tokens. Lower-case form; tokeniser matches case-insensitively.
+  preserved_phrases:
+    - "enterprise capacity"
+    - "iron wolf"
+    - "iron wolf pro"
+    - "skyhawk ai"
+    - "barracuda pro"
+    - "hot swap"
+    - "self encrypting"
+
+  # Mandatory keyword categories per drive class (from SKILL.md "Title Rules"
+  # canonical — see /home/hoiung/DevProjects/dotfiles/.claude/skills/
+  # ebay-seller-tool/SKILL.md L525-545). The category NAMES below are the
+  # contract — the orchestrator resolves each category to a literal token
+  # using the listing's specifics dict (e.g. Brand → "Seagate") and passes
+  # that resolved list as `mandatory_keywords` to compute_keyword_diff.
+  mandatory_by_drive_class:
+    3.5_inch_sata:
+      - Brand
+      - Capacity
+      - Interface
+      - "Form Factor (3.5\")"
+      - RPM
+      - Series name
+      - MPN
+    2.5_inch_sata:
+      - Brand
+      - Capacity
+      - Interface
+      - "Form Factor (2.5\")"
+      - RPM
+      - Series name
+      - MPN
+    sas:
+      - HPE
+      - Capacity
+      - SAS
+      - Speed
+      - RPM
+      - "Form Factor"
+      - "B21 part number"
