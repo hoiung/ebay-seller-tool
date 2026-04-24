@@ -29,3 +29,14 @@ defaults:
   cogs_gbp: 0.0               # default — override per-SKU when cost differs
   return_rate: 0.10           # conservative placeholder; replaced by live per-SKU rate when Phase 2 compute_return_rate available
   target_margin: 0.15
+
+# Issue #13 Phase 4 — under-pricing detector knobs.
+# Used by ebay/analytics.py compute_under_pricing() to flag listings where
+# our price < p25_clean AND/OR sales velocity > category median AND/OR
+# days-to-sell < 7 (2-of-3 = AMBER, 3-of-3 = RED).
+under_pricing:
+  velocity_median_default: 0.1   # units sold per day — category-default fallback
+                                 # when no per-SKU velocity baseline exists. 0.1
+                                 # = 1 unit per 10 days (conservative HDD floor).
+  recommended_band_low_pct: 40   # p40 of clean comps = AMBER recommendation
+  recommended_band_high_pct: 55  # p55 of clean comps = RED upper recommendation
