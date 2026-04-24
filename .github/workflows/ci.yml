@@ -79,4 +79,5 @@ jobs:
             --since ${{ github.event.before }}
 
       - name: Run pytest
-        run: uv run pytest tests/ -x --timeout=120
+        timeout-minutes: 5
+        run: uv run pytest tests/ -x
