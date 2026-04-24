@@ -148,6 +148,88 @@ def test_competitor_prices_distribution(monkeypatch: pytest.MonkeyPatch) -> None
     assert result["shipping_free_pct"] == 100.0
 
 
+def test_competitor_prices_extension_fields_populated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 1.1 + 1.2 — itemCreationDate + 7 new Browse fields surfaced.
+
+    Mocked Browse response includes every defensive-lookup field; assert
+    each appears in the per-listing dict with the correct value.
+    """
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    fake = _fake_browse_client(
+        {
+            "itemSummaries": [
+                {
+                    "itemId": "v1|EXT",
+                    "title": "Test listing extension fields",
+                    "price": {"value": "40.00", "currency": "GBP"},
+                    "seller": {
+                        "username": "ext-seller",
+                        "feedbackPercentage": "99.5",
+                        "feedbackScore": 12345,
+                    },
+                    "condition": "Used",
+                    "itemWebUrl": "https://ebay.co.uk/itm/EXT",
+                    "itemCreationDate": "2026-01-15T10:30:00.000Z",
+                    "image": {"imageUrl": "https://i.ebayimg.com/EXT.jpg"},
+                    "additionalImages": [
+                        {"imageUrl": "https://i.ebayimg.com/EXT_2.jpg"},
+                        {"imageUrl": "https://i.ebayimg.com/EXT_3.jpg"},
+                    ],
+                    "topRatedBuyingExperience": True,
+                    "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+                }
+            ]
+        }
+    )
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        result = _run(browse.fetch_competitor_prices(part_number="EXT"))
+
+    assert result["count"] == 1
+    listing = result["listings"][0]
+    assert listing["item_creation_date"] == "2026-01-15T10:30:00.000Z"
+    assert listing["image_url"] == "https://i.ebayimg.com/EXT.jpg"
+    assert listing["additional_image_count"] == 2
+    assert listing["seller_feedback_pct"] == "99.5"
+    assert listing["seller_feedback_score"] == 12345
+    assert listing["top_rated"] is True
+    assert listing["returns_accepted"] is True
+    assert listing["returns_within_days"] == 30
+
+
+def test_competitor_prices_extension_fields_missing_default_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Phase 1.2.2 — every extension field defaults to None (or 0 for image count) when absent."""
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    fake = _fake_browse_client(
+        {
+            "itemSummaries": [
+                {
+                    # Bare-minimum item: no creation date, no image obj, no return terms,
+                    # no additional images, no top-rated flag, sparse seller obj.
+                    "itemId": "v1|MIN",
+                    "title": "Minimal listing",
+                    "price": {"value": "25.00", "currency": "GBP"},
+                    "seller": {"username": "min-seller"},
+                    "condition": "Used",
+                }
+            ]
+        }
+    )
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        result = _run(browse.fetch_competitor_prices(part_number="MIN"))
+
+    listing = result["listings"][0]
+    assert listing["item_creation_date"] is None
+    assert listing["image_url"] is None
+    assert listing["additional_image_count"] == 0
+    assert listing["seller_feedback_pct"] is None
+    assert listing["seller_feedback_score"] is None
+    assert listing["top_rated"] is None
+    assert listing["returns_accepted"] is None
+    assert listing["returns_within_days"] is None
+
+
 def test_competitor_prices_mixed_currency_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bug 0.1 — multi-currency Browse response must raise.
 
