@@ -79,7 +79,8 @@ def test_fetch_listing_returns_happy_path() -> None:
             ]
         },
     )
-    with patch("ebay.rest.get_oauth_session", return_value=fake_client):
+    # Post-Order uses IAF scheme (get_post_order_session), not OAuth Bearer.
+    with patch("ebay.rest.get_post_order_session", return_value=fake_client):
         result = _run(rest.fetch_listing_returns(item_id="111", days=90))
     assert "returns" in result
     call = fake_client.get.call_args
