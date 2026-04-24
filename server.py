@@ -1368,6 +1368,9 @@ async def analyse_listing(
         summary = parse_traffic_report_response(traffic)
         if summary["records_count"] > 0:
             funnel["impressions"] = summary["impressions"]
+            # Phase 2 backfill — HitCount is deprecated so Phase 1 gave us
+            # view_count=None, leaving funnel["views"] and the view-dependent
+            # ratios as None. Overwrite with the Analytics-API ground truth.
             funnel["views"] = summary["views"]
             funnel["ctr_pct"] = summary["ctr_pct"]
             if summary["views"] > 0:
@@ -1377,6 +1380,11 @@ async def analyse_listing(
                 funnel["conversion_rate_pct_approx"] = round(
                     100.0 * listing["quantity_sold"] / summary["views"], 2
                 )
+            else:
+                # GENUINE ZERO — Phase 2 confirmed views=0. Use 0.0 ratios
+                # (distinct from None which signals "data not available").
+                funnel["watchers_per_100_views"] = 0.0
+                funnel["conversion_rate_pct_approx"] = 0.0
             traffic_sales_conversion_pct = summary["sales_conversion_rate_pct"]
     except Exception as e:
         # Documented fail-soft: Phase 2 enrichment is best-effort. On any failure
