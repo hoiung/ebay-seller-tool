@@ -212,7 +212,14 @@ def listing_to_dict(item: object) -> dict:
         ),
         "quantity_sold": quantity_sold,
         "watch_count": int(getattr(item, "WatchCount", 0) or 0),
-        "view_count": int(getattr(item, "HitCount", 0) or 0),
+        # HitCount is deprecated by eBay:
+        # https://developer.ebay.com/devzone/xml/docs/reference/ebay/GetItem.html
+        # "Hit counters are no longer shown in View Item pages, so this field is
+        # no longer applicable." Always 0 / absent on modern responses.
+        # view_count is populated by analyse_listing's Phase 2 enrichment using
+        # the Analytics API LISTING_VIEWS_TOTAL metric. Here we always return
+        # None to preserve the data-gap signal end-to-end.
+        "view_count": None,
         "best_offer_count": best_offer_count,
         "best_offer_enabled": best_offer_enabled,
         "question_count": question_count,
