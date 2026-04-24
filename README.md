@@ -70,8 +70,8 @@ Cross-referenced to `ebay/auth.py::REQUIRED_VARS` and `.env.example` line number
 | `EBAY_CERT_ID` | 4 | `ebay/client.py` |
 | `EBAY_DEV_ID` | 5 | `ebay/client.py` |
 | `EBAY_AUTH_TOKEN` | 9 | `ebay/client.py` |
-| `EBAY_SELLER_LOCATION` | 40 | `ebay/listings.py:499` (AddFixedPriceItem location) |
-| `EBAY_SELLER_POSTCODE` | 41 | `ebay/listings.py:500` (AddFixedPriceItem location) |
+| `EBAY_SELLER_LOCATION` | 39 | `ebay/listings.py:506` (AddFixedPriceItem location) |
+| `EBAY_SELLER_POSTCODE` | 40 | `ebay/listings.py:507` (AddFixedPriceItem location) |
 
 Optional overrides (defaults apply when unset): `EBAY_MARKETPLACE_ID` (default `EBAY_GB`), `EBAY_OAUTH_BASE_URL` (default `https://api.ebay.com`), `EBAY_SANDBOX`, `EBAY_DEBUG`, `EBAY_DRIVE_ROOT`.
 
