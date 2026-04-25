@@ -78,7 +78,7 @@ def _condition_id_for(condition: str) -> str:
 
 @lru_cache(maxsize=1)
 def _load_filter_config() -> dict[str, Any]:
-    """Load and cache pricing_and_content.yaml. Override path via EBAY_FILTER_CONFIG env var (tests)."""
+    """Load and cache pricing_and_content.yaml. Override via EBAY_FILTER_CONFIG env (tests)."""
     path = os.environ.get("EBAY_FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
     if not os.path.exists(path):
         raise FileNotFoundError(
@@ -511,7 +511,10 @@ def score_apple_to_apple(own_listing: dict[str, Any], comp_item: dict[str, Any])
         if soft_min_score is not None and feedback_score < soft_min_score:
             score -= float(deductions.get("seller_feedback_score", 0.0))
 
-    if quality.get("soft_returns_accepted_required") is True and comp_item.get("returns_accepted") is False:
+    if (
+        quality.get("soft_returns_accepted_required") is True
+        and comp_item.get("returns_accepted") is False
+    ):
         score -= float(deductions.get("returns_accepted", 0.0))
 
     rwd = comp_item.get("returns_within_days")
