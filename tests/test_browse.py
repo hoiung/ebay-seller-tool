@@ -75,7 +75,8 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
     assert call.args[0] == "/buy/browse/v1/item_summary/search"
     params = call.kwargs.get("params") or call.args[1]
     assert params["q"] == "ST2000NM"
-    assert "conditionIds:{3000}" in params["filter"]
+    # Issue #14 Phase 2.4 — USED widens to pipe-separated equivalence class.
+    assert "conditionIds:{3000|2750}" in params["filter"]
     assert "itemLocationCountry:{GB}" in params["filter"]
     assert params["limit"] == "50"
 
