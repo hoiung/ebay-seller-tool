@@ -107,9 +107,7 @@ def _read_events(item_id: str) -> list[dict[str, Any]]:
     return matches
 
 
-def compute_elasticity(
-    item_id: str, before_event: str, after_event: str
-) -> dict[str, Any] | None:
+def compute_elasticity(item_id: str, before_event: str, after_event: str) -> dict[str, Any] | None:
     """Compute pricing elasticity from snapshot events.
 
     Elasticity = Δwatchers / Δprice_pct, where Δprice_pct is signed.

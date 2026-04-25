@@ -263,8 +263,9 @@ def score_apple_to_apple(own_listing: dict[str, Any], comp_item: dict[str, Any])
 
     # Dim 1 — MPN exact substring.
     mpns = own_specifics.get("MPN") or []
-    if mpns and any(str(m).upper().strip() and str(m).upper().strip() in comp_title_upper
-                    for m in mpns):
+    if mpns and any(
+        str(m).upper().strip() and str(m).upper().strip() in comp_title_upper for m in mpns
+    ):
         score += 0.2
 
     # Dim 2 — comp title is NOT a bundle.

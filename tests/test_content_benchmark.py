@@ -30,7 +30,7 @@ def _own(**overrides) -> dict:
 
 def _comp(
     *,
-    title: str = "ST2000NX0253 2.5\" SAS HDD",
+    title: str = 'ST2000NX0253 2.5" SAS HDD',
     condition: str = "Used",
     age_days: int = 30,
     **extras,
@@ -62,13 +62,13 @@ def test_score_perfect_match() -> None:
 
 def test_score_missing_mpn_dim() -> None:
     """Title doesn't contain MPN → -0.2."""
-    score = score_apple_to_apple(_own(), _comp(title="2.5\" SAS HDD bare drive"))
+    score = score_apple_to_apple(_own(), _comp(title='2.5" SAS HDD bare drive'))
     assert score == 0.8
 
 
 def test_score_bundle_disqualifier() -> None:
     """'caddy' in title → -0.2 on bundle dim."""
-    score = score_apple_to_apple(_own(), _comp(title="ST2000NX0253 with caddy 2.5\""))
+    score = score_apple_to_apple(_own(), _comp(title='ST2000NX0253 with caddy 2.5"'))
     assert score == 0.8
 
 
@@ -102,7 +102,7 @@ def test_score_multiple_failures() -> None:
     """Bundle + wrong form factor + wrong condition + missing MPN → 0.2 + skip-date 0.2."""
     score = score_apple_to_apple(
         _own(),
-        _comp(title="kit 3.5\" generic bundle", condition="Used – Excellent"),
+        _comp(title='kit 3.5" generic bundle', condition="Used – Excellent"),
     )
     # MPN missing(-0.2), bundle keyword(-0.2), wrong FF(-0.2), wrong cond(-0.2), age ok(+0.2) = 0.2
     assert score == 0.2
@@ -117,7 +117,7 @@ def test_filter_clean_keeps_only_above_threshold() -> None:
         _comp(),  # 1.0
         _comp(title="ST2000NX0253 caddy bundle"),  # 0.8 (bundle)
         _comp(title="random part"),  # mpn miss + bundle ok + ff miss + cond ok + age ok = 0.6
-        _comp(title="kit 3.5\" generic", condition="New"),  # 0.2 (multiple fails)
+        _comp(title='kit 3.5" generic', condition="New"),  # 0.2 (multiple fails)
     ]
     kept = filter_clean_competitors(own, comps, threshold=0.6)
     # 1.0, 0.8, 0.6 are kept; 0.2 dropped.
@@ -142,10 +142,14 @@ def test_drop_stale_removes_oldest_pct() -> None:
     assert len(kept) == 9
     # The 365-day stale one should be gone; max age in kept ≤ 90.
     ages = [
-        (datetime.now(timezone.utc) -
-         datetime.fromisoformat(c["item_creation_date"].replace("Z", "+00:00")
-                                 if c["item_creation_date"].endswith("Z")
-                                 else c["item_creation_date"])).days
+        (
+            datetime.now(timezone.utc)
+            - datetime.fromisoformat(
+                c["item_creation_date"].replace("Z", "+00:00")
+                if c["item_creation_date"].endswith("Z")
+                else c["item_creation_date"]
+            )
+        ).days
         for c in kept
     ]
     assert max(ages) <= 91

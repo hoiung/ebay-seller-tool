@@ -308,6 +308,4 @@ def test_analyse_listing_phase2_unavailable_returns_data_gap(tmp_path, monkeypat
     assert parsed["recommended_action"] is None
 
     # Phase 5.2.1 — Phase 2 unavailable → NO snapshot written (gated on phase2_available).
-    assert not snap_path.exists(), (
-        "snapshot should NOT be written when phase2_available=False"
-    )
+    assert not snap_path.exists(), "snapshot should NOT be written when phase2_available=False"

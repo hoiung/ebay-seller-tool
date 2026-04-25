@@ -79,12 +79,19 @@ def _comp_payload(
         "itemId": item_id,
         "title": title,
         "price": {"value": str(price), "currency": "GBP"},
-        "seller": {"username": f"comp-{item_id}", "feedbackPercentage": "99.5", "feedbackScore": 1000},
+        "seller": {
+            "username": f"comp-{item_id}",
+            "feedbackPercentage": "99.5",
+            "feedbackScore": 1000,
+        },
         "condition": condition,
         "itemWebUrl": f"https://ebay.co.uk/itm/{item_id}",
         "itemCreationDate": creation,
         "image": {"imageUrl": f"https://i.ebayimg.com/{item_id}.jpg"},
-        "additionalImages": [{"imageUrl": f"https://i.ebayimg.com/{item_id}_{n}.jpg"} for n in range(additional_images)],
+        "additionalImages": [
+            {"imageUrl": f"https://i.ebayimg.com/{item_id}_{n}.jpg"}
+            for n in range(additional_images)
+        ],
         "topRatedBuyingExperience": top_rated,
         "returnTerms": {"returnsAccepted": True, "returnsWithinDays": returns_within},
         "bestOfferEnabled": best_offer,
@@ -245,9 +252,7 @@ def test_full_workflow_chain_underpriced_listing(
             "verdicts": {
                 "under": under["verdict"],
                 "over": over["verdict"],
-                "content_flags": sum(
-                    1 for v in content.values() if v["verdict"] == "flagged"
-                ),
+                "content_flags": sum(1 for v in content.values() if v["verdict"] == "flagged"),
                 "title_candidates": len(diff["candidates"]),
             },
             "source": "workflow_chain_test",
@@ -294,10 +299,10 @@ def test_full_workflow_chain_underpriced_red_verdict(
     pcts = _percentiles([c["price"] for c in clean])
 
     under = compute_under_pricing(
-        live_price=20.0,                # < p25 35 (A True)
+        live_price=20.0,  # < p25 35 (A True)
         p25_clean=pcts["p25"],
-        units_sold_per_day=0.5,         # > 0.1 (B True)
-        days_to_sell_median=3,          # < 7 (C True)
+        units_sold_per_day=0.5,  # > 0.1 (B True)
+        days_to_sell_median=3,  # < 7 (C True)
         p40_clean=pcts["p40"],
         p55_clean=pcts["p55"],
     )
@@ -336,11 +341,11 @@ def test_full_workflow_chain_overpriced_listing(
     pcts = _percentiles([c["price"] for c in clean])
 
     over = compute_over_pricing(
-        live_price=50.0,                # > p75 (A True)
+        live_price=50.0,  # > p75 (A True)
         p75_clean=pcts["p75"],
-        watchers=3,                     # > 0 (B True)
-        units_sold=0,                   # == 0 (C True)
-        days_on_site=44,                # > 21 (D True)
+        watchers=3,  # > 0 (B True)
+        units_sold=0,  # == 0 (C True)
+        days_on_site=44,  # > 21 (D True)
         p55_clean=pcts["p55"],
         p65_clean=pcts["p65"],
     )
