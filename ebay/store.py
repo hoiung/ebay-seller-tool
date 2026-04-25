@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ebay.client import execute_with_retry
+from ebay.client import execute_with_retry, log_debug
 
 
 def _as_list(node: Any) -> list:
@@ -73,11 +73,17 @@ def _sync_get_store_info() -> dict[str, Any]:
             }
         )
 
-    return {
+    result = {
         "store_name": str(store_name) if store_name is not None else None,
         "store_categories": categories,
         "categories_count": len(categories),
     }
+    # AP #12 observability — log outcome (input is logged at server.py call site).
+    log_debug(
+        f"get_store_info result store_name={result['store_name']!r} "
+        f"categories_count={result['categories_count']}"
+    )
+    return result
 
 
 async def fetch_store_info() -> dict[str, Any]:
