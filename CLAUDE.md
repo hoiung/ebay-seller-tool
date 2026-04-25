@@ -121,8 +121,8 @@ Cleanup branch, close Issue
 ### MCP Configuration (Global)
 - **Location**: `~/.claude.json` (user scope)
 - **Verify**: Run `claude mcp list` or `/mcp` inside Claude Code
-- **Servers**: chrome-devtools, github-checkbox, github, code-review-graph
-- **code-review-graph**: Local AST knowledge graph (SQLite, Tree-sitter). 5 tools: graph, query, review, config, help (setup is a `config` sub-action). Local-only mode (`EMBEDDING_BACKEND=local`). Graph in `.code-review-graph/` (gitignored, regenerable). Parses 14 source languages (Python, TypeScript, TSX, JavaScript, Go, Rust, Java, C#, Ruby, C/C++, Kotlin, Swift, PHP, Solidity); NOT Markdown/YAML/JSON/SQL/TOML/shell. See `docs/guides/code-review-graph-playbook.md`.
+- **Servers**: chrome-devtools, github-checkbox, github
+- **code-review-graph (Phase 3 wrapper-lane)**: Local AST knowledge graph (SQLite, Tree-sitter). Invoked via 8 bash wrappers (`sst3-graph-*.sh` scripts in `dotfiles/SST3/scripts/`): status, update, search, callers, impact, large, review, untested-py. Parses 14 source languages (Python, TypeScript, TSX, JavaScript, Go, Rust, Java, C#, Ruby, C/C++, Kotlin, Swift, PHP, Solidity); NOT Markdown/YAML/JSON/SQL/TOML/shell. See `docs/guides/code-review-graph-playbook.md` (operational guide; Issue #445 wrapper-lane semantics override MCP-era examples).
 - **Guide**: `../dotfiles/docs/guides/mcp-configuration.md`
 - **Tool Selection**: See `../dotfiles/SST3/reference/tool-selection-guide.md`
 
@@ -142,6 +142,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
 
 
 
