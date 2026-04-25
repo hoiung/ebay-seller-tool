@@ -47,12 +47,11 @@ title:
     - "hot swap"
     - "self encrypting"
 
-  # Mandatory keyword categories per drive class (from SKILL.md "Title Rules"
-  # canonical — see /home/hoiung/DevProjects/dotfiles/.claude/skills/
-  # ebay-seller-tool/SKILL.md L525-545). The category NAMES below are the
-  # contract — the orchestrator resolves each category to a literal token
-  # using the listing's specifics dict (e.g. Brand → "Seagate") and passes
-  # that resolved list as `mandatory_keywords` to compute_keyword_diff.
+  # Mandatory keyword categories per drive class (from the private skill's
+  # "Title Rules" canonical). The category NAMES below are the contract — the
+  # orchestrator resolves each category to a literal token using the listing's
+  # specifics dict (e.g. Brand → "Seagate") and passes that resolved list as
+  # `mandatory_keywords` to compute_keyword_diff.
   mandatory_by_drive_class:
     3.5_inch_sata:
       - Brand
