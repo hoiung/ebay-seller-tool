@@ -127,7 +127,7 @@ def test_analyse_listing_phase2_backfills_views(tmp_path, monkeypatch) -> None:
       - funnel.watchers_per_100_views ≈ 9.21 (100 * 7 / 76)
       - rank_health_status == "STABLE"
       - diagnosis text does NOT contain 'Low views' or 'Rewrite title'
-    Regression guard for the 287260458724 failure.
+    Regression guard for the 999000000001 failure.
 
     Also asserts Phase 5.2.1: snapshot is written with analysis_baseline event.
     """
@@ -177,7 +177,7 @@ def test_analyse_listing_phase2_backfills_views(tmp_path, monkeypatch) -> None:
         return {"return_rate_pct": None}
 
     item_stub = _fake_item("999")
-    # Raise items to match the 287260458724 scenario
+    # Raise items to match the 999000000001 scenario
     item_stub.WatchCount = "7"
     item_stub.SellingStatus.QuantitySold = "5"
     # Listing is 30 days old so days_on_site >= 14 (STABLE eligibility)

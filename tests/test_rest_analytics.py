@@ -94,7 +94,7 @@ def test_traffic_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_traffic_report_real_fixture_parses() -> None:
-    """AC-1.4: real live-probe response for item 287260458724.
+    """AC-1.4: real live-probe response for item 999000000001.
 
     Fixture captured 2026-04-24 against the live eBay Analytics API.
     Confirms the parser decodes the real response shape correctly.
@@ -113,7 +113,7 @@ def test_traffic_report_real_fixture_parses() -> None:
     assert summary["search_view_share_pct"] == 57.89  # 100 * 44 / 76
     assert summary["organic_search_exposure_pct"] == 100.0  # synonym of search_imp_share
     assert summary["records_count"] == 1
-    assert summary["per_listing"][0]["listing_id"] == "287260458724"
+    assert summary["per_listing"][0]["listing_id"] == "999000000001"
 
 
 def test_parse_traffic_report_empty_records() -> None:
