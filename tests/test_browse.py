@@ -170,6 +170,8 @@ def test_competitor_prices_extension_fields_populated(monkeypatch: pytest.Monkey
                         "feedbackScore": 12345,
                     },
                     "condition": "Used",
+                    # Issue #14 AC 2.5.1 — numeric conditionId surfaced per-listing.
+                    "conditionId": "3000",
                     "itemWebUrl": "https://ebay.co.uk/itm/EXT",
                     "itemCreationDate": "2026-01-15T10:30:00.000Z",
                     "image": {"imageUrl": "https://i.ebayimg.com/EXT.jpg"},
@@ -189,6 +191,8 @@ def test_competitor_prices_extension_fields_populated(monkeypatch: pytest.Monkey
     assert result["count"] == 1
     listing = result["listings"][0]
     assert listing["item_creation_date"] == "2026-01-15T10:30:00.000Z"
+    # Issue #14 AC 2.5.1 — condition_id captured from raw conditionId field as string.
+    assert listing["condition_id"] == "3000"
     assert listing["image_url"] == "https://i.ebayimg.com/EXT.jpg"
     assert listing["additional_image_count"] == 2
     assert listing["seller_feedback_pct"] == "99.5"
