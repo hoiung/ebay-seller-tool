@@ -293,8 +293,11 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - Project README: `README.md`
 - API Research: `docs/research/`
 - Skill (private): `~/.claude/skills/ebay-seller-tool/SKILL.md`
+  - **Pricing Review Workflow** subsection (#13 — live 2026-04-25): full sweep procedure + 4-phase new-listing flow + verdict→action mapping. Cadence: weekly via skill prompt when `pricing_review.md` `last_full_review` is >7 days.
 - Business rules (private): `../dotfiles/business/ebay/research/` (12 docs)
 - Business memory (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/user_ebay_business.md`
+- Pricing review state (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/pricing_review.md`
+- Pricing elasticity log (out-of-repo): `~/.local/share/ebay-seller-tool/price_snapshots.jsonl`
 
 ---
 
