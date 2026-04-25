@@ -77,3 +77,76 @@ title:
       - RPM
       - "Form Factor"
       - "B21 part number"
+
+# Issue #14 — apple-to-apples competitor filter quality. Three-layer pipeline
+# driven by Browse-API quality signals + price-outlier guard. Layer-1 binary
+# hard rejects only for unambiguous junk; seller-quality signals demoted to
+# Layer-2 score deductions per Hoi's undercut-to-move-stock strategy.
+comp_filter:
+  quality_thresholds:
+    require_at_least_one_image: true       # Layer-1 binary: image_url is None AND additional_image_count == 0
+    soft_min_seller_feedback_pct: 98.0     # Layer-2 deduction trigger
+    soft_min_seller_feedback_score: 100    # Layer-2 deduction trigger (proxy: new/unproven seller)
+    soft_returns_accepted_required: true   # Layer-2 deduction trigger when returns_accepted is False
+    soft_min_returns_within_days: 14       # Layer-2 deduction trigger when present and < this
+    soft_top_rated_preferred: true         # Layer-2 deduction trigger (mild)
+
+  quality_deductions:
+    seller_feedback_pct: 0.05
+    seller_feedback_score: 0.05
+    returns_accepted: 0.05
+    returns_within_days: 0.05
+    top_rated: 0.05
+
+  hard_reject_patterns:
+    broken_or_parts:
+      - '\b(for parts(\s+(or|and)\s+(not\s+)?(working|repair))?|spares?\s+(or|and)?\s*repair|as[\s-]?is|untested|not\s+(working|tested|fully\s+tested)|defective|faulty|bad\s+sectors?|fail(ed|ing|ure))\b'
+    external_or_wrong_form_factor:
+      - '\b(external\s+(enclosure|drive|hard\s+drive|hdd|usb)|usb\s+(3\.0|3\.1|hard\s+drive|hdd)|portable\s+(drive|hdd)|nas\s+enclosure|drive\s+enclosure|usb\s+caddy|backup\s+plus)\b'
+    wrong_category:
+      - '\b(raid\s+(card|controller)|hba\s+(card|controller)|controller\s+card|sas\s+expander|backplane|interposer|sled|caddy\s+only|tray\s+only|bracket\s+only|screws?\s+only)\b'
+    bundle:
+      - '\b(\d+\s*[x×]\s*(hdd|ssd|drive|disk)|lot\s+of\s+\d+|\d+\s*[-\s]?(pack|pcs?|pieces?|units?)|(joblot|job\s*lot|bundle|set\s+of\s+\d+)|x\s*\d+\s+(drives?|disks?|hdds?))\b'
+
+  # Phase 3.1 — caddy mismatch hard-reject patterns. Triggered ONLY when
+  # own_listing has caddy (title contains "+Caddy", or specifics["Features"]
+  # contains "Hot Swap"/"Caddy", or has_caddy=True at runtime).
+  caddy_mismatch_patterns:
+    - '\b(no\s+caddy|without\s+caddy|w/o\s+caddy|sans\s+caddy|caddy\s+not\s+included|bare\s+drive|drive\s+only)\b'
+
+  # Phase 2.3 — numeric conditionId equivalence classes. Comp passes Dim-3
+  # condition match when comp.condition_id is in the equivalence set of own's.
+  # 7000 (For parts) intentionally excluded — never apple-to-apples for working stock.
+  condition_equivalence:
+    "1000":                    # New — strict
+      - "1000"
+    "1500":                    # Opened — tolerate honest 1000
+      - "1500"
+      - "1000"
+    "3000":                    # Used — Hoi's tested-Used floor IS others' Used-Excellent
+      - "3000"
+      - "2750"
+    "2750":                    # Used-Excellent
+      - "2750"
+      - "3000"
+
+  # Phase 3.2 — series names that distinguish SKUs (Seagate HARD CONTRACT et al).
+  # When own_listing.title contains one of these, comp title MUST contain the
+  # SAME series (case-insensitive) or be hard-rejected.
+  series_names:
+    - "enterprise capacity"   # vs Exos — Seagate HARD CONTRACT per SKILL.md:112-126
+    - "exos"
+    - "iron wolf"
+    - "iron wolf pro"
+    - "barracuda"
+    - "barracuda pro"
+    - "skyhawk"
+    - "skyhawk ai"
+    - "ironwolf"              # Seagate spells both ways
+    - "ultrastar"             # HGST family
+    - "deskstar"              # HGST consumer
+    - "travelstar"            # HGST 2.5"
+    - "gold"                  # WD enterprise
+    - "red"                   # WD NAS
+    - "red pro"               # WD NAS pro
+    - "purple"                # WD surveillance
