@@ -299,6 +299,13 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - Pricing review state (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/pricing_review.md`
 - Pricing elasticity log (out-of-repo): `~/.local/share/ebay-seller-tool/price_snapshots.jsonl`
 
+### Comp-filter quality config (Issue #14)
+- `config/pricing_and_content.yaml` `comp_filter:` block — Layer-1 binary thresholds + Layer-2 deductions + 4 hard-reject regex categories (broken/external/wrong_category/bundle) + caddy_mismatch_patterns + condition_equivalence (numeric Phase 2.3 classes) + series_names (Seagate HARD CONTRACT et al)
+- `config/fees.yaml` `outlier_rejection:` block — Issue #14 Phase 4 IQR-based price-outlier knobs
+- Code: `ebay/browse.py` — `filter_low_quality_competitors`, `score_apple_to_apple`, `drop_price_outliers`, `run_comp_filter_pipeline` aggregator
+- Tests: `tests/test_comp_filter.py` (33 tests covering all 5 phases)
+- Diagnostic: `scripts/measure_comp_quality_distribution.py` — one-shot ad-hoc script to calibrate Layer-1 thresholds against a live sweep cache
+
 ---
 
 *Template Version: SST3.0.0*
