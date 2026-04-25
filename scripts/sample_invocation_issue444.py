@@ -70,9 +70,10 @@ def _summarise(label: str, result: dict[str, Any]) -> str:
 async def _amain(part_number: str, listings_path: Path) -> int:
     own = _find_own_listing(listings_path, part_number)
     if own is None:
+        skill_path = "~/.claude/skills/ebay-seller-tool/scripts/fetch_listings.py"
         print(
             f"FAIL: no own-listing found in {listings_path} matching MPN={part_number}.\n"
-            "      Run `uv run python ~/.claude/skills/ebay-seller-tool/scripts/fetch_listings.py` first."
+            f"      Run `uv run python {skill_path}` first."
         )
         return 1
 
@@ -114,8 +115,14 @@ async def _amain(part_number: str, listings_path: Path) -> int:
             "different MPN / future market state.\n"
         )
 
-    print(f"Total Browse API calls dispatched for this sweep: per-condition raw counts = {raw_per_cond}")
-    print(f"Sanity check: USED equivalence class = 2 calls; observed = {len(raw_per_cond)} call(s).")
+    print(
+        f"Total Browse API calls dispatched for this sweep: "
+        f"per-condition raw counts = {raw_per_cond}"
+    )
+    print(
+        f"Sanity check: USED equivalence class = 2 calls; "
+        f"observed = {len(raw_per_cond)} call(s)."
+    )
     return 0
 
 
