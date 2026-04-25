@@ -30,7 +30,11 @@ _cached_config: dict[str, Any] | None = None
 
 
 def _load_pricing_and_content_config() -> dict[str, Any]:
-    """Load + cache the title knobs YAML. Re-reads if file missing on first call."""
+    """Load + cache the title knobs YAML. Re-reads if file missing on first call.
+
+    Filler words and preserved phrases are pre-sorted (longest first) at load
+    time so `tokenise_title` doesn't re-sort on every call.
+    """
     global _cached_config
     if _cached_config is not None:
         return _cached_config
@@ -40,7 +44,14 @@ def _load_pricing_and_content_config() -> dict[str, Any]:
             "title benchmarking requires it for filler_words + preserved_phrases."
         )
     with open(_CONFIG_PATH) as f:
-        _cached_config = yaml.safe_load(f) or {}
+        cfg = yaml.safe_load(f) or {}
+    title_section = cfg.get("title") or {}
+    fillers = title_section.get("filler_words") or []
+    preserved = title_section.get("preserved_phrases") or []
+    title_section["filler_words"] = sorted(fillers, key=len, reverse=True)
+    title_section["preserved_phrases"] = sorted(preserved, key=len, reverse=True)
+    cfg["title"] = title_section
+    _cached_config = cfg
     return _cached_config
 
 
@@ -86,14 +97,15 @@ def tokenise_title(
     s = _ascii_fold(title.lower())
 
     # 2. preserved phrases — replace with underscore-joined token to survive
-    #    the splitter intact. Sort by length DESC so longer phrases win first
-    #    ("iron wolf pro" before "iron wolf").
+    #    the splitter intact. Lists from the config loader are pre-sorted
+    #    longest-first ("iron wolf pro" before "iron wolf"); caller-passed
+    #    lists are sorted here defensively.
     for phrase in sorted(preserved_phrases, key=len, reverse=True):
         phrase_lc = phrase.lower()
         if phrase_lc in s:
             s = s.replace(phrase_lc, phrase_lc.replace(" ", "_"))
 
-    # 3. filler words — word-bounded regex strip. Sort by length DESC.
+    # 3. filler words — word-bounded regex strip. Same pre-sort note as above.
     for filler in sorted(filler_words, key=len, reverse=True):
         s = re.sub(rf"(?<!\w){re.escape(filler.lower())}(?!\w)", " ", s)
 
