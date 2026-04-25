@@ -40,3 +40,15 @@ under_pricing:
                                  # = 1 unit per 10 days (conservative HDD floor).
   recommended_band_low_pct: 40   # p40 of clean comps = AMBER recommendation
   recommended_band_high_pct: 55  # p55 of clean comps = RED upper recommendation
+
+# Issue #14 Phase 4 — IQR-based price-outlier rejection. Runs between
+# drop_stale_competitors and percentile compute. Always log-space for HDD
+# pools (max/min > 10 in 5/5 observed sample pools per Stage 1 F-E).
+outlier_rejection:
+  enabled: true
+  method: iqr            # iqr | none
+  multiplier: 1.5
+  log_transform: true    # bool — log-space IQR for skewed HDD price distributions
+  min_pool_size: 6       # skip if fewer than this many comps
+  max_drop_frac: 0.20    # never drop more than this fraction (rank by extremity)
+  per_condition: false   # v1 — apple-to-apples already stratifies by condition

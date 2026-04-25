@@ -75,6 +75,8 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
     assert call.args[0] == "/buy/browse/v1/item_summary/search"
     params = call.kwargs.get("params") or call.args[1]
     assert params["q"] == "ST2000NM"
+    # Issue #14 Phase 2.4 — single-ID per Browse call (pipe-separator silently
+    # truncated by eBay per live curl verification 2026-04-25).
     assert "conditionIds:{3000}" in params["filter"]
     assert "itemLocationCountry:{GB}" in params["filter"]
     assert params["limit"] == "50"
@@ -230,6 +232,114 @@ def test_competitor_prices_extension_fields_missing_default_none(
     assert listing["top_rated"] is None
     assert listing["returns_accepted"] is None
     assert listing["returns_within_days"] is None
+
+
+def test_competitor_prices_with_own_listing_surfaces_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #14 Phase 5.1 — fetch_competitor_prices(own_listing=...) runs the 3-layer pipeline.
+
+    Asserts that when own_listing context is provided, the result dict gains
+    `audit` (flat 6-key) and `audit_verbose`, and listings/percentiles reflect
+    the kept comps (low-quality drops + scoring + outlier all filter the pool).
+    """
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    items = [
+        # Clean apple-to-apples comp (kept).
+        {
+            "itemId": "v1|good",
+            "title": "ST2000NX0253 2.5 SAS HDD",
+            "price": {"value": "30.00", "currency": "GBP"},
+            "seller": {"username": "a", "feedbackPercentage": "99.5", "feedbackScore": 1000},
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": "https://i.ebayimg.com/g.jpg"},
+            "additionalImages": [{"imageUrl": "https://i.ebayimg.com/g2.jpg"}],
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+            "topRatedBuyingExperience": True,
+        },
+        # Bundle reject (Layer-1 hard reject).
+        {
+            "itemId": "v1|bundle",
+            "title": "Lot of 10 ST2000NX0253 drives",
+            "price": {"value": "150.00", "currency": "GBP"},
+            "seller": {"username": "b", "feedbackPercentage": "99.0", "feedbackScore": 500},
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": "https://i.ebayimg.com/b.jpg"},
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+        },
+        # Broken-or-parts reject.
+        {
+            "itemId": "v1|parts",
+            "title": "ST2000NX0253 for parts",
+            "price": {"value": "5.00", "currency": "GBP"},
+            "seller": {"username": "c", "feedbackPercentage": "99.0", "feedbackScore": 500},
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": "https://i.ebayimg.com/p.jpg"},
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+        },
+    ]
+    own = {
+        "title": "ST2000NX0253 2.5 SAS HDD",
+        "specifics": {"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+        "condition_id": "3000",
+        "condition_name": "Used",
+    }
+    fake = _fake_browse_client({"itemSummaries": items})
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        result = _run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253",
+                condition="USED",
+                own_listing=own,
+                own_live_price=35.0,
+            )
+        )
+
+    assert "audit" in result
+    assert set(result["audit"].keys()) == {
+        "raw_count",
+        "kept",
+        "dropped_low_quality",
+        "dropped_apple_to_apples",
+        "dropped_stale",
+        "dropped_outlier",
+    }
+    assert result["audit"]["raw_count"] == 3
+    assert result["audit"]["dropped_low_quality"] == 2  # bundle + parts
+    assert result["audit"]["kept"] == 1  # only the clean comp
+    assert result["count"] == 1  # percentiles re-computed from kept pool
+    assert result["min"] == 30.0
+    assert "audit_verbose" in result
+    assert result["audit_verbose"]["low_quality_drops"]["bundle"] == 1
+    assert result["audit_verbose"]["low_quality_drops"]["broken_or_parts"] == 1
+
+
+def test_competitor_prices_without_own_listing_no_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backward-compat: own_listing=None → raw distribution shape, no audit key."""
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    fake = _fake_browse_client(
+        {
+            "itemSummaries": [
+                {
+                    "itemId": "1",
+                    "title": "ST2000 2.5 SAS",
+                    "price": {"value": "30.00", "currency": "GBP"},
+                    "seller": {"username": "a"},
+                    "condition": "Used",
+                }
+            ]
+        }
+    )
+    with patch("ebay.browse.get_browse_session", return_value=fake):
+        result = _run(browse.fetch_competitor_prices(part_number="ST2000"))
+    assert "audit" not in result
+    assert "audit_verbose" not in result
+    assert result["count"] == 1
 
 
 def test_competitor_prices_mixed_currency_raises(monkeypatch: pytest.MonkeyPatch) -> None:

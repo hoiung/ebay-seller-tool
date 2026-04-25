@@ -19,6 +19,7 @@ def _own(**overrides) -> dict:
             "MPN": ["ST2000NX0253"],
             "Form Factor": ['2.5"'],
         },
+        "condition_id": "3000",
         "condition_name": "Used",
         "photos": ["a.jpg", "b.jpg", "c.jpg"],
         "best_offer_enabled": False,
@@ -32,6 +33,7 @@ def _comp(
     *,
     title: str = 'ST2000NX0253 2.5" SAS HDD',
     condition: str = "Used",
+    condition_id: str | None = "3000",
     age_days: int = 30,
     **extras,
 ) -> dict:
@@ -41,71 +43,116 @@ def _comp(
         "title": title,
         "price": 35.00,
         "condition": condition,
+        "condition_id": condition_id,
         "item_creation_date": creation,
         "image_url": "https://i.ebayimg.com/x.jpg",
         "additional_image_count": 4,
         "top_rated": True,
         "returns_accepted": True,
         "returns_within_days": 30,
+        "seller_feedback_pct": "99.5",
+        "seller_feedback_score": 1000,
     }
     base.update(extras)
     return base
 
 
-# === score_apple_to_apple ===========================================
+# === score_apple_to_apple (Issue #14: 4 dims × 0.25 + Layer-2 deductions) ==
 
 
 def test_score_perfect_match() -> None:
+    """All 4 dims pass (MPN + FF + Cond equivalence + age <200d) → 1.0."""
     score = score_apple_to_apple(_own(), _comp())
     assert score == 1.0
 
 
 def test_score_missing_mpn_dim() -> None:
-    """Title doesn't contain MPN → -0.2."""
-    score = score_apple_to_apple(_own(), _comp(title='2.5" SAS HDD bare drive'))
-    assert score == 0.8
+    """MPN dim fails → -0.25 → 0.75."""
+    score = score_apple_to_apple(_own(), _comp(title='2.5" SAS HDD generic'))
+    assert score == 0.75
 
 
-def test_score_bundle_disqualifier() -> None:
-    """'caddy' in title → -0.2 on bundle dim."""
+def test_score_bundle_keyword_no_score_impact() -> None:
+    """Issue #14 Phase 1.6: bundle dim removed from scorer.
+
+    'caddy' in title is now a Layer-1 hard reject (when own has caddy) handled
+    by filter_low_quality_competitors. Score function ignores bundle keywords;
+    a comp with all 4 structural dims passing scores 1.0 regardless of caddy
+    text in the title.
+    """
     score = score_apple_to_apple(_own(), _comp(title='ST2000NX0253 with caddy 2.5"'))
-    assert score == 0.8
-
-
-def test_score_form_factor_mismatch() -> None:
-    """Comp is 3.5" not 2.5" → form factor dim fails."""
-    score = score_apple_to_apple(_own(), _comp(title='ST2000NX0253 3.5" SAS'))
-    assert score == 0.8
-
-
-def test_score_condition_tier_mismatch() -> None:
-    """Comp condition 'Used – Excellent' vs own 'Used' → -0.2."""
-    score = score_apple_to_apple(_own(), _comp(condition="Used – Excellent"))
-    assert score == 0.8
-
-
-def test_score_stale_listing() -> None:
-    """Comp listed 365 days ago → age dim fails."""
-    score = score_apple_to_apple(_own(), _comp(age_days=365))
-    assert score == 0.8
-
-
-def test_score_missing_creation_date_default_passes() -> None:
-    """Per spec 2.1.1 — missing date defaults to 0.2 (skip dim, pass-by-default)."""
-    comp = _comp()
-    comp["item_creation_date"] = None
-    score = score_apple_to_apple(_own(), comp)
     assert score == 1.0
 
 
+def test_score_form_factor_mismatch() -> None:
+    """Comp is 3.5" not 2.5" → FF dim fails → 0.75."""
+    score = score_apple_to_apple(_own(), _comp(title="ST2000NX0253 3.5 SAS"))
+    assert score == 0.75
+
+
+def test_score_condition_equivalence_class_match() -> None:
+    """Issue #14 Phase 2.3: own=3000 (Used) and comp=2750 (Used-Excellent) → equivalent → +0.25."""
+    score = score_apple_to_apple(_own(), _comp(condition="Used – Excellent", condition_id="2750"))
+    assert score == 1.0
+
+
+def test_score_condition_equivalence_class_strict_mismatch() -> None:
+    """own=3000 (Used) vs comp=1000 (New) → NOT equivalent → -0.25 → 0.75."""
+    score = score_apple_to_apple(_own(), _comp(condition="New", condition_id="1000"))
+    assert score == 0.75
+
+
+def test_score_stale_listing() -> None:
+    """Comp listed 365 days ago → age dim fails → -0.25 → 0.75."""
+    score = score_apple_to_apple(_own(), _comp(age_days=365))
+    assert score == 0.75
+
+
+def test_score_missing_creation_date_treats_as_unknown() -> None:
+    """Issue #14 Phase 0.4: missing creation_date no longer rewards +0.2.
+
+    Treat unknown as worst-case (no age contribution). Score drops 0.25.
+    """
+    comp = _comp()
+    comp["item_creation_date"] = None
+    score = score_apple_to_apple(_own(), comp)
+    assert score == 0.75
+
+
 def test_score_multiple_failures() -> None:
-    """Bundle + wrong form factor + wrong condition + missing MPN → 0.2 + skip-date 0.2."""
+    """MPN miss + FF miss + cond mismatch (3000↔1000) + age ok = 0.25."""
     score = score_apple_to_apple(
         _own(),
-        _comp(title='kit 3.5" generic bundle', condition="Used – Excellent"),
+        _comp(title="kit 3.5 generic bundle", condition="New", condition_id="1000"),
     )
-    # MPN missing(-0.2), bundle keyword(-0.2), wrong FF(-0.2), wrong cond(-0.2), age ok(+0.2) = 0.2
-    assert score == 0.2
+    assert score == 0.25
+
+
+def test_score_layer2_seller_feedback_pct_deduction() -> None:
+    """Layer-2: seller_feedback_pct < 98.0 deducts 0.05."""
+    score = score_apple_to_apple(_own(), _comp(seller_feedback_pct="95.0"))
+    assert score == 0.95
+
+
+def test_score_layer2_returns_not_accepted_deduction() -> None:
+    """Layer-2: returns_accepted=False (explicit) deducts 0.05."""
+    score = score_apple_to_apple(_own(), _comp(returns_accepted=False))
+    assert score == 0.95
+
+
+def test_score_layer2_top_rated_not_true_deduction() -> None:
+    """Layer-2: top_rated is not True (None or False) deducts 0.05."""
+    score = score_apple_to_apple(_own(), _comp(top_rated=False))
+    assert score == 0.95
+
+
+def test_score_layer2_combined_deductions() -> None:
+    """Layer-2: 3 deductions stack (0.05 × 3 = 0.15) → 1.0 - 0.15 = 0.85."""
+    score = score_apple_to_apple(
+        _own(),
+        _comp(seller_feedback_pct="95.0", returns_accepted=False, top_rated=False),
+    )
+    assert score == 0.85
 
 
 # === filter_clean_competitors =====================================
@@ -115,19 +162,23 @@ def test_filter_clean_keeps_only_above_threshold() -> None:
     own = _own()
     comps = [
         _comp(),  # 1.0
-        _comp(title="ST2000NX0253 caddy bundle"),  # 0.8 (bundle)
-        _comp(title="random part"),  # mpn miss + bundle ok + ff miss + cond ok + age ok = 0.6
-        _comp(title='kit 3.5" generic', condition="New"),  # 0.2 (multiple fails)
+        _comp(title="ST2000NX0253 with caddy 2.5"),  # 1.0 (bundle dim removed Phase 1.6)
+        _comp(title="ST2000NX0253 3.5 SAS"),  # MPN+Cond+age, no FF → 0.75
+        _comp(title="generic 3.5 SAS", condition="New", condition_id="1000"),  # 0.25
     ]
     kept = filter_clean_competitors(own, comps, threshold=0.6)
-    # 1.0, 0.8, 0.6 are kept; 0.2 dropped.
+    # 1.0, 1.0, 0.75 kept; 0.25 dropped.
     assert len(kept) == 3
 
 
 def test_filter_clean_threshold_strict() -> None:
     """At threshold==1.0 only perfect matches survive."""
     own = _own()
-    comps = [_comp(), _comp(title="kit bundle"), _comp(condition="New")]
+    comps = [
+        _comp(),  # 1.0
+        _comp(title="generic kit bundle"),  # FF + Cond + Age, no MPN → 0.75
+        _comp(condition="New", condition_id="1000"),  # cond mismatch → 0.75
+    ]
     kept = filter_clean_competitors(own, comps, threshold=1.0)
     assert len(kept) == 1
 
