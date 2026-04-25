@@ -144,6 +144,10 @@ def _sync_find_competitor_prices(
                 "top_rated": item.get("topRatedBuyingExperience"),
                 "returns_accepted": return_terms.get("returnsAccepted"),
                 "returns_within_days": return_terms.get("returnsWithinDays"),
+                # Phase 7 plumbing fix — content_benchmark needs this per-listing
+                # to compute Best Offer posture %; aggregate `best_offer_count`
+                # is computed once for distribution dict but comp dicts dropped it.
+                "best_offer_enabled": bool(item.get("bestOfferEnabled")),
             }
         )
 
