@@ -141,15 +141,38 @@ def test_regex_bundle() -> None:
 
 
 def test_lot_space_padding_bug_regression() -> None:
-    """1.5.3 — Phase 0.2 fix: word-bounded lot regex catches leading/trailing 'Lot'."""
+    """1.5.3 — Phase 0.2 fix: bundle regex catches both lot-prefix and count-prefix titles.
+
+    Old `" lot "` substring missed leading/trailing `Lot`. New bundle regex
+    catches them via two alternatives:
+      - "Lot of 10 drives" → matches `lot\\s+of\\s+\\d+`
+      - "5x HDD Lot" → matches `\\d+\\s*[x×]\\s*(hdd|ssd|drive|disk)`
+    Both titles hard-rejected. Note: a title like "Mixed HDD Lot" (no count
+    prefix and no `Lot of N`) would still slip through — that's documented
+    as a known gap, not in scope for this issue.
+    """
     titles = [
-        "5x HDD Lot",  # trailing Lot, no trailing space (old `" lot "` missed)
-        "Lot of 10 drives",  # leading Lot, no leading space
+        "5x HDD Lot",  # caught by count-prefix alt (`5x HDD`)
+        "Lot of 10 drives",  # caught by `lot of N` alt
     ]
     comps = [_comp(item_id=str(i), title=t) for i, t in enumerate(titles)]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=_own())
     assert len(survivors) == 0
     assert audit["dropped_reasons"]["bundle"] == 2
+
+
+def test_lot_token_alone_known_gap() -> None:
+    """1.5.3 known gap: bare 'Lot' token without count prefix or 'Lot of N' format slips through.
+
+    "Mixed HDD Lot" has neither `\\d+\\s*[x×]` count prefix nor `lot\\s+of\\s+\\d+`
+    pattern, so it survives Layer-1. Documented limitation. The 21 active-listing
+    pool from the v2 sweep contained zero such titles per Stage 1 F-C; if a real
+    case appears in production, broaden the regex.
+    """
+    comps = [_comp(title="Mixed HDD Lot")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=None)
+    assert len(survivors) == 1  # bare "Lot" token slips through (known gap)
+    assert audit["dropped_reasons"] == {}
 
 
 def test_kit_false_positive_avoidance() -> None:
@@ -207,11 +230,17 @@ def test_filter_perf_bench_100_comps_under_50ms() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_condition_id_for_used_widens_to_pipe_separated() -> None:
-    """2.5.5 — _condition_id_for('USED') returns equivalence class '3000|2750'."""
-    assert _condition_id_for("USED") == "3000|2750"
-    assert _condition_id_for("USED_EXCELLENT") == "2750|3000"
-    assert _condition_id_for("OPENED") == "1500|1000"
+def test_condition_id_for_single_id_per_call() -> None:
+    """2.5.5 — _condition_id_for returns single ID per call.
+
+    Live curl verification 2026-04-25 against eBay Browse v1 showed pipe-separator
+    `conditionIds:{3000|2750}` is silently truncated to `conditionIds:{3000}`.
+    Score-side equivalence class (Phase 2.3) still bridges 3000↔2750 for any
+    Used-Excellent listings that surface from a multi-MPN merge search.
+    """
+    assert _condition_id_for("USED") == "3000"
+    assert _condition_id_for("USED_EXCELLENT") == "2750"
+    assert _condition_id_for("OPENED") == "1500"
     assert _condition_id_for("NEW") == "1000"
     assert _condition_id_for("FOR_PARTS") == "7000"
 

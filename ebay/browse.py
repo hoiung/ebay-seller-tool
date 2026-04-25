@@ -51,22 +51,32 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_FILTER_CONFIG = os.path.join(_REPO_ROOT, "config", "pricing_and_content.yaml")
 
 
-# Issue #14 Phase 2.4 — pipe-separated equivalence-class filters for Browse search.
+# Issue #14 Phase 2.4 — Browse search uses single conditionId per call.
+#
+# Live curl verification 2026-04-25 against eBay Browse v1: pipe-separator
+# syntax `conditionIds:{3000|2750}` is silently TRUNCATED by the API to
+# `conditionIds:{3000}` (first ID only). Comma-separator returns unrelated
+# results (1000/2010/3000 mix). Conclusion: Browse `conditionIds` accepts
+# exactly ONE ID per filter string. To widen the comp pool to the equivalence
+# class, callers must run two sequential `fetch_competitor_prices` calls and
+# merge dedupe by item_id (planned as Phase 6.4 follow-up).
+#
+# Score-side equivalence still bridges 3000↔2750 in `score_apple_to_apple`
+# for any 2750 listings that happen to surface from a multi-MPN search where
+# the OEM part returns a Used-Excellent variant.
 _BROWSE_CONDITION_FILTERS: dict[str, str] = {
     "NEW": "1000",
-    "USED": "3000|2750",
-    "USED_EXCELLENT": "2750|3000",
-    "OPENED": "1500|1000",
+    "USED": "3000",
+    "USED_EXCELLENT": "2750",
+    "OPENED": "1500",
     "FOR_PARTS": "7000",
 }
 
 
 def _condition_id_for(condition: str) -> str:
-    """Map condition string to eBay conditionIds filter (pipe-separated equivalence class).
+    """Map condition string to eBay conditionIds filter (single-ID per call).
 
-    Issue #14 Phase 2.4: USED widens to ``3000|2750`` so the Browse search returns
-    both Used and Used-Excellent listings, matching the apple-to-apples scoring's
-    numeric equivalence-class match.
+    See module-level note above for why pipe-separator was reverted post-live-verification.
     """
     key = condition.upper().strip()
     if key not in _BROWSE_CONDITION_FILTERS:
