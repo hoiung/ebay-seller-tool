@@ -54,7 +54,9 @@ def _photo_count_benchmark(
         "own_value": own_photo_count,
         "comp_p25": p25,
         "comp_n": len(comp_counts),
-        "action_if_flagged": "Add 2-3 angles (label, ports, packaging) to lift photo count above p25",
+        "action_if_flagged": (
+            "Add 2-3 angles (label, ports, packaging) to lift photo count above p25"
+        ),
     }
 
 
@@ -76,11 +78,7 @@ def _best_offer_benchmark(
         if "best_offer_enabled" in c:
             bo_flags.append(bool(c["best_offer_enabled"]))
     pct = (100.0 * sum(bo_flags) / len(bo_flags)) if bo_flags else None
-    flagged = (
-        pct is not None
-        and pct > 50.0
-        and not bool(own_best_offer_enabled)
-    )
+    flagged = pct is not None and pct > 50.0 and not bool(own_best_offer_enabled)
     return {
         "verdict": "flagged" if flagged else "ok",
         "own_value": own_best_offer_enabled,
@@ -129,9 +127,7 @@ def _returns_policy_benchmark(
                 continue
     p50 = _safe_p(durations, 0.50)
     flagged = (
-        own_returns_within_days is not None
-        and p50 is not None
-        and own_returns_within_days < p50
+        own_returns_within_days is not None and p50 is not None and own_returns_within_days < p50
     )
     return {
         "verdict": "flagged" if flagged else "ok",
@@ -141,7 +137,9 @@ def _returns_policy_benchmark(
         "action_if_flagged": (
             f"Match the market median ({p50}d) — lengthening returns-within window "
             f"signals confidence and tracks Top-Rated criteria"
-        ) if p50 is not None else None,
+        )
+        if p50 is not None
+        else None,
     }
 
 

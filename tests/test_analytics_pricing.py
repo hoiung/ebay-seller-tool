@@ -6,7 +6,6 @@ import pytest
 
 from ebay.analytics import compute_over_pricing, compute_recommended_band, compute_under_pricing
 
-
 # === compute_recommended_band ========================================
 
 
@@ -81,10 +80,10 @@ def test_under_pricing_ok_with_only_one_signal() -> None:
 def test_under_pricing_amber_with_two_signals() -> None:
     """2/3 → AMBER, recommended_floor = p40_clean."""
     result = compute_under_pricing(
-        live_price=20.0,                    # A: < 30 ✓
+        live_price=20.0,  # A: < 30 ✓
         p25_clean=30.0,
-        units_sold_per_day=0.5,             # B: > 0.1 ✓
-        days_to_sell_median=14,             # C: not < 7 ✗
+        units_sold_per_day=0.5,  # B: > 0.1 ✓
+        days_to_sell_median=14,  # C: not < 7 ✗
         p40_clean=35.0,
         p55_clean=42.0,
     )
@@ -102,7 +101,7 @@ def test_under_pricing_red_with_three_signals() -> None:
         live_price=20.0,
         p25_clean=30.0,
         units_sold_per_day=0.5,
-        days_to_sell_median=3,              # C: < 7 ✓
+        days_to_sell_median=3,  # C: < 7 ✓
         p40_clean=35.0,
         p55_clean=42.0,
     )
@@ -141,7 +140,7 @@ def test_under_pricing_explicit_velocity_override() -> None:
     result = compute_under_pricing(
         live_price=50.0,
         p25_clean=30.0,
-        units_sold_per_day=0.5,             # 0.5 < 1.0 → B is False
+        units_sold_per_day=0.5,  # 0.5 < 1.0 → B is False
         days_to_sell_median=30,
         category_velocity_median=1.0,
     )
@@ -169,10 +168,10 @@ def test_over_pricing_happy_path() -> None:
     """All 4 conditions → OVERPRICED."""
     result = compute_over_pricing(
         live_price=80.0,
-        p75_clean=60.0,                     # A: > 60 ✓
-        watchers=3,                         # B: > 0 ✓
-        units_sold=0,                       # C: == 0 ✓
-        days_on_site=44,                    # D: > 21 ✓
+        p75_clean=60.0,  # A: > 60 ✓
+        watchers=3,  # B: > 0 ✓
+        units_sold=0,  # C: == 0 ✓
+        days_on_site=44,  # D: > 21 ✓
         p55_clean=50.0,
         p65_clean=58.0,
     )

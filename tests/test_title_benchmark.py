@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from ebay.title_benchmark import (
     _reset_cache_for_tests,
     compute_keyword_diff,
@@ -152,8 +150,7 @@ def test_keyword_diff_ranks_by_score() -> None:
     if len(result["candidates"]) >= 2:
         for i in range(len(result["candidates"]) - 1):
             assert (
-                result["candidates"][i]["rank_score"]
-                >= result["candidates"][i + 1]["rank_score"]
+                result["candidates"][i]["rank_score"] >= result["candidates"][i + 1]["rank_score"]
             )
 
 
