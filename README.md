@@ -117,6 +117,8 @@ claude
 
 Pricing-elasticity snapshots are appended to `~/.local/share/ebay-seller-tool/price_snapshots.jsonl` — outside the repo (user XDG data dir), so no `.gitignore` entry needed. Override path with `EBAY_SNAPSHOT_PATH` env var (used by tests). One JSON object per line; safe to stream via `jq` / pandas.
 
+Fee config (`config/fees.yaml`) is loaded at server startup with required-section validation. Tests can swap in a stub config via the `EBAY_FEES_CONFIG` env var; call `ebay.fees.reset_fees_cache()` after changing the var to drop the `lru_cache`.
+
 ### Usage
 
 **Upload photos** (returns ordered eBay-hosted URLs):
