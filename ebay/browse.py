@@ -194,6 +194,11 @@ def _sync_find_competitor_prices(
             price_val = float(price_obj.get("value"))
         except (TypeError, ValueError):
             continue
+        # Defensive: NaN/Inf parses successfully via float() but breaks
+        # downstream json.dumps + percentile arithmetic. Browse API never
+        # emits these, but guard at the boundary anyway.
+        if not math.isfinite(price_val):
+            continue
         currencies_seen.add(price_obj.get("currency", "GBP"))
         prices.append(price_val)
 
@@ -411,8 +416,10 @@ def _own_has_caddy(own_listing: dict[str, Any] | None) -> bool:
 def _own_series_name(own_listing: dict[str, Any] | None) -> str | None:
     """Return the series-name token from own_listing.title if any (case-insensitive).
 
-    Returns the canonical lower-case form from ``comp_filter.series_names``.
-    Longest match wins (e.g. "iron wolf pro" beats "iron wolf").
+    Word-boundary matching prevents bare English words like ``"red"`` and ``"gold"``
+    from false-positive-matching titles such as ``"Sealed Box - Red Label"``. Returns
+    the canonical lower-case form from ``comp_filter.series_names``. Longest match
+    wins (e.g. ``"iron wolf pro"`` beats ``"iron wolf"``).
     """
     if not own_listing:
         return None
@@ -423,8 +430,9 @@ def _own_series_name(own_listing: dict[str, Any] | None) -> str | None:
     series_names = cfg.get("comp_filter", {}).get("series_names", []) or []
     matched: list[str] = []
     for name in series_names:
-        if name.lower() in title:
-            matched.append(name.lower())
+        name_lc = name.lower()
+        if re.search(r"\b" + re.escape(name_lc) + r"\b", title):
+            matched.append(name_lc)
     if not matched:
         return None
     matched.sort(key=len, reverse=True)
@@ -484,7 +492,7 @@ def filter_low_quality_competitors(
             drops["caddy_mismatch"] = drops.get("caddy_mismatch", 0) + 1
             continue
 
-        if own_series and own_series not in title_lower:
+        if own_series and not re.search(r"\b" + re.escape(own_series) + r"\b", title_lower):
             drops["series_mismatch"] = drops.get("series_mismatch", 0) + 1
             continue
 
@@ -604,11 +612,17 @@ def score_apple_to_apple(own_listing: dict[str, Any], comp_item: dict[str, Any])
     if feedback_pct is not None and soft_min_pct is not None and feedback_pct < soft_min_pct:
         score -= float(deductions.get("seller_feedback_pct", 0.0))
 
-    feedback_score = comp_item.get("seller_feedback_score")
-    if isinstance(feedback_score, (int, float)):
-        soft_min_score = quality.get("soft_min_seller_feedback_score")
-        if soft_min_score is not None and feedback_score < soft_min_score:
-            score -= float(deductions.get("seller_feedback_score", 0.0))
+    # Defensive _safe_float cast: Browse API typically returns int, but parity
+    # with seller_feedback_pct (which is a string field) prevents silent bypass
+    # when an upstream layer stringifies the score.
+    feedback_score = _safe_float(comp_item.get("seller_feedback_score"))
+    soft_min_score = quality.get("soft_min_seller_feedback_score")
+    if (
+        feedback_score is not None
+        and soft_min_score is not None
+        and feedback_score < soft_min_score
+    ):
+        score -= float(deductions.get("seller_feedback_score", 0.0))
 
     if (
         quality.get("soft_returns_accepted_required") is True
