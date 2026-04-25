@@ -120,8 +120,7 @@ async def _amain(part_number: str, listings_path: Path) -> int:
         f"per-condition raw counts = {raw_per_cond}"
     )
     print(
-        f"Sanity check: USED equivalence class = 2 calls; "
-        f"observed = {len(raw_per_cond)} call(s)."
+        f"Sanity check: USED equivalence class = 2 calls; observed = {len(raw_per_cond)} call(s)."
     )
     return 0
 
