@@ -51,19 +51,23 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_FILTER_CONFIG = os.path.join(_REPO_ROOT, "config", "pricing_and_content.yaml")
 
 
-# Issue #14 Phase 2.4 — Browse search uses single conditionId per call.
+# Issue #14 Phase 2.4 + Issue #444 Part B — Browse search uses single conditionId per call,
+# orchestrator loops over the equivalence class.
 #
 # Live curl verification 2026-04-25 against eBay Browse v1: pipe-separator
 # syntax `conditionIds:{3000|2750}` is silently TRUNCATED by the API to
 # `conditionIds:{3000}` (first ID only). Comma-separator returns unrelated
 # results (1000/2010/3000 mix). Conclusion: Browse `conditionIds` accepts
-# exactly ONE ID per filter string. To widen the comp pool to the equivalence
-# class, callers must run two sequential `fetch_competitor_prices` calls and
-# merge dedupe by item_id (planned as Phase 6.4 follow-up).
+# exactly ONE ID per filter string at the API layer.
 #
-# Score-side equivalence still bridges 3000↔2750 in `score_apple_to_apple`
-# for any 2750 listings that happen to surface from a multi-MPN search where
-# the OEM part returns a Used-Excellent variant.
+# Equivalence-class widening is now IMPLEMENTED at the orchestrator layer
+# (`_sync_find_competitor_prices`): when the YAML
+# `comp_filter.condition_equivalence` block defines a multi-ID class for the
+# requested condition (e.g. {"3000": ["3000", "2750"]} for USED), the
+# orchestrator issues ONE Browse API call per class member via
+# `_fetch_one_condition_id`, merges results, dedupes by `item_id`, and
+# recomputes counters from the deduped pool. Score-side equivalence in
+# `score_apple_to_apple` Dim 3 remains as defence-in-depth fallback.
 _BROWSE_CONDITION_FILTERS: dict[str, str] = {
     "NEW": "1000",
     "USED": "3000",
@@ -74,9 +78,12 @@ _BROWSE_CONDITION_FILTERS: dict[str, str] = {
 
 
 def _condition_id_for(condition: str) -> str:
-    """Map condition string to eBay conditionIds filter (single-ID per call).
+    """Map condition string to eBay primary conditionId (single-ID per CALL).
 
-    See module-level note above for why pipe-separator was reverted post-live-verification.
+    The API accepts only one conditionId per filter string. Equivalence-class
+    widening (e.g. USED → 3000 + 2750) is the orchestrator's job — see
+    `_sync_find_competitor_prices` and YAML `comp_filter.condition_equivalence`.
+    See module-level note above for the live-curl evidence behind the single-ID rule.
     """
     key = condition.upper().strip()
     if key not in _BROWSE_CONDITION_FILTERS:
@@ -148,18 +155,28 @@ def _first_shipping_cost(item: dict[str, Any]) -> float | None:
         return None
 
 
-def _sync_find_competitor_prices(
+def _fetch_one_condition_id(
     part_number: str,
-    condition: str,
+    cond_id: str,
     location_country: str,
     limit: int,
-    own_listing: dict[str, Any] | None = None,
-    own_live_price: float | None = None,
-) -> dict[str, Any]:
-    if not part_number or not part_number.strip():
-        raise ValueError("part_number required")
-    cond_id = _condition_id_for(condition)
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """One Browse API call for a single conditionId (Issue #444 Part B).
 
+    Returns ``(listings, currencies_seen)`` only — counter accumulation
+    (shipping_free / best_offer / promoted / by_condition) is the orchestrator's
+    responsibility, computed from deduped merged listings to avoid double-counting
+    items that surface in multiple equivalence-class calls.
+
+    Per-listing parsing is preserved verbatim from the pre-refactor inline loop:
+    own-seller skip, price-parse skip, NaN/Inf guard, condition_id capture,
+    shipping_cost extraction. Listings with ``itemId is None`` are INCLUDED in
+    the return — orchestrator dedupe handles the None-skip.
+
+    The internal ``_promoted`` flag carries the (listingMarketplaceId AND PROMOTED-
+    in-itemAffiliateWebUrl) detection forward so the orchestrator can recompute
+    promoted_count from deduped listings without re-walking raw items.
+    """
     params = {
         "q": part_number,
         "filter": (
@@ -178,11 +195,6 @@ def _sync_find_competitor_prices(
     raw_listings = payload.get("itemSummaries", []) or []
 
     listings: list[dict[str, Any]] = []
-    prices: list[float] = []
-    shipping_free_count = 0
-    best_offer_count = 0
-    promoted_count = 0
-    by_condition: dict[str, int] = {}
     currencies_seen: set[str] = set()
 
     for item in raw_listings:
@@ -200,21 +212,9 @@ def _sync_find_competitor_prices(
         if not math.isfinite(price_val):
             continue
         currencies_seen.add(price_obj.get("currency", "GBP"))
-        prices.append(price_val)
 
         shipping_cost = _first_shipping_cost(item)
-        if shipping_cost is not None and shipping_cost == 0.0:
-            shipping_free_count += 1
-
-        if item.get("bestOfferEnabled"):
-            best_offer_count += 1
-        if item.get("listingMarketplaceId") and "PROMOTED" in str(
-            item.get("itemAffiliateWebUrl", "")
-        ):
-            promoted_count += 1
         cond = item.get("condition", "UNKNOWN")
-        by_condition[cond] = by_condition.get(cond, 0) + 1
-
         seller_obj = item.get("seller") or {}
         return_terms = item.get("returnTerms") or {}
         image_obj = item.get("image") or {}
@@ -242,8 +242,56 @@ def _sync_find_competitor_prices(
                 "best_offer_enabled": bool(item.get("bestOfferEnabled")),
                 # Issue #14 Phase 0.5 — per-listing shipping cost (was aggregate-only).
                 "shipping_cost": shipping_cost,
+                # Issue #444 — internal flag for orchestrator promoted_count recompute.
+                "_promoted": bool(item.get("listingMarketplaceId"))
+                and "PROMOTED" in str(item.get("itemAffiliateWebUrl", "")),
             }
         )
+
+    return listings, currencies_seen
+
+
+def _sync_find_competitor_prices(
+    part_number: str,
+    condition: str,
+    location_country: str,
+    limit: int,
+    own_listing: dict[str, Any] | None = None,
+    own_live_price: float | None = None,
+) -> dict[str, Any]:
+    if not part_number or not part_number.strip():
+        raise ValueError("part_number required")
+    primary_cond_id = _condition_id_for(condition)
+
+    # Issue #444 Part B — equivalence-class widening at the orchestrator layer.
+    # YAML `comp_filter.condition_equivalence` already populated; same key is read
+    # by `score_apple_to_apple` Dim 3 — single source of truth.
+    # `or [primary_cond_id]` falls back on BOTH None (key absent) AND empty list
+    # (defensive against `condition_equivalence['3000']: []`).
+    equivalence_cfg = (
+        _load_filter_config().get("comp_filter", {}).get("condition_equivalence", {}) or {}
+    )
+    cond_ids: list[str] = equivalence_cfg.get(primary_cond_id) or [primary_cond_id]
+
+    seen_item_ids: set[str] = set()
+    raw_count_per_condition_id: dict[str, int] = {}
+    merged_listings: list[dict[str, Any]] = []
+    currencies_seen: set[str] = set()
+
+    for cid in cond_ids:
+        per_call_listings, per_call_currencies = _fetch_one_condition_id(
+            part_number, cid, location_country, limit
+        )
+        # Raw count BEFORE cross-call dedupe — includes None-itemId entries
+        # (the dedupe handles None as a skip; raw count preserves the audit trail).
+        raw_count_per_condition_id[cid] = len(per_call_listings)
+        for listing in per_call_listings:
+            iid = listing.get("item_id")
+            if iid is None or iid in seen_item_ids:
+                continue
+            seen_item_ids.add(iid)
+            merged_listings.append(listing)
+        currencies_seen |= per_call_currencies
 
     if len(currencies_seen) > 1:
         raise ValueError(
@@ -251,6 +299,28 @@ def _sync_find_competitor_prices(
             f"refusing to aggregate. Filter `itemLocationCountry` should prevent this."
         )
     currency = next(iter(currencies_seen)) if currencies_seen else "GBP"
+
+    # Recompute counters from the DEDUPED pool in one pass — avoids double-counting
+    # items that surfaced in multiple equivalence-class calls.
+    listings: list[dict[str, Any]] = []
+    prices: list[float] = []
+    shipping_free_count = 0
+    best_offer_count = 0
+    promoted_count = 0
+    by_condition: dict[str, int] = {}
+    for listing in merged_listings:
+        prices.append(listing["price"])
+        if listing.get("shipping_cost") is not None and listing["shipping_cost"] == 0.0:
+            shipping_free_count += 1
+        if listing.get("best_offer_enabled"):
+            best_offer_count += 1
+        if listing.get("_promoted"):
+            promoted_count += 1
+        cond = listing.get("condition", "UNKNOWN")
+        by_condition[cond] = by_condition.get(cond, 0) + 1
+        # Strip the internal _promoted flag before exposing the listing dict.
+        public_listing = {k: v for k, v in listing.items() if k != "_promoted"}
+        listings.append(public_listing)
 
     count = len(listings)
     if count == 0:
@@ -277,6 +347,9 @@ def _sync_find_competitor_prices(
                 "dropped_stale": 0,
                 "dropped_outlier": 0,
             }
+            # Issue #444 Part B — surface per-condition raw counts even on empty pool
+            # so callers can see which equivalence-class members returned zero.
+            empty["audit_verbose"] = {"raw_count_per_condition_id": raw_count_per_condition_id}
             empty["verdict"] = "ZERO_COMPS_AFTER_FILTER"
         return empty
 
@@ -321,6 +394,9 @@ def _sync_find_competitor_prices(
         outlier_config=fees_outlier_cfg,
         own_live_price=own_live_price,
     )
+    # Issue #444 Part B — propagate per-condition raw counts (BEFORE dedupe)
+    # through audit_verbose so callers can compare 3000 vs 2750 populations.
+    audit_verbose["raw_count_per_condition_id"] = raw_count_per_condition_id
 
     if not kept:
         return {
