@@ -37,6 +37,11 @@ from ebay.title_benchmark import compute_keyword_diff
 
 def setup_function() -> None:
     oauth.reset_token_cache()
+    browse.reset_filter_cache()
+
+
+def teardown_function() -> None:
+    browse.reset_filter_cache()
 
 
 def _run(coro):
@@ -357,3 +362,68 @@ def test_full_workflow_chain_overpriced_listing(
     assert over["verdict"] == "OVERPRICED"
     assert over["recommended_floor"] == pcts["p55"]
     assert over["recommended_ceiling"] == pcts["p65"]
+
+
+def test_audit_verbose_raw_count_per_condition_id_propagates_through_pipeline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """B2.10 (#444 Part B) — audit_verbose['raw_count_per_condition_id'] flows from
+    fetch_competitor_prices → through run_comp_filter_pipeline → into the result
+    dict that pricing-review callers consume. Exercises pipeline mode (own_listing
+    provided) and the new equivalence-class loop (USED → 3000 + 2750).
+    """
+    monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
+    monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(tmp_path / "snap.jsonl"))
+
+    cond_3000_items = [
+        _comp_payload(item_id=f"v1|c3k{i}", title=f"ST2000NX0253 2.5 SAS HDD {i}", price=p)
+        for i, p in enumerate([28.0, 30.0, 32.0])
+    ]
+    cond_2750_items = [
+        _comp_payload(
+            item_id=f"v1|c275k{j}",
+            title=f"ST2000NX0253 2.5 SAS HDD - Excellent {j}",
+            price=p,
+        )
+        for j, p in enumerate([26.0, 27.0])
+    ]
+
+    client = MagicMock()
+    resp_3000 = MagicMock(spec=httpx.Response)
+    resp_3000.status_code = 200
+    resp_3000.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp_3000.text = "{}"
+    resp_3000.json.return_value = _build_comp_summary(cond_3000_items)
+    resp_2750 = MagicMock(spec=httpx.Response)
+    resp_2750.status_code = 200
+    resp_2750.url = resp_3000.url
+    resp_2750.text = "{}"
+    resp_2750.json.return_value = _build_comp_summary(cond_2750_items)
+    client.get.side_effect = [resp_3000, resp_2750]
+    client.__enter__.return_value = client
+    client.__exit__.return_value = False
+
+    own_listing = {
+        "item_id": "AUDIT-PROP",
+        "title": "ST2000NX0253 SAS HDD",
+        "specifics": {"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+        "condition_id": "3000",
+        "condition_name": "Used",
+    }
+
+    with patch("ebay.browse.get_browse_session", return_value=client):
+        result = _run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253",
+                condition="USED",
+                own_listing=own_listing,
+                own_live_price=30.0,
+            )
+        )
+
+    # Both equivalence-class calls dispatched
+    assert client.get.call_count == 2
+    # raw_count_per_condition_id reaches the caller via audit_verbose (not stripped
+    # by run_comp_filter_pipeline — survives the pipeline pass-through).
+    assert "audit_verbose" in result
+    assert result["audit_verbose"]["raw_count_per_condition_id"] == {"3000": 3, "2750": 2}
