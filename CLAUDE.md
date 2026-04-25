@@ -122,7 +122,7 @@ Cleanup branch, close Issue
 - **Location**: `~/.claude.json` (user scope)
 - **Verify**: Run `claude mcp list` or `/mcp` inside Claude Code
 - **Servers**: chrome-devtools, github-checkbox, github
-- **Wrapper-lane (Issue #445)**: Stateless, request-scoped bash wrappers — no daemon, no SQLite, no persistent graph. Invoked via 9 scripts in `dotfiles/SST3/scripts/` (`sst3-code-*.sh`): status, update (no-op contract shim), search, callers, callees, impact, large, review, untested-py. Inner engines: `ast-grep` (structural patterns) + `ripgrep` (literal search) + `git diff` + `coverage.py` + `jq`. Parses Python, TypeScript, TSX, JavaScript, Rust (the 5 languages ast-grep is wired for in the wrappers). Markdown / YAML / JSON / SQL / TOML / shell / HTML / Jinja / Dockerfile / Go / Java / etc. → use subagent exploration. See `docs/guides/code-query-playbook.md` for the operational guide.
+- **Wrapper-lane (Issue #445)**: Stateless, request-scoped bash wrappers across 4 phases — no daemon, no SQLite, no persistent graph. Invoked via 18 scripts in `dotfiles/SST3/scripts/` plus a single-command orchestrator. Phase A (code, 9): `sst3-code-{status,update,search,callers,callees,impact,large,review,untested-py}.sh`. Phase B (doc, 4): `sst3-doc-{lint,links,yaml,frontmatter}.sh`. Phase C (sync, 4): `sst3-sync-{related-code,tool-eviction,doc-to-code,url-liveness}.sh`. Phase D: `sst3-check.sh` Layer-2 orchestrator + `/sync-check` skill. Inner engines: `ast-grep` + `ripgrep` + `git` + `coverage.py` + `jq` + `markdownlint-cli2` + `lychee` + `yamllint` + `python3`. See `docs/guides/code-query-playbook.md` for the operational guide.
 - **Guide**: `../dotfiles/docs/guides/mcp-configuration.md`
 - **Tool Selection**: See `../dotfiles/SST3/reference/tool-selection-guide.md`
 
@@ -142,6 +142,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
 
 
 
