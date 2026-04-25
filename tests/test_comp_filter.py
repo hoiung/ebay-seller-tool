@@ -14,12 +14,10 @@ Covers:
 from __future__ import annotations
 
 import json
-import math
 import time
 from datetime import datetime, timedelta, timezone
 
 from ebay.browse import (
-    _compiled_caddy_patterns,
     _compiled_hard_reject_patterns,
     _condition_id_for,
     drop_price_outliers,
@@ -195,9 +193,7 @@ def test_regex_pattern_cache_identity() -> None:
 
 def test_filter_perf_bench_100_comps_under_50ms() -> None:
     """1.3.1 — 100-comp pool through filter must complete in <50ms (cache hit)."""
-    comps = [
-        _comp(item_id=str(i), title=f"ST2000NX0253 listing {i}") for i in range(100)
-    ]
+    comps = [_comp(item_id=str(i), title=f"ST2000NX0253 listing {i}") for i in range(100)]
     # Warm the cache.
     filter_low_quality_competitors(comps, own_listing=_own())
     start = time.perf_counter()
@@ -308,7 +304,13 @@ def test_series_name_no_own_series_default_pass() -> None:
 
 def test_caddy_detection_features_specifics() -> None:
     """3.1 — own.specifics['Features'] contains 'Caddy' → own_has_caddy=True."""
-    own = _own(specifics={"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"'], "Features": ["Caddy", "Hot Swap"]})
+    own = _own(
+        specifics={
+            "MPN": ["ST2000NX0253"],
+            "Form Factor": ['2.5"'],
+            "Features": ["Caddy", "Hot Swap"],
+        }
+    )
     comps = [_comp(title="ST2000NX0253 bare drive no caddy")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert audit["dropped_reasons"]["caddy_mismatch"] == 1
@@ -391,13 +393,18 @@ def test_drop_outlier_method_none_pass_through() -> None:
 
 def test_pipeline_audit_flat_six_keys() -> None:
     """5.1 — flat audit dict has exactly 6 user-facing keys."""
-    comps = [
-        _comp(item_id=str(i), title=f"ST2000NX0253 listing {i}") for i in range(8)
-    ]
+    comps = [_comp(item_id=str(i), title=f"ST2000NX0253 listing {i}") for i in range(8)]
     _, audit_flat, _ = run_comp_filter_pipeline(
         comps,
         own_listing=_own(),
-        outlier_config={"enabled": True, "method": "iqr", "min_pool_size": 6, "max_drop_frac": 0.20, "multiplier": 1.5, "log_transform": True},
+        outlier_config={
+            "enabled": True,
+            "method": "iqr",
+            "min_pool_size": 6,
+            "max_drop_frac": 0.20,
+            "multiplier": 1.5,
+            "log_transform": True,
+        },
     )
     assert set(audit_flat.keys()) == {
         "raw_count",
@@ -431,7 +438,14 @@ def test_pipeline_audit_json_serialisable() -> None:
     _, audit_flat, audit_verbose = run_comp_filter_pipeline(
         comps,
         own_listing=_own(),
-        outlier_config={"enabled": True, "method": "iqr", "min_pool_size": 6, "max_drop_frac": 0.20, "multiplier": 1.5, "log_transform": True},
+        outlier_config={
+            "enabled": True,
+            "method": "iqr",
+            "min_pool_size": 6,
+            "max_drop_frac": 0.20,
+            "multiplier": 1.5,
+            "log_transform": True,
+        },
     )
     payload = {"audit": audit_flat, "audit_verbose": audit_verbose}
     round_tripped = json.loads(json.dumps(payload))
@@ -440,9 +454,7 @@ def test_pipeline_audit_json_serialisable() -> None:
 
 def test_pipeline_zero_comps_after_filter() -> None:
     """5.3.3 — pipeline returns empty kept + audit explains why."""
-    comps = [
-        _comp(item_id=str(i), title=f"HDD for parts spares {i}") for i in range(5)
-    ]
+    comps = [_comp(item_id=str(i), title=f"HDD for parts spares {i}") for i in range(5)]
     kept, audit_flat, audit_verbose = run_comp_filter_pipeline(comps, own_listing=_own())
     assert len(kept) == 0
     assert audit_flat["kept"] == 0

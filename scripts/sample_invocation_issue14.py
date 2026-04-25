@@ -119,13 +119,9 @@ async def _process_listing(own_dict: dict, outlier_cfg: dict) -> dict:
         "audit_flat": audit_flat,
         "audit_verbose": audit_verbose,
         "below_min_n_gate": len(kept) < 5,
-        "series_name_dropped": audit_verbose.get("low_quality_drops", {}).get(
-            "series_mismatch", 0
-        ),
+        "series_name_dropped": audit_verbose.get("low_quality_drops", {}).get("series_mismatch", 0),
         "kept_titles": [c.get("title") for c in kept[:5]],
-        "dropped_titles": [
-            c.get("title") for c in raw if c.get("item_id") not in kept_ids
-        ][:5],
+        "dropped_titles": [c.get("title") for c in raw if c.get("item_id") not in kept_ids][:5],
     }
 
 
@@ -161,7 +157,10 @@ async def _main_async(listings_path: Path, limit_items: int | None, out: Path) -
         f"Series-name hard-rejects: **{series_name_total}**",
         f"Listings below min-N gate (final_comp_count < 5): **{below_min_n}**",
         "",
-        "| Item | Title | Price | Raw | Kept | LQ/AA/Stale/Outlier | Pre p25/med/p75 | Post p25/med/p75 | Min-N |",
+        (
+            "| Item | Title | Price | Raw | Kept | "
+            "LQ/AA/Stale/Outlier | Pre p25/med/p75 | Post p25/med/p75 | Min-N |"
+        ),
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
@@ -230,9 +229,7 @@ def main() -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path(
-            f"/tmp/issue14_sample_invocation_{datetime.now().strftime('%Y-%m-%d')}.md"
-        ),
+        default=Path(f"/tmp/issue14_sample_invocation_{datetime.now().strftime('%Y-%m-%d')}.md"),
     )
     args = parser.parse_args()
     return asyncio.run(_main_async(args.listings, args.limit_items, args.out))

@@ -86,7 +86,7 @@ def test_score_bundle_keyword_no_score_impact() -> None:
 
 def test_score_form_factor_mismatch() -> None:
     """Comp is 3.5" not 2.5" → FF dim fails → 0.75."""
-    score = score_apple_to_apple(_own(), _comp(title='ST2000NX0253 3.5 SAS'))
+    score = score_apple_to_apple(_own(), _comp(title="ST2000NX0253 3.5 SAS"))
     assert score == 0.75
 
 
@@ -123,7 +123,7 @@ def test_score_multiple_failures() -> None:
     """MPN miss + FF miss + cond mismatch (3000↔1000) + age ok = 0.25."""
     score = score_apple_to_apple(
         _own(),
-        _comp(title='kit 3.5 generic bundle', condition="New", condition_id="1000"),
+        _comp(title="kit 3.5 generic bundle", condition="New", condition_id="1000"),
     )
     assert score == 0.25
 
@@ -163,8 +163,8 @@ def test_filter_clean_keeps_only_above_threshold() -> None:
     comps = [
         _comp(),  # 1.0
         _comp(title="ST2000NX0253 with caddy 2.5"),  # 1.0 (bundle dim removed Phase 1.6)
-        _comp(title='ST2000NX0253 3.5 SAS'),  # MPN+Cond+age, no FF → 0.75
-        _comp(title='generic 3.5 SAS', condition="New", condition_id="1000"),  # 0.25
+        _comp(title="ST2000NX0253 3.5 SAS"),  # MPN+Cond+age, no FF → 0.75
+        _comp(title="generic 3.5 SAS", condition="New", condition_id="1000"),  # 0.25
     ]
     kept = filter_clean_competitors(own, comps, threshold=0.6)
     # 1.0, 1.0, 0.75 kept; 0.25 dropped.
