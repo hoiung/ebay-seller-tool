@@ -514,12 +514,8 @@ def test_competitor_prices_used_fetches_equivalence_class(
 ) -> None:
     """B2.1 — USED triggers two Browse calls (3000 + 2750), merges, per-condition raw counts."""
     monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
-    payload_3000 = {
-        "itemSummaries": [_comp_item(str(i), 30.0 + i, "3000") for i in range(1, 6)]
-    }
-    payload_2750 = {
-        "itemSummaries": [_comp_item(f"x{j}", 25.0 + j, "2750") for j in range(1, 4)]
-    }
+    payload_3000 = {"itemSummaries": [_comp_item(str(i), 30.0 + i, "3000") for i in range(1, 6)]}
+    payload_2750 = {"itemSummaries": [_comp_item(f"x{j}", 25.0 + j, "2750") for j in range(1, 4)]}
     fake = _fake_browse_client_seq([payload_3000, payload_2750])
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
@@ -624,9 +620,7 @@ def test_competitor_prices_new_remains_single_call(
 ) -> None:
     """B2.4 — NEW class is N=1 so only one Browse call dispatched."""
     monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
-    fake = _fake_browse_client_seq(
-        [{"itemSummaries": [_comp_item("n1", 80.0, "1000")]}]
-    )
+    fake = _fake_browse_client_seq([{"itemSummaries": [_comp_item("n1", 80.0, "1000")]}])
     own = {**_own_listing_min(), "condition_id": "1000", "condition_name": "New"}
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
@@ -648,9 +642,7 @@ def test_competitor_prices_for_parts_unmapped_class_falls_back_to_single(
 ) -> None:
     """B2.5 — FOR_PARTS (cond_id=7000) has no YAML entry → fallback to [primary]."""
     monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
-    fake = _fake_browse_client_seq(
-        [{"itemSummaries": [_comp_item("p1", 5.0, "7000")]}]
-    )
+    fake = _fake_browse_client_seq([{"itemSummaries": [_comp_item("p1", 5.0, "7000")]}])
     own = {**_own_listing_min(), "condition_id": "7000", "condition_name": "For parts"}
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
@@ -689,13 +681,9 @@ comp_filter:
     monkeypatch.setenv("EBAY_FILTER_CONFIG", str(cfg_path))
     browse.reset_filter_cache()  # force re-read
 
-    fake = _fake_browse_client_seq(
-        [{"itemSummaries": [_comp_item("x1", 30.0, "3000")]}]
-    )
+    fake = _fake_browse_client_seq([{"itemSummaries": [_comp_item("x1", 30.0, "3000")]}])
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        result = _run(
-            browse.fetch_competitor_prices(part_number="ST2000", condition="USED")
-        )
+        result = _run(browse.fetch_competitor_prices(part_number="ST2000", condition="USED"))
     assert fake.get.call_count == 1
     params = fake.get.call_args.kwargs.get("params") or fake.get.call_args.args[1]
     assert "conditionIds:{3000}" in params["filter"]
