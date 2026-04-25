@@ -39,6 +39,11 @@ _REQUIRED_KEYS = {
     "postage": ("outbound_gbp", "return_gbp"),
     "time_cost": ("mode", "sale_gbp", "return_gbp", "hourly_rate_gbp"),
     "defaults": ("cogs_gbp", "return_rate", "target_margin"),
+    "under_pricing": (
+        "velocity_median_default",
+        "recommended_band_low_pct",
+        "recommended_band_high_pct",
+    ),
 }
 
 
