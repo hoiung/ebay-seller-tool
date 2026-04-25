@@ -2,7 +2,49 @@
 
 from __future__ import annotations
 
-from ebay.analytics import compute_over_pricing, compute_under_pricing
+import pytest
+
+from ebay.analytics import compute_over_pricing, compute_recommended_band, compute_under_pricing
+
+
+# === compute_recommended_band ========================================
+
+
+def test_recommended_band_uses_config_defaults() -> None:
+    """Default low/high pct loaded from config/fees.yaml under_pricing section."""
+    # config/fees.yaml: low_pct=40, high_pct=55. Comp prices [10,20,30,40,50]:
+    # int(5*0.40)=2 → sorted[2]=30. int(5*0.55)=2 → sorted[2]=30 (clamped).
+    low, high = compute_recommended_band([10.0, 20.0, 30.0, 40.0, 50.0])
+    assert low == 30.0
+    # high index also 2 with N=5 because int(5*55/100)=2; band collapses.
+    assert high == 30.0
+
+
+def test_recommended_band_explicit_overrides() -> None:
+    """Explicit low_pct/high_pct override config defaults."""
+    low, high = compute_recommended_band(
+        [10.0, 20.0, 30.0, 40.0, 50.0],
+        low_pct=20,
+        high_pct=80,
+    )
+    # int(5*0.20)=1 → sorted[1]=20. int(5*0.80)=4 → sorted[4]=50.
+    assert low == 20.0
+    assert high == 50.0
+
+
+def test_recommended_band_empty_returns_none() -> None:
+    low, high = compute_recommended_band([])
+    assert low is None
+    assert high is None
+
+
+def test_recommended_band_validates_pct_bounds() -> None:
+    with pytest.raises(ValueError, match="low_pct must be"):
+        compute_recommended_band([10.0, 20.0], low_pct=150)
+    with pytest.raises(ValueError, match="high_pct must be"):
+        compute_recommended_band([10.0, 20.0], high_pct=-1)
+    with pytest.raises(ValueError, match="must be <="):
+        compute_recommended_band([10.0, 20.0], low_pct=80, high_pct=20)
 
 
 # === compute_under_pricing ===========================================

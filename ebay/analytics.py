@@ -331,6 +331,54 @@ def sell_through_rate(sold_count: int, unsold_count: int) -> float | None:
 # Issue #13 Phase 4 — under-pricing + over-pricing detectors.
 
 
+def compute_recommended_band(
+    comp_prices: list[float],
+    low_pct: float | None = None,
+    high_pct: float | None = None,
+) -> tuple[float | None, float | None]:
+    """Compute the (p_low, p_high) recommendation band from clean comp prices.
+
+    Wires the `under_pricing.recommended_band_low_pct` / `_high_pct` keys
+    in config/fees.yaml into runnable code. Skill orchestrator calls this
+    helper between filter_clean_competitors and compute_under_pricing so
+    the AMBER/RED recommendation prices are config-driven, not hard-coded.
+
+    Args:
+        comp_prices: list of comp prices (post apple-to-apples filter +
+            stale dropper). Empty list → (None, None).
+        low_pct: percentile rank in [0, 100]. None → loaded from
+            config/fees.yaml `under_pricing.recommended_band_low_pct`.
+        high_pct: percentile rank in [0, 100]. None → loaded from
+            config/fees.yaml `under_pricing.recommended_band_high_pct`.
+
+    Returns:
+        (p_low_price, p_high_price). Both None when comp_prices is empty.
+    """
+    if not comp_prices:
+        return (None, None)
+    if low_pct is None or high_pct is None:
+        cfg = _load_fees_config()
+        up_cfg = cfg.get("under_pricing", {})
+        if low_pct is None:
+            low_pct = float(up_cfg.get("recommended_band_low_pct", 40))
+        if high_pct is None:
+            high_pct = float(up_cfg.get("recommended_band_high_pct", 55))
+    if not (0.0 <= low_pct <= 100.0):
+        raise ValueError(f"low_pct must be in [0, 100]; got {low_pct}")
+    if not (0.0 <= high_pct <= 100.0):
+        raise ValueError(f"high_pct must be in [0, 100]; got {high_pct}")
+    if low_pct > high_pct:
+        raise ValueError(f"low_pct ({low_pct}) must be <= high_pct ({high_pct})")
+
+    sorted_p = sorted(comp_prices)
+    n = len(sorted_p)
+    # Same percentile-rank arithmetic as ebay/browse.py (sorted[int(N*p/100)]
+    # clamped to last index for the high band).
+    low_idx = max(0, int(n * low_pct / 100.0))
+    high_idx = min(n - 1, int(n * high_pct / 100.0))
+    return (round(sorted_p[low_idx], 2), round(sorted_p[high_idx], 2))
+
+
 def compute_under_pricing(
     live_price: float,
     p25_clean: float | None,
