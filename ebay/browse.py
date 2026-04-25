@@ -14,6 +14,12 @@ Issue #14 redesigned the filter as a three-layer pipeline:
               (feedback %, feedback score, returns, top-rated).
     Layer 3 — `drop_price_outliers`: log-space IQR fence with three guards
               (min_pool_size, max_drop_frac, own-price-anchored sanity).
+Issue #444 Part B added equivalence-class fetch widening at the orchestrator:
+    `_sync_find_competitor_prices` reads `comp_filter.condition_equivalence`
+    from YAML (same key already used by `score_apple_to_apple` Dim 3) and
+    issues ONE Browse API call per equivalence-class member, dedupes by
+    `item_id`, then runs the 3-layer pipeline. USED → 3000 + 2750 surfaces
+    Used-Excellent listings the API previously hid behind single-ID truncation.
 
 Per-listing dict (Issue #13 1.1/1.2 + Issue #14 0.5/2.1 extensions):
     item_id, title, price, currency, seller, condition, url
