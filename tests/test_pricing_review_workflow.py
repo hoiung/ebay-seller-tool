@@ -85,6 +85,8 @@ def _comp_payload(
             "feedbackScore": 1000,
         },
         "condition": condition,
+        # Issue #14 Phase 2.1 — numeric conditionId for equivalence-class scoring.
+        "conditionId": "3000",
         "itemWebUrl": f"https://ebay.co.uk/itm/{item_id}",
         "itemCreationDate": creation,
         "image": {"imageUrl": f"https://i.ebayimg.com/{item_id}.jpg"},
@@ -160,6 +162,7 @@ def test_full_workflow_chain_underpriced_listing(
             "MPN": ["ST2000NX0253"],
             "Form Factor": ['2.5"'],
         },
+        "condition_id": "3000",
         "condition_name": "Used",
         "photos": ["a.jpg", "b.jpg"],  # only 2 photos
         "best_offer_enabled": False,
@@ -289,6 +292,7 @@ def test_full_workflow_chain_underpriced_red_verdict(
         "item_id": "777",
         "title": "ST2000NX0253 SAS HDD",
         "specifics": {"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+        "condition_id": "3000",
         "condition_name": "Used",
     }
 
@@ -331,6 +335,7 @@ def test_full_workflow_chain_overpriced_listing(
         "item_id": "555",
         "title": "ST2000NX0253 SAS HDD",
         "specifics": {"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+        "condition_id": "3000",
         "condition_name": "Used",
     }
 
