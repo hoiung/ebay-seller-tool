@@ -31,7 +31,8 @@ _TRAFFIC_METRICS = (
 def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
     """Positional decode of an eBay Analytics Traffic Report response.
 
-    Real API shape (verified 2026-04-24 live probe against item 287260458724):
+    Real API shape (verified 2026-04-24 live probe against a real listing;
+    fixture redacted to synthetic ID 999000000001 in tests/fixtures/):
         traffic["header"]["metrics"][i] = {"key": "LISTING_IMPRESSION_TOTAL", ...}
         traffic["records"][i]["dimensionValues"][0] = {"value": "<listing_id>", "applicable": bool}
         traffic["records"][i]["metricValues"][i] = {"value": <num>, "applicable": bool}
@@ -67,8 +68,8 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
         }
 
     Note on CLICK_THROUGH_RATE: the API-provided CTR field is unreliable
-    (1% reported vs 2.19% computed from impressions/views on the real
-    287260458724 fixture — a ~2x divergence). We ignore the raw API CTR
+    (1% reported vs 2.19% computed from impressions/views on the redacted
+    real-fixture probe — a ~2x divergence). We ignore the raw API CTR
     and surface our own `ctr_pct` computed from the aggregated impression
     + view counts. The API value is intentionally NOT exposed in the
     return shape.

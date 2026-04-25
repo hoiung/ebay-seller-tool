@@ -143,7 +143,7 @@ def test_compute_rank_health_stable_by_conversion() -> None:
 def test_compute_rank_health_stable_by_absolute_signals() -> None:
     """AC-5.2: Phase-2-unavailable fallback — watchers >= 5 AND units_sold > 0 → STABLE.
 
-    Matches the live 287260458724 scenario before the decision-tree fix: both
+    Matches the live 999000000001 scenario before the decision-tree fix: both
     ratio signals are None (Phase 2 unavailable), but 7 watchers + 5 sold over
     20 days is clearly a healthy listing.
     """
@@ -206,7 +206,7 @@ def test_diagnose_low_views() -> None:
 def test_diagnose_data_gap_aware() -> None:
     """AC-5.3: views=None + positive absolute signals → data-gap diagnosis, NOT 'Low views'.
 
-    Regression guard for the 287260458724 failure: pre-fix engine returned
+    Regression guard for the 999000000001 failure: pre-fix engine returned
     'Low views — rewrite title' on a listing with 7 watchers + 5 sold. Post-fix
     the data-gap branch fires instead.
     """
