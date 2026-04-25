@@ -299,12 +299,13 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - Pricing review state (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/pricing_review.md`
 - Pricing elasticity log (out-of-repo): `~/.local/share/ebay-seller-tool/price_snapshots.jsonl`
 
-### Comp-filter quality config (Issue #14)
+### Comp-filter quality config (Issue #14 + #444 Part B)
 - `config/pricing_and_content.yaml` `comp_filter:` block — Layer-1 binary thresholds + Layer-2 deductions + 4 hard-reject regex categories (broken/external/wrong_category/bundle) + caddy_mismatch_patterns + condition_equivalence (numeric Phase 2.3 classes) + series_names (Seagate HARD CONTRACT et al)
+- `condition_equivalence` is read by BOTH `score_apple_to_apple` Dim 3 (existing) AND `_sync_find_competitor_prices` orchestrator (#444 Part B): single source of truth, two consumers. Orchestrator dispatches one Browse API call per equivalence-class member and dedupes by `item_id` before reaching the pipeline.
 - `config/fees.yaml` `outlier_rejection:` block — Issue #14 Phase 4 IQR-based price-outlier knobs
-- Code: `ebay/browse.py` — `filter_low_quality_competitors`, `score_apple_to_apple`, `drop_price_outliers`, `run_comp_filter_pipeline` aggregator
-- Tests: `tests/test_comp_filter.py` (46 tests covering all 5 phases + Stage 5 regressions)
-- Diagnostic: `scripts/measure_comp_quality_distribution.py` — one-shot ad-hoc script to calibrate Layer-1 thresholds against a live sweep cache
+- Code: `ebay/browse.py` — `_fetch_one_condition_id` (#444), `_sync_find_competitor_prices` (#444 orchestrator), `filter_low_quality_competitors`, `score_apple_to_apple`, `drop_price_outliers`, `run_comp_filter_pipeline` aggregator
+- Tests: `tests/test_comp_filter.py` (46 tests, Issue #14 phases + Stage 5 regressions) + `tests/test_browse.py` (24 tests including 10 new #444 equivalence-class tests)
+- Diagnostic: `scripts/measure_comp_quality_distribution.py` — calibrate Layer-1 thresholds against a live sweep cache; `scripts/sample_invocation_issue444.py` — AP #18 live sample invocation for the equivalence-class loop
 
 ---
 
