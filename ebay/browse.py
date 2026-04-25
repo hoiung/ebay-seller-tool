@@ -143,6 +143,8 @@ def _sync_find_competitor_prices(
     condition: str,
     location_country: str,
     limit: int,
+    own_listing: dict[str, Any] | None = None,
+    own_live_price: float | None = None,
 ) -> dict[str, Any]:
     if not part_number or not part_number.strip():
         raise ValueError("part_number required")
@@ -237,7 +239,7 @@ def _sync_find_competitor_prices(
 
     count = len(listings)
     if count == 0:
-        return {
+        empty: dict[str, Any] = {
             "count": 0,
             "min": None,
             "p25": None,
@@ -251,9 +253,20 @@ def _sync_find_competitor_prices(
             "promoted_pct": None,
             "listings": [],
         }
+        if own_listing is not None:
+            empty["audit"] = {
+                "raw_count": 0,
+                "kept": 0,
+                "dropped_low_quality": 0,
+                "dropped_apple_to_apples": 0,
+                "dropped_stale": 0,
+                "dropped_outlier": 0,
+            }
+            empty["verdict"] = "ZERO_COMPS_AFTER_FILTER"
+        return empty
 
     sorted_prices = sorted(prices)
-    return {
+    raw_distribution = {
         "count": count,
         "min": round(sorted_prices[0], 2),
         "p25": round(sorted_prices[max(0, count // 4)], 2),
@@ -268,15 +281,91 @@ def _sync_find_competitor_prices(
         "listings": listings,
     }
 
+    # Issue #14 Phase 5.1 — when own_listing context provided, run the 3-layer
+    # pipeline (filter_low_quality_competitors → filter_clean_competitors →
+    # drop_stale_competitors → drop_price_outliers) and surface the audit dict
+    # + filtered listings + recomputed percentiles. Otherwise return raw shape
+    # for backward-compat with callers that only need the bare API response.
+    if own_listing is None:
+        return raw_distribution
+
+    fees_outlier_cfg: dict[str, Any] = {}
+    try:
+        # noqa: PLC0415 — lazy import to keep ebay.fees decoupled at module load.
+        from ebay.fees import _load_fees_config  # noqa: PLC0415
+
+        fees_outlier_cfg = _load_fees_config().get("outlier_rejection", {}) or {}
+    except (FileNotFoundError, ValueError, ImportError):
+        fees_outlier_cfg = {}
+
+    kept, audit_flat, audit_verbose = run_comp_filter_pipeline(
+        listings,
+        own_listing=own_listing,
+        threshold=0.6,
+        stale_drop_pct=10.0,
+        outlier_config=fees_outlier_cfg,
+        own_live_price=own_live_price,
+    )
+
+    if not kept:
+        return {
+            **raw_distribution,
+            "count": 0,
+            "min": None,
+            "p25": None,
+            "median": None,
+            "p75": None,
+            "max": None,
+            "listings": [],
+            "audit": audit_flat,
+            "audit_verbose": audit_verbose,
+            "verdict": "ZERO_COMPS_AFTER_FILTER",
+        }
+
+    kept_prices = sorted(c["price"] for c in kept)
+    kept_n = len(kept_prices)
+    return {
+        **raw_distribution,
+        "count": kept_n,
+        "min": round(kept_prices[0], 2),
+        "p25": round(kept_prices[max(0, kept_n // 4)], 2),
+        "median": round(statistics.median(kept_prices), 2),
+        "p75": round(kept_prices[min(kept_n - 1, (3 * kept_n) // 4)], 2),
+        "max": round(kept_prices[-1], 2),
+        "listings": kept,
+        "audit": audit_flat,
+        "audit_verbose": audit_verbose,
+    }
+
 
 async def fetch_competitor_prices(
     part_number: str,
     condition: str = "USED",
     location_country: str = "GB",
     limit: int = 50,
+    own_listing: dict[str, Any] | None = None,
+    own_live_price: float | None = None,
 ) -> dict[str, Any]:
+    """Browse API competitor scan with optional in-pipeline filtering.
+
+    When ``own_listing`` is provided, runs the Issue #14 three-layer comp-filter
+    pipeline (low-quality reject → apple-to-apples score → stale-drop → outlier-
+    drop) before returning. The result dict gains ``audit`` (flat 6-key) and
+    ``audit_verbose`` (per-reason histogram), and ``count``/``min``/``p25``/
+    ``median``/``p75``/``max``/``listings`` reflect the kept comps. When all
+    comps are dropped, ``verdict: 'ZERO_COMPS_AFTER_FILTER'`` is surfaced.
+
+    When ``own_listing`` is None, returns the raw distribution (backward compat
+    for callers that don't have own-listing context).
+    """
     return await asyncio.to_thread(
-        _sync_find_competitor_prices, part_number, condition, location_country, limit
+        _sync_find_competitor_prices,
+        part_number,
+        condition,
+        location_country,
+        limit,
+        own_listing,
+        own_live_price,
     )
 
 
