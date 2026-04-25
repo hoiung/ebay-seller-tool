@@ -44,6 +44,15 @@ _REQUIRED_KEYS = {
         "recommended_band_low_pct",
         "recommended_band_high_pct",
     ),
+    "outlier_rejection": (
+        "enabled",
+        "method",
+        "multiplier",
+        "log_transform",
+        "min_pool_size",
+        "max_drop_frac",
+        "per_condition",
+    ),
 }
 
 
