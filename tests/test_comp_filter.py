@@ -235,8 +235,12 @@ def test_condition_id_for_single_id_per_call() -> None:
 
     Live curl verification 2026-04-25 against eBay Browse v1 showed pipe-separator
     `conditionIds:{3000|2750}` is silently truncated to `conditionIds:{3000}`.
-    Score-side equivalence class (Phase 2.3) still bridges 3000↔2750 for any
-    Used-Excellent listings that surface from a multi-MPN merge search.
+    Score-side equivalence class (Phase 2.3) still bridges 3000↔2750 as defence-
+    in-depth. Issue #444 Part B added orchestrator-side equivalence widening:
+    `_sync_find_competitor_prices` reads the same YAML key + dispatches one
+    Browse call per class member, dedupes by `item_id`, then runs the existing
+    3-layer pipeline. Single-ID-per-call still holds at the API layer (this
+    test); widening happens above it.
     """
     assert _condition_id_for("USED") == "3000"
     assert _condition_id_for("USED_EXCELLENT") == "2750"
