@@ -130,6 +130,7 @@ Fee config (`config/fees.yaml`) is loaded at server startup with required-sectio
 Filter config (`config/pricing_and_content.yaml`) holds title + content + comp-filter knobs. Loaded by `ebay/browse.py::_load_filter_config` (`lru_cache(1)`). Tests override via `EBAY_FILTER_CONFIG` env var; call `ebay.browse.reset_filter_cache()` to drop the cache. Top-level keys:
 - `title.filler_words` / `preserved_phrases` / `mandatory_by_drive_class` — title generator + keyword-diff inputs
 - `comp_filter` (Issue #14) — three-layer apple-to-apples filter: `quality_thresholds` (Layer-1 binary + Layer-2 soft trigger), `quality_deductions` (Layer-2 amounts), `hard_reject_patterns` (4 Layer-1 regex categories), `caddy_mismatch_patterns`, `condition_equivalence` (numeric Phase 2.3 classes), `series_names` (Seagate HARD CONTRACT et al)
+  - **Issue #444 Part B**: `condition_equivalence` is now also read by the FETCH orchestrator (`_sync_find_competitor_prices`) to widen USED + OPENED sweeps to their equivalence classes (one Browse API call per cond_id, merge + dedupe by `item_id`). Score-side equivalence in `score_apple_to_apple` Dim 3 remains as defence-in-depth.
 
 ### Usage
 
