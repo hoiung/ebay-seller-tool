@@ -119,6 +119,18 @@ Pricing-elasticity snapshots are appended to `~/.local/share/ebay-seller-tool/pr
 
 Fee config (`config/fees.yaml`) is loaded at server startup with required-section validation. Tests can swap in a stub config via the `EBAY_FEES_CONFIG` env var; call `ebay.fees.reset_fees_cache()` after changing the var to drop the `lru_cache`.
 
+`fees.yaml` sections (validated at boot, fail-fast on missing keys):
+- `ebay_uk` — FVF rate, per-order fee, marketplace + site IDs
+- `postage`, `packaging_gbp` — fulfillment cost knobs
+- `time_cost` — sunk vs marginal accounting mode
+- `defaults` — COGS, return rate, target margin
+- `under_pricing` — Issue #13 Phase 4 detector knobs
+- `outlier_rejection` (Issue #14 Phase 4) — IQR fence config (enabled, method, multiplier, log_transform, min_pool_size, max_drop_frac, per_condition)
+
+Filter config (`config/pricing_and_content.yaml`) holds title + content + comp-filter knobs. Loaded by `ebay/browse.py::_load_filter_config` (`lru_cache(1)`). Tests override via `EBAY_FILTER_CONFIG` env var; call `ebay.browse.reset_filter_cache()` to drop the cache. Top-level keys:
+- `title.filler_words` / `preserved_phrases` / `mandatory_by_drive_class` — title generator + keyword-diff inputs
+- `comp_filter` (Issue #14) — three-layer apple-to-apples filter: `quality_thresholds` (Layer-1 binary + Layer-2 soft trigger), `quality_deductions` (Layer-2 amounts), `hard_reject_patterns` (4 Layer-1 regex categories), `caddy_mismatch_patterns`, `condition_equivalence` (numeric Phase 2.3 classes), `series_names` (Seagate HARD CONTRACT et al)
+
 ### Usage
 
 **Upload photos** (returns ordered eBay-hosted URLs):
