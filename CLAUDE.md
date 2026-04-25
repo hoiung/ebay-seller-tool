@@ -122,7 +122,7 @@ Cleanup branch, close Issue
 - **Location**: `~/.claude.json` (user scope)
 - **Verify**: Run `claude mcp list` or `/mcp` inside Claude Code
 - **Servers**: chrome-devtools, github-checkbox, github
-- **code-review-graph (Phase 3 wrapper-lane)**: Local AST knowledge graph (SQLite, Tree-sitter). Invoked via 8 bash wrappers (`sst3-graph-*.sh` scripts in `dotfiles/SST3/scripts/`): status, update, search, callers, impact, large, review, untested-py. Parses 14 source languages (Python, TypeScript, TSX, JavaScript, Go, Rust, Java, C#, Ruby, C/C++, Kotlin, Swift, PHP, Solidity); NOT Markdown/YAML/JSON/SQL/TOML/shell. See `docs/guides/code-review-graph-playbook.md` (operational guide; Issue #445 wrapper-lane semantics override MCP-era examples).
+- **Wrapper-lane (Issue #445)**: Stateless, request-scoped bash wrappers — no daemon, no SQLite, no persistent graph. Invoked via 9 scripts in `dotfiles/SST3/scripts/` (`sst3-code-*.sh`): status, update (no-op contract shim), search, callers, callees, impact, large, review, untested-py. Inner engines: `ast-grep` (structural patterns) + `ripgrep` (literal search) + `git diff` + `coverage.py` + `jq`. Parses Python, TypeScript, TSX, JavaScript, Rust (the 5 languages ast-grep is wired for in the wrappers). Markdown / YAML / JSON / SQL / TOML / shell / HTML / Jinja / Dockerfile / Go / Java / etc. → use subagent exploration. See `docs/guides/code-query-playbook.md` for the operational guide.
 - **Guide**: `../dotfiles/docs/guides/mcp-configuration.md`
 - **Tool Selection**: See `../dotfiles/SST3/reference/tool-selection-guide.md`
 
@@ -142,6 +142,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
 
 
 
