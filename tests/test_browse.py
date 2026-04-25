@@ -194,6 +194,8 @@ def test_competitor_prices_extension_fields_populated(monkeypatch: pytest.Monkey
     assert listing["top_rated"] is True
     assert listing["returns_accepted"] is True
     assert listing["returns_within_days"] == 30
+    # Phase 7 plumbing fix — best_offer_enabled is per-listing (not just aggregate %).
+    assert listing["best_offer_enabled"] is False  # not set in mock → defaults False
 
 
 def test_competitor_prices_extension_fields_missing_default_none(
