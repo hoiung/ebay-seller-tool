@@ -340,7 +340,7 @@ requires-dist = [
     { name = "ebaysdk", specifier = ">=2.2.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.9.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pillow-heif", marker = "extra == 'heic'", specifier = ">=0.18.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
