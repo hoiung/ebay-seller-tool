@@ -26,6 +26,7 @@
 - **AP #17 Keep Going Until Done**: do NOT stop mid-work to ask permission, wait for user confirmation, or "check in". Phase checkpoints post a comment to the Issue and CONTINUE. Stop ONLY for: (a) context at 80%+ of model window, (b) irreversible destructive action needing user consent (force-push, rm -rf, DROP TABLE, branch deletion), (c) genuinely stuck after investigation (not a first-response-to-friction reflex), (d) task complete. Warn at 70%, keep working until 80%. The 1M window exists to be used.
 - **AP #16 Monitor, Don't Fire-and-Forget**: every script / command / subprocess / test / deployment / commit / push you launch must be verified end-to-end (tail logs, check exit code, verify output, confirm side effects). "Started" is not "done". For `run_in_background`, poll BashOutput. Be the user's eyes and ears, not just their executioner. If you cannot answer "what happened?" with specifics, you fired and forgot — go check NOW.
 - **AP #18 Sample Invocation Validates Workflow**: for any change touching pipeline / backtest / SL1 / SL2 / orchestration / CLI-wiring / cross-module function-arg propagation — run an actual end-to-end sample invocation (real CLI, real DB, small liquid basket 8 tickers) BEFORE closing. Unit + smoke tests are necessary but NOT sufficient. Mocks that accept `**kwargs` silently discard params and do NOT prove propagation — assert `call_args.kwargs[...]` explicitly. Stage 4 Verification Loop mandatory gate. See STANDARDS.md "Testing Priority — Workflow Validation Gate".
+- **Per-Stage Feedback Capture** (canonical: STANDARDS.md §Per-Stage Feedback Capture). Write `dotfiles/SST3-metrics/leader-feedback/feedback-<issue>.md` `## Stage N` block at each `/Leader` stage close. 10 fields per stage (model / worked / didnt / why / improvement / improvement_status / evidence / friction / rule_self_caught / rule_user_caught). Channel rule (forward-preference-blocklist enforced via pre-commit hook `sst3-metrics-feedback-present`): feedback files MUST NOT contain `prefers / always / from now on / default ON / going forward` phrasing — that's auto-memory's channel; attribution wording (`Hoi flagged`, `user pointed out`) is FINE.
 
 **STOP if**: No GitHub Issue exists. Create Issue using `../dotfiles/SST3/templates/issue-template.md`.
 
@@ -122,7 +123,7 @@ Cleanup branch, close Issue
 - **Location**: `~/.claude.json` (user scope)
 - **Verify**: Run `claude mcp list` or `/mcp` inside Claude Code
 - **Servers**: chrome-devtools, github-checkbox, github
-- **Wrapper-lane (Issue #445)**: Stateless, request-scoped bash wrappers across 4 phases — no daemon, no SQLite, no persistent graph. Invoked via 18 scripts in `dotfiles/SST3/scripts/` plus a single-command orchestrator. Phase A (code, 9): `sst3-code-{status,update,search,callers,callees,impact,large,review,untested-py}.sh`. Phase B (doc, 4): `sst3-doc-{lint,links,yaml,frontmatter}.sh`. Phase C (sync, 4): `sst3-sync-{related-code,tool-eviction,doc-to-code,url-liveness}.sh`. Phase D: `sst3-check.sh` Layer-2 orchestrator + `/sync-check` skill. Inner engines: `ast-grep` + `ripgrep` + `git` + `coverage.py` + `jq` + `markdownlint-cli2` + `lychee` + `yamllint` + `python3`. See `docs/guides/code-query-playbook.md` for the operational guide.
+- **Wrapper-lane (Issue #445; #447 Phase 6+8 expansion)**: Stateless, request-scoped bash wrappers across 4 phases — no daemon, no SQLite, no persistent graph. Invoked via 38 scripts in `dotfiles/SST3/scripts/` plus a single-command orchestrator. Phase A (code, 20): `sst3-code-{status,update,search,callers,callers-transitive,callees,subclasses,impact,large,review,config,coverage,orphans,entry-points,untested-py,secrets,cross-lang,shell,recent-changes,at-ref}.sh`. Phase A-security (4): `sst3-sec-{subprocess,deserialize,secret-touchpoints,input-sources}.sh`. Phase A-dep (4): `sst3-dep-{list,usage,blast-radius,cve}.sh`. Phase B (doc, 5): `sst3-doc-{lint,links,yaml,frontmatter,toc}.sh`. Phase C (sync, 4): `sst3-sync-{related-code,tool-eviction,doc-to-code,url-liveness}.sh`. Phase D: `sst3-check.sh` Layer-2 orchestrator + `/sync-check` skill. Inner engines: `ast-grep` + `ripgrep` + `git` + `coverage.py` + `jq` + `markdownlint-cli2` + `lychee` + `yamllint` + `shellcheck` + `python3` + `pip-audit` + `cargo audit` + `npm audit`. See `docs/guides/code-query-playbook.md` for the operational guide.
 - **Guide**: `../dotfiles/docs/guides/mcp-configuration.md`
 - **Tool Selection**: See `../dotfiles/SST3/reference/tool-selection-guide.md`
 
@@ -142,6 +143,10 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
+
+
+
 
 
 
@@ -297,7 +302,7 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - API Research: `docs/research/`
 - Skill (private): `~/.claude/skills/ebay-seller-tool/SKILL.md`
   - **Pricing Review Workflow** subsection (#13 — live 2026-04-25): full sweep procedure + 4-phase new-listing flow + verdict→action mapping. Cadence: weekly via skill prompt when `pricing_review.md` `last_full_review` is >7 days.
-- Business rules (private): `../dotfiles/business/ebay/research/` (12 docs)
+- Business rules (private): `../ebay-ops/docs/research/ebay/` (16 docs)
 - Business memory (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/user_ebay_business.md`
 - Pricing review state (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/pricing_review.md`
 - Pricing elasticity log (out-of-repo): `~/.local/share/ebay-seller-tool/price_snapshots.jsonl`
