@@ -176,10 +176,9 @@ ebay-seller-tool/
 │   ├── inventory.py       # Quantity and bulk operations
 │   ├── photos.py          # Photo upload and processing
 │   └── conditions.py      # Condition name to eBay ID mapping
-├── business/              # Business rules (private, loaded at runtime)
-│   ├── title_generator.py # Title builder with configurable rules
-│   ├── warning_rules.py   # Compatibility warning engine
-│   └── part_lookup.py     # Part number lookup integration
+├── business/              # Placeholder package; per-seller business rules
+│                          # (title rules, warning rules, part lookups) live in
+│                          # a private companion repo and are not packaged here.
 ├── templates/             # Jinja2 HTML templates
 │   ├── base.html          # Base listing HTML shell
 │   └── warnings/          # Warning block templates
