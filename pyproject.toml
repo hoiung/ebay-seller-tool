@@ -47,6 +47,6 @@ addopts = "-x --tb=line -q"
 dev = [
     "pre-commit>=4.5.1",
     "pyyaml>=6.0.3",
-    "ruff>=0.15.10",
+    "ruff>=0.15.12",
     "pytest>=8.0.0",
 ]
