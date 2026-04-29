@@ -1396,21 +1396,38 @@ async def analyse_listing(
         return json.dumps({"error": f"item {item_id} not found or no longer active"})
     listing = listing_to_dict(get_item_response.reply.Item)
 
-    # 2. Seller transactions in window → days-to-sell + quantity (complement listing.quantity_sold).
+    # 2. Seller transactions in window → days-to-sell distribution.
+    # G-NEW-3: surface p25/p50/p75/n_samples instead of bare median — distribution
+    # shape matters for under/over-pricing decisions per 13_ANALYTICS_AND_PRICING.md §2.3.
     txns_result = await fetch_seller_transactions(days=min(window_days, 30))
     per_item_txns = [t for t in txns_result["transactions"] if t["item_id"] == str(item_id)]
     days_to_sell_values = [
         t["days_to_sell"] for t in per_item_txns if t["days_to_sell"] is not None
     ]
-    days_to_sell_median = None
+    days_to_sell_n_samples = len(days_to_sell_values)
+    days_to_sell_median: float | None = None
+    days_to_sell_p25: float | None = None
+    days_to_sell_p50: float | None = None
+    days_to_sell_p75: float | None = None
     if days_to_sell_values:
         sorted_values = sorted(days_to_sell_values)
-        mid = len(sorted_values) // 2
-        days_to_sell_median = (
-            sorted_values[mid]
-            if len(sorted_values) % 2 == 1
-            else (sorted_values[mid - 1] + sorted_values[mid]) / 2
-        )
+        n = len(sorted_values)
+
+        def _percentile(p: float) -> float:
+            # Linear interpolation; for n=1 returns the single value; for even-length
+            # lists at p=0.5 produces the same midpoint average as the prior median
+            # calculation (verified algebraically for n in {2,3,4}).
+            idx = (n - 1) * p
+            lo = int(idx)
+            hi = min(lo + 1, n - 1)
+            frac = idx - lo
+            return sorted_values[lo] + frac * (sorted_values[hi] - sorted_values[lo])
+
+        days_to_sell_p25 = _percentile(0.25)
+        days_to_sell_p50 = _percentile(0.50)
+        days_to_sell_p75 = _percentile(0.75)
+        # Backwards compat: median field preserves the original API shape.
+        days_to_sell_median = days_to_sell_p50
 
     # 3. Feedback aggregation.
     feedback_result = await fetch_listing_feedback(item_id=item_id, days=90)
@@ -1571,6 +1588,20 @@ async def analyse_listing(
         "phase2_available": phase2_available,
         "funnel": funnel,
         "signals": signals,
+        # #17 fix per Stage 1 L2 F2: surface days_on_site from listing_to_dict
+        # (key was previously dropped from the response shape — was never a
+        # regression, just a feature-add closing the decision-matrix consumer
+        # gap). Value MAY be None when ListingDetails.StartTime missing/malformed
+        # per listings.py:182 — legitimate, NOT an error.
+        "days_on_site": listing["days_on_site"],
+        # G-NEW-3: days-to-sell distribution (p25/p50/p75/n_samples) for
+        # pricing-review consumer. days_to_sell_median preserved for backwards
+        # compat (alias of p50).
+        "days_to_sell_n_samples": days_to_sell_n_samples,
+        "days_to_sell_p25": days_to_sell_p25,
+        "days_to_sell_p50": days_to_sell_p50,
+        "days_to_sell_p75": days_to_sell_p75,
+        "days_to_sell_median": days_to_sell_median,
         "multi_qty_note": multi_qty_note,
         "rank_health_status": rank_health,
         "diagnosis": diagnosis,
