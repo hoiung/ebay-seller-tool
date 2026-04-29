@@ -95,11 +95,30 @@ def test_listing_to_dict_promoted_listing_false_default() -> None:
 
 
 def test_listing_to_dict_handles_missing_optional_fields() -> None:
+    # #16 fix: BestOfferEnabled defaults to False (boolean-only contract) when
+    # the element is absent from GetItem response — never None.
     item = _build_item(BestOfferEnabled=None, QuestionCount=None, BestOfferCount=None)
     d = listing_to_dict(item)
     assert d["best_offer_count"] == 0
     assert d["question_count"] == 0
-    assert d["best_offer_enabled"] is None
+    assert d["best_offer_enabled"] is False
+
+
+def test_listing_to_dict_best_offer_enabled_absent() -> None:
+    # New regression fixture: simulates GetItem response with BestOfferEnabled
+    # element absent (eBay omits it for listings without Best Offer configured).
+    item = _build_item(BestOfferEnabled=None)
+    d = listing_to_dict(item)
+    assert d["best_offer_enabled"] is False  # NOT None, NOT True
+    assert isinstance(d["best_offer_enabled"], bool)
+
+
+def test_listing_to_dict_best_offer_enabled_false_string() -> None:
+    # New regression fixture: BestOfferEnabled="false" XML string value.
+    item = _build_item(BestOfferEnabled="false")
+    d = listing_to_dict(item)
+    assert d["best_offer_enabled"] is False
+    assert isinstance(d["best_offer_enabled"], bool)
 
 
 def test_listing_to_dict_handles_missing_shipping() -> None:
