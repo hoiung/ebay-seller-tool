@@ -168,6 +168,8 @@ def listing_to_dict(item: object) -> dict:
     end_time = None
     relist_count = 0
     promoted_listing = False
+    best_offer_auto_accept_gbp: float | None = None
+    best_offer_auto_decline_gbp: float | None = None
     if listing_details is not None:
         start_time = _parse_iso_ts(getattr(listing_details, "StartTime", None))
         end_time = _parse_iso_ts(getattr(listing_details, "EndTime", None))
@@ -179,6 +181,22 @@ def listing_to_dict(item: object) -> dict:
         promoted_raw = getattr(listing_details, "PromotedListing", None)
         if promoted_raw is not None:
             promoted_listing = str(promoted_raw).lower() == "true"
+        # AP #18 surfaced gap: ListingDetails carries BestOfferAutoAcceptPrice
+        # + MinimumBestOfferPrice (the auto-decline floor) when Best Offer is
+        # configured. Required for safe restore/revise round-trips and for
+        # recommend_best_offer_thresholds to compare current vs proposed.
+        accept_amt = getattr(listing_details, "BestOfferAutoAcceptPrice", None)
+        decline_amt = getattr(listing_details, "MinimumBestOfferPrice", None)
+        if accept_amt is not None:
+            try:
+                best_offer_auto_accept_gbp = float(getattr(accept_amt, "value", accept_amt))
+            except (TypeError, ValueError):
+                best_offer_auto_accept_gbp = None
+        if decline_amt is not None:
+            try:
+                best_offer_auto_decline_gbp = float(getattr(decline_amt, "value", decline_amt))
+            except (TypeError, ValueError):
+                best_offer_auto_decline_gbp = None
 
     days_on_site = None
     if start_time is not None:
@@ -236,6 +254,8 @@ def listing_to_dict(item: object) -> dict:
         "view_count": None,
         "best_offer_count": best_offer_count,
         "best_offer_enabled": best_offer_enabled,
+        "best_offer_auto_accept_gbp": best_offer_auto_accept_gbp,
+        "best_offer_auto_decline_gbp": best_offer_auto_decline_gbp,
         "question_count": question_count,
         "relist_count": relist_count,
         "promoted_listing": promoted_listing,
