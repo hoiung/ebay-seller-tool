@@ -59,6 +59,32 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: sst3-closure-loop-applied
+        name: Stage 1 closure-loop applied_in propagation gate (#460 Phase 6 W1; consumer-repo propagation)
+        # Fires on commits with Phase: 4 or Phase: 5 trailer. Invokes the
+        # dotfiles canonical script via relative path (consumer is sibling of
+        # dotfiles under ~/DevProjects/). Skip-cleanly if dotfiles unavailable.
+        # Bypass: SKIP=sst3-closure-loop-applied git commit ...
+        entry: bash
+        args:
+          - -c
+          - |
+            msg_file="$1"
+            phase=$(grep -E "^Phase:[[:space:]]*[0-9]+" "$msg_file" | head -1 | grep -oE "[0-9]+" | head -1 || true)
+            test -n "$phase" || exit 0
+            test "$phase" = "4" -o "$phase" = "5" || exit 0
+            branch=$(git rev-parse --abbrev-ref HEAD)
+            issue=$(echo "$branch" | grep -oE "issue-[0-9]+" | grep -oE "[0-9]+" | head -1 || true)
+            test -n "$issue" || exit 0
+            CANONICAL=../dotfiles/SST3/scripts/check-closure-loop-applied.py
+            [ -f "$CANONICAL" ] || { echo "SKIP: dotfiles canonical not found at $CANONICAL" >&2; exit 0; }
+            python3 "$CANONICAL" --repo ebay-seller-tool "$issue"
+          - --
+        language: system
+        stages: [commit-msg]
+        always_run: true
+        verbose: true
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
