@@ -50,6 +50,10 @@ from ebay.listings import (  # noqa: E402
     snapshot_listing,
 )
 from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
+from ebay.end_listing import (  # noqa: E402
+    ALLOWED_ENDING_REASONS,
+    end_listing as _end_listing_core,
+)
 from ebay.pictures import revise_pictures as _revise_pictures_core  # noqa: E402
 from ebay.rest import compute_return_rate as rest_compute_return_rate  # noqa: E402
 from ebay.rest import (  # noqa: E402
@@ -2009,6 +2013,61 @@ async def recommend_best_offer_thresholds(
         },
         indent=2,
     )
+
+
+@mcp.tool()
+@with_error_handling
+async def end_listing(
+    item_id: str,
+    expected_title: str,
+    ending_reason: str = "NotAvailable",
+    confirm: bool = False,
+    dry_run: bool = True,
+) -> str:
+    """End a single live eBay listing via Trading API EndFixedPriceItem.
+
+    Destructive — once ended, the original ItemID is gone (relisting requires
+    a NEW ItemID). Defaults to dry_run=True; caller must opt in to the live
+    path with dry_run=False AND confirm=True.
+
+    Single-item by design — no bulk loop. The expected_title echo-back guard
+    catches "wrong ItemID" mistakes before any side-effect: caller must quote
+    the live title (case-insensitive substring match).
+
+    Args:
+        item_id: eBay item ID.
+        expected_title: caller's claimed title for this listing — checked
+            case-insensitively as substring match. Mismatch refuses loudly.
+        ending_reason: one of NotAvailable / LostOrBroken / Incorrect /
+            OtherListingError / SellToHighBidder. Defaults to NotAvailable
+            (out-of-stock — most common case).
+        confirm: REQUIRED True on the live path. Defaults False.
+        dry_run: True (default) returns a preview without API side-effects.
+
+    Returns:
+        JSON: dry_run preview shape OR live shape with ack + end_time.
+    """
+    log_debug(
+        f"end_listing item_id={item_id} reason={ending_reason} "
+        f"dry_run={dry_run} confirm={confirm}"
+    )
+    try:
+        result = await _end_listing_core(
+            item_id=item_id,
+            expected_title=expected_title,
+            ending_reason=ending_reason,
+            confirm=confirm,
+            dry_run=dry_run,
+        )
+    except ValueError as e:
+        return json.dumps(
+            {
+                "error": str(e),
+                "allowed_ending_reasons": list(ALLOWED_ENDING_REASONS),
+            },
+            indent=2,
+        )
+    return json.dumps(result, indent=2)
 
 
 if __name__ == "__main__":
