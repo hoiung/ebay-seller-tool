@@ -202,29 +202,29 @@ def test_full_workflow_chain_underpriced_listing(
     # With prices [28, 30, 32, 35, 38] (oldest 40.0 dropped), p25 = sorted[1] = 30
     assert pcts["p25"] == 30.0
 
-    # 4. Under-pricing detector — own £20 < p25 £30 → signal A True.
+    # 4. Under-pricing detector — own £20 < p25 £30 → BELOW_P25 positional.
     under = compute_under_pricing(
         live_price=20.0,
         p25_clean=pcts["p25"],
+        p75_clean=pcts["p75"],
         units_sold_per_day=0.0,  # B: false
         days_to_sell_median=30,  # C: false
-        p40_clean=pcts["p40"],
-        p55_clean=pcts["p55"],
     )
     assert under["signals"]["A"] is True
     assert under["signals"]["B"] is False
     assert under["signals"]["C"] is False
-    assert under["verdict"] == "ok"  # 1/3 → ok
+    assert under["positional"] == "BELOW_P25"
 
-    # 5. Over-pricing detector — own £20 NOT > p75 £38 → ok.
+    # 5. Over-pricing detector — own £20 NOT > p75 £38 → BELOW_P25 positional.
     over = compute_over_pricing(
         live_price=20.0,
+        p25_clean=pcts["p25"],
         p75_clean=pcts["p75"],
         watchers=5,
         units_sold=0,
         days_on_site=30,
     )
-    assert over["verdict"] == "ok"
+    assert over["positional"] == "BELOW_P25"
 
     # 6. Content benchmarks — own has 2 photos vs comp p25 (with primary +
     # 5 additional = 6 each), no Best Offer vs 50% comps, not top-rated vs
@@ -258,8 +258,8 @@ def test_full_workflow_chain_underpriced_listing(
             "price_gbp": float(own_listing["price"]),
             "watch_count": own_listing["watch_count"],
             "verdicts": {
-                "under": under["verdict"],
-                "over": over["verdict"],
+                "under": under["positional"],
+                "over": over["positional"],
                 "content_flags": sum(1 for v in content.values() if v["verdict"] == "flagged"),
                 "title_candidates": len(diff["candidates"]),
             },
@@ -272,15 +272,15 @@ def test_full_workflow_chain_underpriced_listing(
     row = json.loads(snap_path.read_text().strip())
     assert row["event"] == "analysis_baseline"
     assert row["item_id"] == "999"
-    assert row["verdicts"]["under"] == "ok"
+    assert row["verdicts"]["under"] == "BELOW_P25"
     assert row["verdicts"]["content_flags"] == 4  # all 4 benchmarks flagged
     assert row["verdicts"]["title_candidates"] >= 1
 
 
-def test_full_workflow_chain_underpriced_red_verdict(
+def test_full_workflow_chain_underpriced_below_p25(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Under-pricing RED triggers when price < p25 + velocity > 0.1 + days < 7."""
+    """Stub #21 — under-pricing detector returns BELOW_P25 positional + interpretations."""
     monkeypatch.delenv("EBAY_OWN_SELLER_USERNAME", raising=False)
     monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(tmp_path / "snap.jsonl"))
 
@@ -310,14 +310,13 @@ def test_full_workflow_chain_underpriced_red_verdict(
     under = compute_under_pricing(
         live_price=20.0,  # < p25 35 (A True)
         p25_clean=pcts["p25"],
+        p75_clean=pcts["p75"],
         units_sold_per_day=0.5,  # > 0.1 (B True)
         days_to_sell_median=3,  # < 7 (C True)
-        p40_clean=pcts["p40"],
-        p55_clean=pcts["p55"],
     )
-    assert under["verdict"] == "RED"
-    assert under["recommended_floor"] == pcts["p40"]
-    assert under["recommended_ceiling"] == pcts["p55"]
+    assert under["positional"] == "BELOW_P25"
+    assert all(under["signals"].values())
+    assert len(under["interpretations"]) == 2
 
 
 def test_full_workflow_chain_overpriced_listing(
@@ -352,16 +351,15 @@ def test_full_workflow_chain_overpriced_listing(
 
     over = compute_over_pricing(
         live_price=50.0,  # > p75 (A True)
+        p25_clean=pcts["p25"],
         p75_clean=pcts["p75"],
         watchers=3,  # > 0 (B True)
         units_sold=0,  # == 0 (C True)
         days_on_site=44,  # > 21 (D True)
-        p55_clean=pcts["p55"],
-        p65_clean=pcts["p65"],
     )
-    assert over["verdict"] == "OVERPRICED"
-    assert over["recommended_floor"] == pcts["p55"]
-    assert over["recommended_ceiling"] == pcts["p65"]
+    assert over["positional"] == "ABOVE_P75"
+    assert all(over["signals"].values())
+    assert "review needed" in over["interpretations"][0]
 
 
 def test_audit_verbose_raw_count_per_condition_id_propagates_through_pipeline(

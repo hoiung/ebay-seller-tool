@@ -341,7 +341,7 @@ def compute_recommended_band(
     Wires the `under_pricing.recommended_band_low_pct` / `_high_pct` keys
     in config/fees.yaml into runnable code. Skill orchestrator calls this
     helper between filter_clean_competitors and compute_under_pricing so
-    the AMBER/RED recommendation prices are config-driven, not hard-coded.
+    the recommendation prices are config-driven, not hard-coded.
 
     Args:
         comp_prices: list of comp prices (post apple-to-apples filter +
@@ -379,6 +379,44 @@ def compute_recommended_band(
     return (round(sorted_p[low_idx], 2), round(sorted_p[high_idx], 2))
 
 
+def _positional_descriptor(
+    live_price: float,
+    p25_clean: float | None,
+    p75_clean: float | None,
+) -> str | None:
+    """Stub #21 — bucket live_price relative to clean-comp percentiles.
+
+    Returns one of "BELOW_P25" | "BETWEEN_P25_P75" | "ABOVE_P75". When p25_clean
+    is None (no clean comp signal), returns None — the caller can interpret
+    "no positional anchor available".
+
+    Convention: BETWEEN_P25_P75 includes the p25/p75 values themselves
+    (live_price == p25 → BETWEEN, not BELOW). BELOW is strictly less-than.
+    """
+    if p25_clean is None:
+        return None
+    if live_price < p25_clean:
+        return "BELOW_P25"
+    if p75_clean is None or live_price <= p75_clean:
+        return "BETWEEN_P25_P75"
+    return "ABOVE_P75"
+
+
+def _stock_clearance_exempt(
+    quantity_available: int | None,
+    days_to_sell_median: int | None,
+) -> bool:
+    """Stub #21 stock-clearance exception: qty>5 + DTS<3 = goal, not defect.
+
+    Pricing-review (13_ANALYTICS §2.3) treats fast-clearance multi-qty listings
+    as INTENTIONAL undercut. Detectors flag the position but consumers should
+    NOT treat it as a defect.
+    """
+    if quantity_available is None or days_to_sell_median is None:
+        return False
+    return quantity_available > 5 and days_to_sell_median < 3
+
+
 def compute_under_pricing(
     live_price: float,
     p25_clean: float | None,
@@ -386,39 +424,38 @@ def compute_under_pricing(
     days_to_sell_median: int | None,
     category_velocity_median: float | None = None,
     *,
-    p40_clean: float | None = None,
-    p55_clean: float | None = None,
+    p75_clean: float | None = None,
+    quantity_available: int | None = None,
 ) -> dict[str, Any]:
-    """Detect under-pricing using a 3-signal scheme (per round-2 F-B + F6).
+    """Detect under-pricing — Stub #21 positional-descriptor refactor.
 
-    Signals (each True/False, None = undetermined → False for trigger logic):
+    Replaces the prior AMBER/RED/UNDERPRICED labels with neutral positional
+    descriptors. The detector flags a price's POSITION in the clean comp
+    distribution; the consumer (operator / pricing-review skill) decides
+    whether the position is intentional or unintentional based on context.
+
+    Signals (each True/False, None = undetermined):
       A. live_price < p25_clean (cheaper than 75% of clean apple-to-apples)
       B. units_sold_per_day > category_velocity_median (selling fast)
       C. days_to_sell_median < 7 (recent sales clear within a week)
 
-    Trigger: 2-of-3 True → AMBER UNDERPRICED; 3-of-3 True → RED STRONGLY
-    UNDERPRICED. Recommendations are p40_clean (AMBER floor) and p55_clean
-    (RED ceiling) — pass these in when available; if not, recommendation
-    fields are None.
+    Returns:
+        {
+            "positional": "BELOW_P25" | "BETWEEN_P25_P75" | "ABOVE_P75" | None,
+            "signals": {"A": bool|None, "B": bool|None, "C": bool|None},
+            "interpretations": [str, str],  # two readings, no auto-imperative
+            "stock_clearance_exempt": bool,  # qty>5 + DTS<3 = goal, not defect
+        }
 
     Args:
         live_price: current eBay listing price (GBP).
-        p25_clean: 25th percentile of clean (apple-to-apples) comp prices.
-            None when no clean comps survive filtering.
-        units_sold_per_day: per-SKU sales velocity (computed from
-            fetch_sold_listings + window_days).
+        p25_clean: 25th percentile of clean comp prices. None → positional=None.
+        units_sold_per_day: per-SKU sales velocity.
         days_to_sell_median: median time-to-clear for sold units.
-        category_velocity_median: category-baseline velocity. None →
-            loaded from config/fees.yaml `under_pricing.velocity_median_default`.
-        p40_clean / p55_clean: optional concrete percentiles for recommendation.
-
-    Returns:
-        {
-            "verdict": "ok" | "AMBER" | "RED",
-            "signals": {"A": bool|None, "B": bool|None, "C": bool|None},
-            "recommended_floor": float | None,
-            "recommended_ceiling": float | None,
-        }
+        category_velocity_median: category-baseline velocity. None loads from
+            config/fees.yaml `under_pricing.velocity_median_default`.
+        p75_clean: 75th percentile for positional anchoring (BETWEEN vs ABOVE).
+        quantity_available: stock count for stock-clearance exemption.
     """
     if category_velocity_median is None:
         cfg = _load_fees_config()
@@ -430,29 +467,35 @@ def compute_under_pricing(
     b = (units_sold_per_day is not None) and (units_sold_per_day > category_velocity_median)
     c = (days_to_sell_median is not None) and (days_to_sell_median < 7)
 
-    triggered = sum(bool(s) for s in (a, b, c))
-    if triggered >= 3:
-        verdict = "RED"
-    elif triggered >= 2:
-        verdict = "AMBER"
-    else:
-        verdict = "ok"
+    positional = _positional_descriptor(live_price, p25_clean, p75_clean)
+    exempt = _stock_clearance_exempt(quantity_available, days_to_sell_median)
 
-    recommended_floor: float | None = None
-    recommended_ceiling: float | None = None
-    if verdict in ("AMBER", "RED"):
-        recommended_floor = p40_clean
-        recommended_ceiling = p55_clean if verdict == "RED" else None
+    interpretations: list[str] = []
+    if positional == "BELOW_P25":
+        interpretations = [
+            "Intentional undercut to clear stock (DTS<3 + multi-qty supports)",
+            "Leaving margin on table (no clearance posture, single-qty)",
+        ]
+    elif positional == "BETWEEN_P25_P75":
+        interpretations = [
+            "Mid-pack pricing — typical for steady-velocity SKUs",
+            "Could push toward p75 if conversion is strong (watch CTR + watch_count)",
+        ]
+    elif positional == "ABOVE_P75":
+        interpretations = [
+            "Premium positioning — works when listing has clear differentiator (caddy / warranty / Top-Rated)",
+            "May suppress conversion if no differentiator visible — consider Best Offer or moderate drop",
+        ]
 
     return {
-        "verdict": verdict,
+        "positional": positional,
         "signals": {
             "A": a if p25_clean is not None else None,
             "B": b if units_sold_per_day is not None else None,
             "C": c if days_to_sell_median is not None else None,
         },
-        "recommended_floor": recommended_floor,
-        "recommended_ceiling": recommended_ceiling,
+        "interpretations": interpretations,
+        "stock_clearance_exempt": exempt,
     }
 
 
@@ -463,40 +506,77 @@ def compute_over_pricing(
     units_sold: int,
     days_on_site: int | None,
     *,
-    p55_clean: float | None = None,
-    p65_clean: float | None = None,
+    p25_clean: float | None = None,
+    quantity_available: int | None = None,
 ) -> dict[str, Any]:
-    """Detect over-pricing using a guarded heuristic.
+    """Detect over-pricing — Stub #21 positional-descriptor refactor.
 
-    Trigger (all 4 conditions): live_price > p75_clean AND watchers > 0
-    AND units_sold == 0 AND days_on_site > 21 → OVERPRICED.
+    Same shape as `compute_under_pricing` — positional descriptor + signals +
+    interpretations + stock_clearance_exempt. The detector flags the price
+    POSITION; consumers decide.
 
-    Watchers > 0 means buyers are interested but not converting; combined
-    with stale (>21d) and zero sales tells us price is the blocker.
-    days_on_site<21 → 'ok' (insufficient data to draw the conclusion).
+    Signals:
+      A_over_p75   — live_price > p75_clean
+      B_has_watchers — watchers > 0
+      C_no_sales   — units_sold == 0
+      D_stale_21d  — days_on_site > 21
 
-    Recommendations: p55_clean (lower bound) - p65_clean (upper bound).
-    Or enable Best Offer to let buyers negotiate.
+    When all 4 fire, the ABOVE_P75 positional is paired with the strongest
+    "needs review" interpretation. When only A fires (price above p75 but
+    converting), the BELOW_P25-style "premium positioning" reading dominates.
 
-    Returns same shape as `compute_under_pricing`. Verdicts: 'ok' | 'OVERPRICED'.
+    Returns:
+        {
+            "positional": "BELOW_P25" | "BETWEEN_P25_P75" | "ABOVE_P75" | None,
+            "signals": {"A_over_p75", "B_has_watchers", "C_no_sales", "D_stale_21d"},
+            "interpretations": [str, str],
+            "stock_clearance_exempt": bool,
+        }
     """
     a = (p75_clean is not None) and (live_price > p75_clean)
     b = watchers > 0
     c = units_sold == 0
     d = (days_on_site is not None) and (days_on_site > 21)
 
-    overpriced = a and b and c and d
+    positional = _positional_descriptor(live_price, p25_clean, p75_clean)
+    # Stock-clearance exempt only meaningful for BELOW_P25 case in the under-
+    # pricing detector — for over-pricing it's irrelevant (high-priced
+    # multi-qty isn't a clearance scenario). Compute defensively for symmetry.
+    exempt = _stock_clearance_exempt(quantity_available, None)
+
+    interpretations: list[str] = []
+    if positional == "BELOW_P25":
+        interpretations = [
+            "Intentional undercut to clear stock",
+            "Leaving margin on table",
+        ]
+    elif positional == "BETWEEN_P25_P75":
+        interpretations = [
+            "Mid-pack pricing — typical for steady-velocity SKUs",
+            "Could push toward p75 if conversion is strong",
+        ]
+    elif positional == "ABOVE_P75":
+        if a and b and c and d:
+            interpretations = [
+                "Above-market price + interest but no conversion + stale — review needed (consider Best Offer or drop to p55-p65)",
+                "Niche premium that hasn't found its buyer yet (rare; only if differentiator clearly visible in listing)",
+            ]
+        else:
+            interpretations = [
+                "Premium positioning — works when listing has clear differentiator",
+                "May suppress conversion if no differentiator visible — watch watchers + days_on_site",
+            ]
 
     return {
-        "verdict": "OVERPRICED" if overpriced else "ok",
+        "positional": positional,
         "signals": {
             "A_over_p75": a if p75_clean is not None else None,
             "B_has_watchers": b,
             "C_no_sales": c,
             "D_stale_21d": d if days_on_site is not None else None,
         },
-        "recommended_floor": p55_clean if overpriced else None,
-        "recommended_ceiling": p65_clean if overpriced else None,
+        "interpretations": interpretations,
+        "stock_clearance_exempt": exempt,
     }
 
 
