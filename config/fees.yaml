@@ -52,3 +52,19 @@ outlier_rejection:
   min_pool_size: 6       # skip if fewer than this many comps
   max_drop_frac: 0.20    # never drop more than this fraction (rank by extremity)
   per_condition: false   # v1 — apple-to-apples already stratifies by condition
+
+# Issue #10 Phase 5 — G-NEW-11 compute_return_rates_bulk knobs (Stage 5
+# swarm: previously hardcoded as local function-scope variables in
+# server.py; surfaced here so operators can override without code change).
+return_rates_bulk:
+  # Short-circuit threshold: when ≥`min_observations` items have run AND
+  # ≥`signature_majority_pct` % of those calls share the same
+  # (exception_class, message), abort the loop and surface the systemic
+  # failure (auth-token expiry, rate-limit, etc.) rather than cascading
+  # silent per-item errors.
+  short_circuit_min_observations: 3
+  short_circuit_signature_majority_pct: 0.5
+  # High-return-rate flagging threshold (operator-visible in JSON summary
+  # as `high_return_rate_threshold_pct`). Listings exceeding this rate
+  # need a per-SKU floor-price review.
+  high_return_rate_threshold_pct: 15.0

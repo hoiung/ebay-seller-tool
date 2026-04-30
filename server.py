@@ -50,7 +50,6 @@ from ebay.listings import (  # noqa: E402
     snapshot_listing,
 )
 from ebay.photos import (  # noqa: E402
-    VISUAL_PHOTO_PATTERNS,
     glob_visual_photos,
     preprocess_for_ebay,
     upload_one,
@@ -99,8 +98,9 @@ CONDITION_HTML_SUFFIX: dict[str, str] = {
 
 # eBay image filenames from Hoi's phone camera (timestamp pattern).
 LABEL_PHOTO_REGEX = re.compile(r"IMG\d{8}\d{6}\.jpg$", re.IGNORECASE)
-# VISUAL_PHOTO_PATTERNS lifted to ebay/photos.py — re-exported above so that
-# audit scripts can import the canonical glob without pulling FastMCP startup.
+# VISUAL_PHOTO_PATTERNS + glob_visual_photos live in ebay/photos.py —
+# audit scripts import them directly via sys.path injection (see
+# audit_smart_visuals.py) without pulling FastMCP startup.
 _COPY_BLOCK_RE = re.compile(
     r'<div[^>]*class=["\'][^"\']*copy-block[^"\']*["\'][^>]*>(.*?)</div>',
     re.IGNORECASE | re.DOTALL,
@@ -1734,6 +1734,23 @@ async def analyse_listing(
                 "Cassini ranking on multi-quantity listings."
             )
 
+    # G-NEW-1 (AC at #10 line 397) — when the diagnose_listing recommendation
+    # surfaces 'enable_best_offer', auto-suggest concrete thresholds so the
+    # operator doesn't need a second `recommend_best_offer_thresholds` round-
+    # trip. Computed only when the recommendation triggers (cheap pure-fn).
+    best_offer_thresholds: dict | None = None
+    if action and "enable_best_offer" in action and floor_gbp is not None:
+        try:
+            best_offer_thresholds = compute_best_offer_thresholds(
+                floor_gbp=floor_gbp,
+                live_price_gbp=current_price_gbp,
+            )
+        except (ValueError, TypeError) as exc:
+            log_debug(
+                f"analyse_listing best_offer_thresholds_skipped item_id={item_id} "
+                f"reason={type(exc).__name__}: {exc}"
+            )
+
     # Stub #19 — opt-in market-concentration computation. Adds one Browse API
     # call and one filter-pipeline run; expensive enough that we gate on the
     # caller's explicit request to avoid latency regression for read-mostly
@@ -1808,6 +1825,9 @@ async def analyse_listing(
         #   ALL_FILTERED   → review_filter_settings
         "comp_verdict": comp_verdict,
         "comp_recommended_action": comp_recommended_action,
+        # G-NEW-1 — present only when recommended_action triggers
+        # 'enable_best_offer' AND a floor is computable. None otherwise.
+        "best_offer_thresholds": best_offer_thresholds,
     }
 
     # Phase 5.2.1 — only persist when Phase 2 is actually available; without
@@ -1943,18 +1963,25 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
 
     log_debug(f"compute_return_rates_bulk item_count={len(item_ids)} days={days}")
 
+    # Stage 5 swarm: lifted to config/fees.yaml `return_rates_bulk:` block
+    # so operators can tune without code changes (no-hardcoded-settings rule).
+    from ebay.fees import _load_fees_config  # noqa: PLC0415
+    bulk_cfg = (_load_fees_config().get("return_rates_bulk") or {})
+    short_circuit_threshold = float(bulk_cfg.get("short_circuit_signature_majority_pct", 0.5))
+    short_circuit_min_observations = int(bulk_cfg.get("short_circuit_min_observations", 3))
+    high_return_rate_threshold = float(bulk_cfg.get("high_return_rate_threshold_pct", 15.0))
+
     results: dict[str, dict] = {}
     succeeded = 0
     failed = 0
     high_return = 0
     # L14 (Ralph Opus) — track repeat exception class + message so a systemic
     # failure (auth-token expired, OAuth 401, rate-limit) doesn't cascade
-    # silently across every remaining item. After we've seen ≥3 calls AND
-    # ≥50% of those calls failed with the same (class, str) key, abort the
-    # loop and surface the systemic failure in the summary.
+    # silently across every remaining item. After we've seen
+    # ≥short_circuit_min_observations calls AND ≥short_circuit_threshold of
+    # those calls share the same (class, str) signature, abort the loop and
+    # surface the systemic failure in the summary.
     error_signature_counts: dict[tuple[str, str], int] = {}
-    short_circuit_threshold = 0.5
-    short_circuit_min_observations = 3
     short_circuited = False
     for idx, item_id in enumerate(item_ids):
         try:
@@ -1962,7 +1989,7 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
             results[item_id] = res
             succeeded += 1
             rate = res.get("return_rate_pct")
-            if isinstance(rate, (int, float)) and rate > 15.0:
+            if isinstance(rate, (int, float)) and rate > high_return_rate_threshold:
                 high_return += 1
         except Exception as e:  # noqa: BLE001 — boundary for per-item resilience
             log_debug(f"compute_return_rates_bulk item_id={item_id} FAILED: {e}")
@@ -1990,7 +2017,7 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
         "succeeded": succeeded,
         "failed": failed,
         "high_return_rate_count": high_return,
-        "high_return_rate_threshold_pct": 15.0,
+        "high_return_rate_threshold_pct": high_return_rate_threshold,
     }
     if short_circuited:
         top_class, top_msg = max(error_signature_counts, key=error_signature_counts.get)  # type: ignore[arg-type]
