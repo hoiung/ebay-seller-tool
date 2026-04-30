@@ -11,6 +11,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 from ebay.client import log_debug
@@ -378,6 +379,11 @@ def cdata_wrap(html: str) -> str:
     return f"<![CDATA[{escaped}]]>"
 
 
+def _decimal_str(value: float | int | str) -> str:
+    """Two-dp string for an Amount value, via Decimal(str(...)) to avoid float drift."""
+    return str(Decimal(str(value)).quantize(Decimal("0.01")))
+
+
 def build_revise_payload(
     item_id: str,
     title: str | None = None,
@@ -387,6 +393,11 @@ def build_revise_payload(
     condition_id: int | None = None,
     condition_description: str | None = None,
     item_specifics: dict[str, str | list[str]] | None = None,
+    picture_urls: list[str] | None = None,
+    best_offer_enabled: bool | None = None,
+    best_offer_auto_accept_gbp: float | None = None,
+    best_offer_auto_decline_gbp: float | None = None,
+    currency: str = _EBAY_UK_SITE_CURRENCY,
 ) -> dict:
     """Build the ReviseFixedPriceItem payload dict.
 
@@ -405,6 +416,19 @@ def build_revise_payload(
 
     item_specifics: Dict of name -> value(s). Single string or list of strings.
     Replaces the entire ItemSpecifics block on the listing.
+
+    picture_urls: Replace the listing's PictureDetails.PictureURL list. eBay
+    accepts up to MAX_PICTURE_URLS (24); the caller is responsible for
+    composing append-vs-replace semantics — this function only writes the
+    final ordered URL list.
+
+    best_offer_enabled: When True/False, sets Item.BestOfferDetails.BestOfferEnabled.
+    None leaves the listing's current Best Offer toggle untouched.
+
+    best_offer_auto_accept_gbp / best_offer_auto_decline_gbp: Trading API field
+    placement (D2 verified): Item.ListingDetails.BestOfferAutoAcceptPrice and
+    Item.ListingDetails.MinimumBestOfferPrice (NOT under BestOfferDetails).
+    Decimal-stringified to two dp; currency echoes location_details["Currency"].
     """
     item: dict = {"ItemID": item_id}
     if title is not None:
@@ -425,6 +449,38 @@ def build_revise_payload(
             else:
                 nvl.append({"Name": name, "Value": [value]})
         item["ItemSpecifics"] = {"NameValueList": nvl}
+
+    if picture_urls is not None:
+        if len(picture_urls) > MAX_PICTURE_URLS:
+            raise ValueError(
+                f"picture_urls must contain at most {MAX_PICTURE_URLS} URLs "
+                f"(got {len(picture_urls)})"
+            )
+        joined_urls_len = sum(len(u) for u in picture_urls)
+        if joined_urls_len >= MAX_PICTURE_URLS_JOINED_CHARS:
+            raise ValueError(
+                f"picture_urls total length {joined_urls_len} chars exceeds eBay "
+                f"<{MAX_PICTURE_URLS_JOINED_CHARS} cap"
+            )
+        item["PictureDetails"] = {"PictureURL": list(picture_urls)}
+
+    if best_offer_enabled is not None:
+        item["BestOfferDetails"] = {
+            "BestOfferEnabled": "true" if best_offer_enabled else "false"
+        }
+
+    if best_offer_auto_accept_gbp is not None or best_offer_auto_decline_gbp is not None:
+        listing_details = item.setdefault("ListingDetails", {})
+        if best_offer_auto_accept_gbp is not None:
+            listing_details["BestOfferAutoAcceptPrice"] = {
+                "value": _decimal_str(best_offer_auto_accept_gbp),
+                "_currencyID": currency,
+            }
+        if best_offer_auto_decline_gbp is not None:
+            listing_details["MinimumBestOfferPrice"] = {
+                "value": _decimal_str(best_offer_auto_decline_gbp),
+                "_currencyID": currency,
+            }
 
     # eBay requires ShippingDetails on every ReviseFixedPriceItem call
     if shipping_details is not None:
