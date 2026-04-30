@@ -511,9 +511,17 @@ def compute_over_pricing(
 ) -> dict[str, Any]:
     """Detect over-pricing — Stub #21 positional-descriptor refactor.
 
-    Same shape as `compute_under_pricing` — positional descriptor + signals +
-    interpretations + stock_clearance_exempt. The detector flags the price
-    POSITION; consumers decide.
+    Same `positional` + `interpretations` + `stock_clearance_exempt` envelope
+    as `compute_under_pricing`. The `signals` dict has DIFFERENT keys here
+    because over-pricing is observed via different evidence (watchers /
+    sales / staleness rather than velocity-vs-category):
+
+        compute_under_pricing.signals: {"A", "B", "C"}
+        compute_over_pricing.signals:  {"A_over_p75", "B_has_watchers",
+                                         "C_no_sales", "D_stale_21d"}
+
+    Consumers should access signal keys by their over/under-specific name —
+    do NOT assume the dicts are interchangeable.
 
     Signals:
       A_over_p75   — live_price > p75_clean
@@ -525,12 +533,18 @@ def compute_over_pricing(
     "needs review" interpretation. When only A fires (price above p75 but
     converting), the BELOW_P25-style "premium positioning" reading dominates.
 
+    `stock_clearance_exempt` is always `False` for over-pricing — the
+    exemption only fires on the under-pricing BELOW_P25 path (a high-priced
+    multi-qty listing is not a clearance scenario by definition). The key
+    is included so the response shape mirrors `compute_under_pricing` for
+    consumers that read both.
+
     Returns:
         {
             "positional": "BELOW_P25" | "BETWEEN_P25_P75" | "ABOVE_P75" | None,
             "signals": {"A_over_p75", "B_has_watchers", "C_no_sales", "D_stale_21d"},
             "interpretations": [str, str],
-            "stock_clearance_exempt": bool,
+            "stock_clearance_exempt": False,
         }
     """
     a = (p75_clean is not None) and (live_price > p75_clean)
@@ -539,10 +553,11 @@ def compute_over_pricing(
     d = (days_on_site is not None) and (days_on_site > 21)
 
     positional = _positional_descriptor(live_price, p25_clean, p75_clean)
-    # Stock-clearance exempt only meaningful for BELOW_P25 case in the under-
-    # pricing detector — for over-pricing it's irrelevant (high-priced
-    # multi-qty isn't a clearance scenario). Compute defensively for symmetry.
-    exempt = _stock_clearance_exempt(quantity_available, None)
+    # Sonnet Ralph LOW — remove the always-False `_stock_clearance_exempt(qty, None)`
+    # call. Over-pricing has no clearance scenario; document the False explicitly.
+    # `quantity_available` is retained as a parameter for caller-shape symmetry.
+    _ = quantity_available  # documented unused — see docstring
+    exempt = False
 
     interpretations: list[str] = []
     if positional == "BELOW_P25":
