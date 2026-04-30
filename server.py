@@ -23,6 +23,7 @@ load_dotenv()
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from ebay.analytics import (  # noqa: E402
+    compute_best_offer_thresholds,
     compute_funnel,
     compute_rank_health,
     diagnose_listing,
@@ -49,6 +50,7 @@ from ebay.listings import (  # noqa: E402
     snapshot_listing,
 )
 from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
+from ebay.pictures import revise_pictures as _revise_pictures_core  # noqa: E402
 from ebay.rest import compute_return_rate as rest_compute_return_rate  # noqa: E402
 from ebay.rest import (  # noqa: E402
     fetch_listing_returns,
@@ -88,6 +90,12 @@ CONDITION_HTML_SUFFIX: dict[str, str] = {
 
 # eBay image filenames from Hoi's phone camera (timestamp pattern).
 LABEL_PHOTO_REGEX = re.compile(r"IMG\d{8}\d{6}\.jpg$", re.IGNORECASE)
+# SMART-test visual filenames per disk-flow.sh L534 + L544 (#25 stub-body
+# correction A3): scope claimed `SMART-{serial}.png` but the writer emits
+# `tests/visual-{serial}-{stamp}.png` AND `DISK-TEST-VISUAL-{serial}.png`
+# at drive root. Glob all three for forward-compat — the union is small and
+# bounded by the 24-photo PictureDetails cap downstream.
+VISUAL_PHOTO_PATTERNS = ("visual-*.png", "SMART-*.png", "DISK-TEST-VISUAL-*.png")
 _COPY_BLOCK_RE = re.compile(
     r'<div[^>]*class=["\'][^"\']*copy-block[^"\']*["\'][^>]*>(.*?)</div>',
     re.IGNORECASE | re.DOTALL,
@@ -244,6 +252,29 @@ def _glob_label_photos(folder: Path) -> list[str]:
             seen.add(s)
             if LABEL_PHOTO_REGEX.search(p.name):
                 results.append(s)
+    return results
+
+
+def _glob_visual_photos(folder: Path) -> list[str]:
+    """Find SMART-test visual artefacts in a product folder (#25 triple-glob).
+
+    Globs `visual-*.png`, `SMART-*.png`, and `DISK-TEST-VISUAL-*.png` — the
+    three writer conventions documented in disk-flow.sh and dotfiles HARD
+    CONTRACT. Stable order: pattern groups in declared sequence, files inside
+    each group sorted alphabetically. De-duplicates against case-insensitive
+    filesystems the same way _glob_label_photos does.
+    """
+    if not folder.exists():
+        return []
+    seen: set[str] = set()
+    results: list[str] = []
+    for pattern in VISUAL_PHOTO_PATTERNS:
+        for p in sorted(folder.glob(pattern)):
+            s = str(p)
+            if s in seen:
+                continue
+            seen.add(s)
+            results.append(s)
     return results
 
 
@@ -503,18 +534,23 @@ async def update_listing(
     condition_id: int | None = None,
     condition_description: str | None = None,
     item_specifics: dict | None = None,
+    best_offer_enabled: bool | None = None,
+    best_offer_auto_accept_gbp: float | None = None,
+    best_offer_auto_decline_gbp: float | None = None,
     dry_run: bool = False,
     current_analysis: dict | None = None,
 ) -> str:
     """Update any listing field except quantity on an existing listing.
 
     Supports: title, description, price, condition, condition description,
-    and item specifics. Quantity is intentionally blocked.
+    item specifics, and Best Offer toggle + auto-accept/decline thresholds.
+    Quantity is intentionally blocked.
 
     Phase 4 guardrail: when `price` is provided, the tool refuses to revise
     to a price below the computed floor (config/fees.yaml + measured per-SKU
-    return rate if Phase 2 OAuth available). Raise is loud — no silent clamp.
-    Guardrail is ADDITIVE: does NOT modify or reduce ItemSpecifics payload.
+    return rate if Phase 2 OAuth available). The same guardrail extends to
+    `best_offer_auto_accept_gbp` — accepting offers below break-even is the
+    same loss as listing below it. Raise is loud — no silent clamp.
 
     Args:
         item_id: The eBay item ID to update.
@@ -525,6 +561,12 @@ async def update_listing(
             1000=New, 1500=Opened, 2750=Used - Excellent, 3000=Used). Optional.
         condition_description: Seller notes text for condition. Optional.
         item_specifics: Dict of name->value(s) for item specifics. Optional.
+        best_offer_enabled: Toggle Best Offer on the listing. Optional.
+        best_offer_auto_accept_gbp: Offers >= this price auto-accept. Must
+            be >= the floor and >= best_offer_auto_decline_gbp. Optional.
+        best_offer_auto_decline_gbp: Offers below this price auto-decline.
+            Maps to MinimumBestOfferPrice (the auto-decline-below threshold).
+            Optional.
         dry_run: If True, return diff without making changes. Default False.
         current_analysis: Optional — prior analyse_listing(item_id) output. If
             supplied with dry_run=True, the dry-run response echoes it back
@@ -544,6 +586,9 @@ async def update_listing(
         condition_id,
         condition_description,
         item_specifics,
+        best_offer_enabled,
+        best_offer_auto_accept_gbp,
+        best_offer_auto_decline_gbp,
     ]
     has_update = any(v is not None for v in updatable)
     if not has_update:
@@ -553,6 +598,25 @@ async def update_listing(
         return json.dumps({"error": f"title exceeds 80-char eBay limit (got {len(title)})"})
     if price is not None and price <= 0:
         return json.dumps({"error": "price must be > 0"})
+    if best_offer_auto_accept_gbp is not None and best_offer_auto_accept_gbp <= 0:
+        return json.dumps({"error": "best_offer_auto_accept_gbp must be > 0"})
+    if best_offer_auto_decline_gbp is not None and best_offer_auto_decline_gbp <= 0:
+        return json.dumps({"error": "best_offer_auto_decline_gbp must be > 0"})
+    if (
+        best_offer_auto_accept_gbp is not None
+        and best_offer_auto_decline_gbp is not None
+        and best_offer_auto_accept_gbp < best_offer_auto_decline_gbp
+    ):
+        return json.dumps(
+            {
+                "error": (
+                    f"best_offer_auto_accept_gbp ({best_offer_auto_accept_gbp:.2f}) "
+                    f"< best_offer_auto_decline_gbp ({best_offer_auto_decline_gbp:.2f}) — "
+                    "eBay rejects payloads where auto-accept lands below the "
+                    "MinimumBestOfferPrice (auto-decline floor)."
+                )
+            }
+        )
     if condition_id is not None and condition_id not in set(CONDITION_MAP.values()):
         return json.dumps(
             {
@@ -577,6 +641,9 @@ async def update_listing(
             "condition_id",
             "condition_description",
             "item_specifics",
+            "best_offer_enabled",
+            "best_offer_auto_accept_gbp",
+            "best_offer_auto_decline_gbp",
         ]
         if locals().get(f) is not None
     ]
@@ -611,6 +678,20 @@ async def update_listing(
         item_specifics,
     )
 
+    # Best Offer fields aren't part of compute_diff (which lives in
+    # ebay/listings.py and is shared with snapshot_listing). Surface them as
+    # additional diff entries here. `best_offer_enabled` compares against
+    # current_full; auto-accept / auto-decline have no GetItem-surfaced prior
+    # state in our serialiser, so we record only the after value.
+    if best_offer_enabled is not None:
+        before_be = current_full.get("best_offer_enabled")
+        if before_be != best_offer_enabled:
+            diff["best_offer_enabled"] = {"before": before_be, "after": best_offer_enabled}
+    if best_offer_auto_accept_gbp is not None:
+        diff["best_offer_auto_accept_gbp"] = {"after": best_offer_auto_accept_gbp}
+    if best_offer_auto_decline_gbp is not None:
+        diff["best_offer_auto_decline_gbp"] = {"after": best_offer_auto_decline_gbp}
+
     log_debug(
         f"DIFF item_id={item_id} fields_to_change={list(diff.keys())} "
         f"before_len={before['description_length']} "
@@ -626,16 +707,22 @@ async def update_listing(
             }
         )
 
-    # Phase 4 floor-price guardrail (AC 4.1).
+    # Phase 4 floor-price guardrail (AC 4.1) — applies to listing price AND
+    # best_offer_auto_accept_gbp (auto-accepting offers below break-even is
+    # the same loss as listing below break-even).
     floor_payload: dict[str, object] | None = None
-    if price is not None:
+    if price is not None or best_offer_auto_accept_gbp is not None:
         floor_result, rate_source = await _measure_or_default_floor(item_id)
         floor_gbp = float(floor_result["floor_gbp"])
         ceiling_gbp = float(floor_result["suggested_ceiling_gbp"])
         return_rate = float(floor_result["inputs"]["return_rate"])
         cogs_gbp = float(floor_result["inputs"]["cogs_gbp"])
+        verdict_price = price if price is not None else float(current_full["price"])
         verdict = price_verdict(
-            current_price=price, floor=floor_gbp, return_rate=return_rate, source=rate_source
+            current_price=verdict_price,
+            floor=floor_gbp,
+            return_rate=return_rate,
+            source=rate_source,
         )
         floor_payload = {
             "floor_gbp": floor_gbp,
@@ -643,7 +730,7 @@ async def update_listing(
             "return_rate_source": rate_source,
             "price_verdict": verdict,
         }
-        if price < floor_gbp:
+        if price is not None and price < floor_gbp:
             error_msg = (
                 f"Price £{price:.2f} below floor £{floor_gbp:.2f} "
                 f"(source: config/fees.yaml — COGS £{cogs_gbp:.2f}, return rate "
@@ -652,6 +739,21 @@ async def update_listing(
             )
             return json.dumps(
                 {"error": error_msg, "floor_gbp": floor_gbp, "requested_price": price},
+                indent=2,
+            )
+        if best_offer_auto_accept_gbp is not None and best_offer_auto_accept_gbp < floor_gbp:
+            error_msg = (
+                f"best_offer_auto_accept_gbp £{best_offer_auto_accept_gbp:.2f} below "
+                f"floor £{floor_gbp:.2f} (source: config/fees.yaml — COGS "
+                f"£{cogs_gbp:.2f}, return rate {return_rate:.1%} [{rate_source}]). "
+                "Auto-accepting at this threshold loses money on every accepted offer."
+            )
+            return json.dumps(
+                {
+                    "error": error_msg,
+                    "floor_gbp": floor_gbp,
+                    "requested_auto_accept": best_offer_auto_accept_gbp,
+                },
                 indent=2,
             )
 
@@ -673,15 +775,20 @@ async def update_listing(
         for k, v in item_specifics.items():
             merged_specifics[k] = v if isinstance(v, list) else [v]
 
+    listing_currency = current_full.get("currency") or "GBP"
     payload = build_revise_payload(
-        item_id,
-        title,
-        description_html,
-        price,
-        shipping,
-        condition_id,
-        condition_description,
-        merged_specifics,
+        item_id=item_id,
+        title=title,
+        description_html=description_html,
+        price=price,
+        shipping_details=shipping,
+        condition_id=condition_id,
+        condition_description=condition_description,
+        item_specifics=merged_specifics,
+        best_offer_enabled=best_offer_enabled,
+        best_offer_auto_accept_gbp=best_offer_auto_accept_gbp,
+        best_offer_auto_decline_gbp=best_offer_auto_decline_gbp,
+        currency=listing_currency,
     )
     await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
 
@@ -979,10 +1086,33 @@ async def create_listing(
     uploaded_urls: list[str] = []
     if picture_urls is None:
         if photo_paths is None:
-            photo_paths = _glob_label_photos(folder)
+            # #25 triple-glob: regular IMG photos first (gallery image preserved
+            # at index 0), then SMART-test visuals appended in pattern order.
+            label_photos = _glob_label_photos(folder)
+            visual_photos = _glob_visual_photos(folder)
+            photo_paths = label_photos + visual_photos
+            log_debug(
+                f"create_listing photo_glob folder={folder.name} "
+                f"label_count={len(label_photos)} visual_count={len(visual_photos)}"
+            )
         if not photo_paths:
             return json.dumps(
-                {"error": f"no IMG*.jpg photos found in {folder} and picture_urls not supplied"}
+                {
+                    "error": (
+                        f"no IMG*.jpg or visual-*/SMART-*/DISK-TEST-VISUAL-*.png "
+                        f"photos found in {folder} and picture_urls not supplied"
+                    )
+                }
+            )
+        if len(photo_paths) > MAX_PHOTOS_PER_LISTING:
+            return json.dumps(
+                {
+                    "error": (
+                        f"resolved photo set ({len(photo_paths)}) exceeds eBay "
+                        f"{MAX_PHOTOS_PER_LISTING}-image cap — supply photo_paths "
+                        "explicitly to choose which to keep."
+                    )
+                }
             )
         # Internal call — reuse upload_photos MCP tool logic (keeps one code path).
         upload_json = await upload_photos(photo_paths, dry_run=False)
@@ -1741,6 +1871,120 @@ async def get_store_info() -> str:
     log_debug("get_store_info called")
     result = await fetch_store_info()
     return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def revise_pictures(
+    item_id: str,
+    photo_paths: list[str],
+    mode: str = "append",
+    confirm: bool = False,
+    dry_run: bool = False,
+) -> str:
+    """Revise the PictureURL list on a live listing — append or replace.
+
+    Replaces the bridge-script pattern (e.g. /tmp/push_photos_<item_id>.py)
+    with a first-class MCP tool. Uploads each path to eBay Picture Services,
+    composes the new ordered URL list, and applies via ReviseFixedPriceItem
+    with ShippingDetails echo-back. Honours the Revise-path no-Quantity
+    invariant (build_revise_payload._assert_no_quantity).
+
+    Args:
+        item_id: eBay item ID.
+        photo_paths: Local image paths to upload + apply.
+        mode: 'append' (default) or 'replace'.
+        confirm: REQUIRED when mode='replace' — the destructive path.
+        dry_run: If True, return the composed URL plan without uploading or
+            calling ReviseFixedPriceItem.
+
+    Returns:
+        JSON with item_id, mode, photos_before, photos_after / photos_after_preview,
+        photos_lost (replace-only), truncated, truncated_count, fees, live_url.
+    """
+    try:
+        result = await _revise_pictures_core(
+            item_id=item_id,
+            photo_paths=photo_paths,
+            mode=mode,
+            confirm=confirm,
+            dry_run=dry_run,
+        )
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, indent=2)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+@with_error_handling
+async def recommend_best_offer_thresholds(
+    item_id: str,
+    auto_accept_pct: float = 0.88,
+    auto_decline_pct: float = 0.72,
+) -> str:
+    """G-NEW-1 — recommend Best Offer auto-accept / auto-decline thresholds.
+
+    Pure-function helper composes thresholds from the listing's live price and
+    the per-SKU floor (config/fees.yaml + measured return rate when Phase 2
+    OAuth available). Standalone — call against any item_id, not gated by
+    analyse_listing's recommended_action.
+
+    Operator workflow: receive recommendation → call update_listing(
+    item_id, best_offer_enabled=True, best_offer_auto_accept_gbp=auto_accept_gbp,
+    best_offer_auto_decline_gbp=auto_decline_gbp) to apply.
+
+    Args:
+        item_id: eBay item ID.
+        auto_accept_pct: Fraction of live price for auto-accept (default 0.88).
+        auto_decline_pct: Fraction of live price for auto-decline (default 0.72).
+
+    Returns:
+        JSON with item_id, live_price_gbp, floor_gbp, auto_accept_gbp,
+        auto_decline_gbp, return_rate_source, rationale.
+    """
+    if not item_id or not item_id.strip():
+        return json.dumps({"error": "item_id required"})
+
+    log_debug(f"recommend_best_offer_thresholds item_id={item_id}")
+
+    response = await asyncio.to_thread(
+        execute_with_retry,
+        "GetItem",
+        {
+            "ItemID": item_id,
+            "DetailLevel": "ReturnAll",
+            "IncludeItemSpecifics": "true",
+            "IncludeWatchCount": "true",
+        },
+    )
+    if response.reply.Item is None:
+        return json.dumps({"error": f"item {item_id} not found or no longer active"})
+
+    listing = listing_to_dict(response.reply.Item)
+    try:
+        live_price_gbp = float(listing["price"])
+    except (TypeError, ValueError):
+        return json.dumps({"error": f"item {item_id} has no usable price"})
+
+    floor_result, rate_source = await _measure_or_default_floor(item_id)
+    floor_gbp = float(floor_result["floor_gbp"])
+
+    thresholds = compute_best_offer_thresholds(
+        floor_gbp=floor_gbp,
+        live_price_gbp=live_price_gbp,
+        auto_accept_pct=auto_accept_pct,
+        auto_decline_pct=auto_decline_pct,
+    )
+
+    return json.dumps(
+        {
+            "item_id": item_id,
+            "live_price_gbp": live_price_gbp,
+            "return_rate_source": rate_source,
+            **thresholds,
+        },
+        indent=2,
+    )
 
 
 if __name__ == "__main__":
