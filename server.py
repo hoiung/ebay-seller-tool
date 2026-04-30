@@ -1735,11 +1735,15 @@ async def analyse_listing(
             )
 
     # G-NEW-1 (AC at #10 line 397) — when the diagnose_listing recommendation
-    # surfaces 'enable_best_offer', auto-suggest concrete thresholds so the
+    # surfaces "enable Best Offer", auto-suggest concrete thresholds so the
     # operator doesn't need a second `recommend_best_offer_thresholds` round-
-    # trip. Computed only when the recommendation triggers (cheap pure-fn).
+    # trip. The action string is natural-language ("Drop price 5-8% or enable
+    # Best Offer.") not an underscore-form enum, so we case-insensitive match
+    # the phrase. Computed only when the recommendation triggers (cheap
+    # pure-fn). Stage 5 Sonnet HIGH-4 fix: substring `"enable_best_offer"`
+    # never fired because the action string spells it with spaces.
     best_offer_thresholds: dict | None = None
-    if action and "enable_best_offer" in action and floor_gbp is not None:
+    if action and "best offer" in action.lower() and floor_gbp is not None:
         try:
             best_offer_thresholds = compute_best_offer_thresholds(
                 floor_gbp=floor_gbp,
