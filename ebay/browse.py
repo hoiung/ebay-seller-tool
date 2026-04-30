@@ -521,6 +521,45 @@ def _own_series_name(own_listing: dict[str, Any] | None) -> str | None:
     return matched[0]
 
 
+def _own_mpns(own_listing: dict[str, Any] | None) -> list[str]:
+    """Extract own MPN list (uppercased, stripped) from own_listing.specifics.
+
+    Returns [] when own_listing is None, has no specifics, or no MPN key.
+    Multi-MPN listings supported (eBay item_specifics MPN can be a list).
+    """
+    if not own_listing:
+        return []
+    specifics = own_listing.get("specifics") or {}
+    mpns = specifics.get("MPN") or []
+    if isinstance(mpns, str):
+        mpns = [mpns]
+    return [str(m).upper().strip() for m in mpns if str(m).strip()]
+
+
+def _comp_title_has_own_or_sibling_mpn(
+    comp_title_upper: str,
+    own_mpns: list[str],
+    sibling_allowlist: dict[str, list[str]],
+) -> bool:
+    """Stub #18 — comp passes mpn_mismatch gate if its title contains:
+        (a) any own.MPN, OR
+        (b) any sibling MPN from the allowlist for any own.MPN.
+
+    The allowlist is keyed by own.MPN → list of accepted sibling MPNs. Designed
+    to be authored bidirectionally for symmetry (add the same pair on both
+    sides), but this function is one-directional per call.
+    """
+    if any(mpn and mpn in comp_title_upper for mpn in own_mpns):
+        return True
+    if not sibling_allowlist:
+        return False
+    siblings: set[str] = set()
+    for own_mpn in own_mpns:
+        for s in sibling_allowlist.get(own_mpn, []) or []:
+            siblings.add(str(s).upper().strip())
+    return any(s and s in comp_title_upper for s in siblings)
+
+
 def filter_low_quality_competitors(
     comp_listings: list[dict[str, Any]],
     own_listing: dict[str, Any] | None = None,
@@ -547,6 +586,13 @@ def filter_low_quality_competitors(
     caddy_patterns = _compiled_caddy_patterns()
     own_has_caddy = _own_has_caddy(own_listing)
     own_series = _own_series_name(own_listing)
+    # Stub #18 — distinct-SKU verification. Extract own's MPN list; gate the
+    # mpn_mismatch hard-reject on `len(own_mpns) >= 1` (skip when no MPN in
+    # specifics so we don't over-restrict listings without a known part number).
+    own_mpns = _own_mpns(own_listing)
+    sibling_allowlist = (
+        cfg.get("comp_filter", {}).get("sibling_allowlist", {}) if own_mpns else {}
+    )
 
     survivors: list[dict[str, Any]] = []
     drops: dict[str, int] = {}
@@ -554,6 +600,7 @@ def filter_low_quality_competitors(
     for comp in comp_listings:
         title = str(comp.get("title") or "")
         title_lower = title.lower()
+        title_upper = title.upper()
 
         if require_image and (
             comp.get("image_url") is None and (comp.get("additional_image_count") or 0) == 0
@@ -576,6 +623,17 @@ def filter_low_quality_competitors(
 
         if own_series and not re.search(r"\b" + re.escape(own_series) + r"\b", title_lower):
             drops["series_mismatch"] = drops.get("series_mismatch", 0) + 1
+            continue
+
+        # Stub #18 — mpn_mismatch hard-reject. Browse API has no native MPN
+        # parameter, so we filter client-side: if own MPN(s) are known and
+        # NONE appear in the comp title, the comp is for a different SKU
+        # (e.g. ST2000NX0253 vs ST2000NX0403 — same family, different firmware).
+        # Sibling-allowlist provides escape hatch for legitimate cross-MPN pairs.
+        if own_mpns and not _comp_title_has_own_or_sibling_mpn(
+            title_upper, own_mpns, sibling_allowlist
+        ):
+            drops["mpn_mismatch"] = drops.get("mpn_mismatch", 0) + 1
             continue
 
         survivors.append(comp)

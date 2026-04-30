@@ -130,6 +130,16 @@ comp_filter:
       - "2750"
       - "3000"
 
+  # Stub #18 — sibling-MPN allowlist for cross-SKU comp-pool acceptance.
+  # Default: empty → ANY own.MPN absent from comp.title is hard-rejected as
+  # mpn_mismatch. Add legitimate variant pairs (e.g. 4Kn ↔ 512e of same family)
+  # as a bidirectional allowlist when their pricing tracks together.
+  # Schema: {own_mpn: [accepted_sibling_mpn_1, accepted_sibling_mpn_2, ...]}.
+  # Note: allowlist is one-directional in storage but symmetric expansion is
+  # the intended use — add entries on BOTH sides of the pair to guarantee
+  # query-direction independence (see browse._is_sibling_allowed).
+  sibling_allowlist: {}
+
   # Phase 3.2 — series names that distinguish SKUs (Seagate HARD CONTRACT et al).
   # When own_listing.title contains one of these, comp title MUST contain the
   # SAME series (case-insensitive) or be hard-rejected.

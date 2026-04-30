@@ -358,6 +358,108 @@ def test_caddy_detection_has_caddy_runtime_arg() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Stub #18 — distinct-SKU mpn_mismatch hard-reject
+# ---------------------------------------------------------------------------
+
+
+def test_mpn_mismatch_dropped_when_own_mpn_absent_from_title() -> None:
+    """Stub #18 canonical case: own=ST2000NX0403, comp=ST2000NX0253. Different
+    SKUs (different firmware/label) — must not pool as same comp set."""
+    own = _own(
+        title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["ST2000NX0403"], "Form Factor": ['2.5"']},
+    )
+    comps = [
+        _comp(title="ST2000NX0253 Seagate 2TB 2.5 SAS HDD"),
+    ]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 0
+    assert audit["dropped_reasons"]["mpn_mismatch"] == 1
+
+
+def test_mpn_match_kept_when_own_mpn_in_comp_title() -> None:
+    """own=ST2000NX0253, comp title contains it → kept."""
+    own = _own()  # MPN=ST2000NX0253
+    comps = [_comp(title="ST2000NX0253 Seagate Enterprise Capacity 2TB 2.5 SAS")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+    assert "mpn_mismatch" not in audit["dropped_reasons"]
+
+
+def test_mpn_mismatch_case_insensitive_match() -> None:
+    """own=ST2000NX0253 matches comp title 'st2000nx0253' (lowercase) — case-insensitive."""
+    own = _own()
+    comps = [_comp(title="seagate st2000nx0253 enterprise capacity 2tb 2.5 sas hdd used")]
+    survivors, _ = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+
+
+def test_mpn_mismatch_skipped_when_own_has_no_mpn() -> None:
+    """No MPN in own.specifics → fall back to soft Dim-1, no over-restriction."""
+    # Use a generic own title without any series keyword to avoid series_mismatch
+    # (this test is targeting the mpn-skip branch only).
+    own = _own(
+        title="Generic 2TB SAS HDD",
+        specifics={"Form Factor": ['2.5"']},  # no MPN key
+    )
+    comps = [_comp(title="ST2000NX0253 Seagate 2TB SAS HDD")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+    assert "mpn_mismatch" not in audit["dropped_reasons"]
+
+
+def test_mpn_mismatch_multi_mpn_any_match_keeps() -> None:
+    """own.MPN=[A, B], comp title has B → kept (ANY-of match)."""
+    own = _own(
+        title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["ST2000NX0403", "ST2000NX0273"], "Form Factor": ['2.5"']},
+    )
+    comps = [_comp(title="ST2000NX0273 Seagate 2TB 2.5 SAS HDD")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+    assert "mpn_mismatch" not in audit["dropped_reasons"]
+
+
+def test_mpn_mismatch_sibling_allowlist_keeps_cross_sku() -> None:
+    """When sibling allowlist has own→[sibling], comp matching the sibling MPN passes."""
+    import yaml
+
+    from ebay.browse import _load_filter_config, reset_filter_cache
+
+    # Inject a temporary sibling-allowlist by patching the cached config dict.
+    cfg = _load_filter_config()
+    original = cfg["comp_filter"].get("sibling_allowlist", {})
+    cfg["comp_filter"]["sibling_allowlist"] = {"ST2000NX0403": ["ST2000NX0253"]}
+    try:
+        # Avoid series-name interference: use a title without "Enterprise Capacity"
+        own = _own(
+            title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+            specifics={"MPN": ["ST2000NX0403"], "Form Factor": ['2.5"']},
+        )
+        comps = [_comp(title="ST2000NX0253 Seagate 2TB SAS HDD")]
+        survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+        assert len(survivors) == 1
+        assert "mpn_mismatch" not in audit["dropped_reasons"]
+    finally:
+        cfg["comp_filter"]["sibling_allowlist"] = original
+        reset_filter_cache()
+    # Suppress unused-import warning when yaml import not exercised
+    _ = yaml
+
+
+def test_mpn_mismatch_empty_allowlist_default_drops() -> None:
+    """Default config has empty sibling_allowlist → no escape hatch, drops."""
+    own = _own(
+        title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["ST2000NX0403"], "Form Factor": ['2.5"']},
+    )
+    comps = [_comp(title="ST2000NX0253 Seagate 2TB SAS HDD")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert audit["dropped_reasons"]["mpn_mismatch"] == 1
+    assert len(survivors) == 0
+
+
+# ---------------------------------------------------------------------------
 # Phase 4.5 — drop_price_outliers (IQR with 3 guards)
 # ---------------------------------------------------------------------------
 
