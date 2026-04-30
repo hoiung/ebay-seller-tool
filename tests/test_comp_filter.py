@@ -681,7 +681,7 @@ def test_pipeline_audit_json_serialisable() -> None:
             "log_transform": True,
         },
     )
-    payload = {"audit": audit_flat, "audit_verbose": audit_verbose}
+    payload = {"audit_flat": audit_flat, "audit_verbose": audit_verbose}
     round_tripped = json.loads(json.dumps(payload))
     assert round_tripped == payload  # no precision loss, no missing keys
 
@@ -984,7 +984,7 @@ def test_all_filtered_verdict_literal() -> None:
     assert result.get("recommended_action") == "review_filter_settings"
     assert result.get("pre_filter_count") == 3
     assert result["count"] == 0
-    assert result["audit"]["dropped_low_quality"] == 3
+    assert result["audit_flat"]["dropped_low_quality"] == 3
 
 
 def test_drop_outlier_own_price_inside_normal_range_drops_still_happen() -> None:

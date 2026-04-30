@@ -1766,9 +1766,7 @@ async def analyse_listing(
                     own_live_price=current_price_gbp,
                 )
                 if isinstance(comp_result, dict):
-                    # fetch_competitor_prices returns the flat audit under key
-                    # `audit` (not `audit_flat`); see browse.py:_sync_find_competitor_prices.
-                    audit_flat = comp_result.get("audit") or {}
+                    audit_flat = comp_result.get("audit_flat") or {}
                     comp_pool_stats = audit_flat.get("concentration")
                     # Stub #20 — surface 3-verdict carve-out + per-verdict
                     # recommended_action so analyse_listing's decision matrix
