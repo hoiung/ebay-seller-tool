@@ -95,7 +95,7 @@ Stage 1: Research — subagent swarm → main agent writes /tmp (findings + gaps
 Stage 2: Issue Creation — main agent from /tmp, illustrations, compact breaks, quality mantras verbatim
 Stage 3: Triple-Check — subagents verify scope vs audit = 100%, chat history, dead code
 Stage 4: Implementation — main agent implements, Verification Loop, Ralph Review, merge, user-review-checklist
-Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, quality scan, regression tests
+Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, quality scan, regression tests + completeness gate (Layer A pre-flight `bash SST3/scripts/leader-stage5-completeness-check.sh <issue>` + Layer B post-flight failsafe `.github/workflows/stage5-completeness.yml`; both mandatory, neither replaces the other; #460 W4)
 ```
 
 ### Solo Execution Checklist (Stage 4)
@@ -143,6 +143,9 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
+
+
 
 
 
