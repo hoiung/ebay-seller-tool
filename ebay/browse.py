@@ -987,6 +987,13 @@ def compute_seller_concentration(comps: list[dict[str, Any]]) -> dict[str, Any]:
     configured ``concentration.min_pool_size`` (default 4), all numeric stats
     return None and confidence='insufficient_pool' — never flag concentration
     on under-powered samples.
+
+    Boundary alignment with the THIN_POOL verdict in _sync_find_competitor_prices:
+    THIN_POOL fires when 1<=kept_n<=3 (sample exists but is thin); concentration
+    short-circuits when n<4. Both treat n>=4 as "enough to compute" — at n=3
+    a consumer reads `verdict: THIN_POOL` AND `concentration.confidence:
+    insufficient_pool`, which agree. At n=4, the verdict has no THIN_POOL flag
+    and concentration is computed — matching the "normal pool" cutoff.
     """
     from collections import Counter
 

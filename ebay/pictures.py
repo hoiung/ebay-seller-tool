@@ -154,8 +154,25 @@ async def revise_pictures(
         picture_urls=composed,
     )
 
-    # 6. Apply.
-    response = await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
+    # 6. Apply. ReviseFixedPriceItem failure post-upload leaves orphan EPS
+    # photos — audit-log the orphan state so the operator can see what was
+    # uploaded but never attached to a listing. Mirrors end_listing.py
+    # pattern (Sonnet Ralph review finding).
+    try:
+        response = await asyncio.to_thread(execute_with_retry, "ReviseFixedPriceItem", payload)
+    except Exception:
+        audit_log_write(
+            item_id=item_id,
+            fields_changed=["picture_urls"],
+            before_length=len(photos_before),
+            after_length=len(photos_before),  # unchanged — revise failed
+            success=False,
+        )
+        log_debug(
+            f"revise_pictures FAILED post-upload item_id={item_id} "
+            f"orphan_eps_urls={new_urls}"
+        )
+        raise
     fees = _extract_fees(response.reply)
 
     audit_log_write(
