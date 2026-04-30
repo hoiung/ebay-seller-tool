@@ -1084,6 +1084,9 @@ async def create_listing(
 
     # --- P3.8 Photo resolution ---
     uploaded_urls: list[str] = []
+    label_photos: list[str] = []
+    visual_photos: list[str] = []
+    photo_warnings: list[str] = []
     if picture_urls is None:
         if photo_paths is None:
             # #25 triple-glob: regular IMG photos first (gallery image preserved
@@ -1113,6 +1116,19 @@ async def create_listing(
                         "explicitly to choose which to keep."
                     )
                 }
+            )
+        # 3-sample-minimum rule for multi-qty listings (#25 AC). Bulk-test
+        # workflow rule: at qty>1 we expect >=3 SMART visuals so reviewers can
+        # see distinct drives' health evidence. Warn-then-proceed (not refuse) —
+        # qty>1 listings can still launch on visual-light evidence; the warning
+        # surfaces in the response so the operator can backfill before next
+        # bulk batch.
+        if quantity > 1 and len(visual_photos) < 3:
+            photo_warnings.append(
+                f"multi-qty listing (quantity={quantity}) has only "
+                f"{len(visual_photos)} SMART visuals — bulk-test workflow "
+                "expects >=3 distinct visuals at qty>1 (skill SKILL.md "
+                "Bulk-test workflow). Proceeding; backfill before next batch."
             )
         # Internal call — reuse upload_photos MCP tool logic (keeps one code path).
         upload_json = await upload_photos(photo_paths, dry_run=False)
@@ -1183,6 +1199,14 @@ async def create_listing(
                     "oem_model": oem_model,
                     "title": title,
                     "picture_urls_count": len(picture_urls),
+                    # #25 AC: dry-run preview shows visual photos distinctly
+                    # from IMG photos. Counts come from the triple-glob
+                    # resolution; when the caller supplied photo_paths /
+                    # picture_urls explicitly, both are 0 (we don't classify
+                    # operator-supplied paths since they may be neither).
+                    "label_photo_count": len(label_photos),
+                    "visual_photo_count": len(visual_photos),
+                    "photo_warnings": photo_warnings,
                     "fees": fees_summary,
                     "errors": errors,
                     "payload_preview": {

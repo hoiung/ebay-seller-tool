@@ -84,3 +84,202 @@ def test_visual_glob_dedup_case_insensitive_filesystem(tmp_path: Path) -> None:
     out = _glob_visual_photos(tmp_path)
     # Even if globbed multiple times somehow, dedup keeps single entry.
     assert out.count(str(p)) == 1
+
+
+# ---------- #25 multi-qty 3-sample rule + dry-run visual breakdown ----------
+
+
+def test_create_listing_multi_qty_warns_when_visuals_below_3(tmp_path: Path, monkeypatch) -> None:
+    """qty>1 with <3 visuals → warning in dry-run response, not refusal."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import server
+
+    folder = tmp_path / "ST2000NX0253"
+    folder.mkdir()
+    # Phone-camera label photo (1 IMG, qualifies as label)
+    label_path = folder / "IMG20260427120000.jpg"
+    label_path.write_bytes(b"\xff\xd8\xff")  # minimal JPEG header
+    # Only 1 visual — below 3-sample minimum at qty>1.
+    (folder / "visual-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    server._create_listing_uuid_cache.clear()
+    fake_verify = SimpleNamespace(
+        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
+    )
+
+    with patch("server.upload_photos") as mock_upload, patch(
+        "server.execute_with_retry", return_value=fake_verify
+    ):
+        # Stub upload_photos to skip real EPS uploads.
+        async def fake_upload(paths, dry_run=False):
+            return json.dumps(
+                {
+                    "success": True,
+                    "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+                    "total_url_chars": 100,
+                    "warnings": [],
+                }
+            )
+
+        mock_upload.side_effect = fake_upload
+        raw = asyncio.run(
+            server.create_listing(
+                folder_path=str(folder),
+                price=49.99,
+                quantity=3,
+                condition="Used",
+                has_caddy=False,
+                dry_run=True,
+            )
+        )
+
+    body = json.loads(raw)
+    assert body["dry_run"] is True
+    assert body["label_photo_count"] == 1
+    assert body["visual_photo_count"] == 1
+    assert any("multi-qty" in w and ">=3" in w for w in body["photo_warnings"])
+
+
+def test_create_listing_qty_one_no_visual_warning(tmp_path: Path) -> None:
+    """qty=1 → no 3-sample-minimum warning regardless of visual count."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import server
+
+    folder = tmp_path / "ST2000NX0253"
+    folder.mkdir()
+    (folder / "IMG20260427120000.jpg").write_bytes(b"\xff\xd8\xff")
+    (folder / "visual-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    server._create_listing_uuid_cache.clear()
+
+    fake_verify = SimpleNamespace(
+        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
+    )
+
+    async def fake_upload(paths, dry_run=False):
+        return json.dumps(
+            {"success": True, "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+             "total_url_chars": 100, "warnings": []}
+        )
+
+    with patch("server.upload_photos", side_effect=fake_upload), patch(
+        "server.execute_with_retry", return_value=fake_verify
+    ):
+        raw = asyncio.run(
+            server.create_listing(
+                folder_path=str(folder),
+                price=49.99,
+                quantity=1,
+                condition="Used",
+                has_caddy=False,
+                dry_run=True,
+            )
+        )
+
+    body = json.loads(raw)
+    assert body["photo_warnings"] == []  # qty=1 doesn't trigger 3-sample rule
+
+
+def test_create_listing_dry_run_distinguishes_label_and_visual_counts(tmp_path: Path) -> None:
+    """Dry-run preview surfaces label_photo_count + visual_photo_count distinctly."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import server
+
+    folder = tmp_path / "ST2000NX0253"
+    folder.mkdir()
+    # 2 IMG label photos
+    (folder / "IMG20260427120000.jpg").write_bytes(b"\xff\xd8\xff")
+    (folder / "IMG20260427120001.jpg").write_bytes(b"\xff\xd8\xff")
+    # 3 visuals (one of each pattern)
+    (folder / "visual-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (folder / "SMART-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (folder / "DISK-TEST-VISUAL-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    server._create_listing_uuid_cache.clear()
+
+    fake_verify = SimpleNamespace(
+        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
+    )
+
+    async def fake_upload(paths, dry_run=False):
+        return json.dumps(
+            {"success": True, "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+             "total_url_chars": 100, "warnings": []}
+        )
+
+    with patch("server.upload_photos", side_effect=fake_upload), patch(
+        "server.execute_with_retry", return_value=fake_verify
+    ):
+        raw = asyncio.run(
+            server.create_listing(
+                folder_path=str(folder),
+                price=49.99,
+                quantity=1,
+                condition="Used",
+                has_caddy=False,
+                dry_run=True,
+            )
+        )
+
+    body = json.loads(raw)
+    assert body["label_photo_count"] == 2
+    assert body["visual_photo_count"] == 3
+    assert body["picture_urls_count"] == 5  # 2 + 3
+
+
+def test_create_listing_explicit_paths_no_classification(tmp_path: Path) -> None:
+    """When operator passes photo_paths explicitly, label/visual breakdown is not inferred."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    import server
+
+    folder = tmp_path / "ST2000NX0253"
+    folder.mkdir()
+    # Operator-supplied path (not from glob)
+    operator_path = folder / "custom.jpg"
+    operator_path.write_bytes(b"\xff\xd8\xff")
+    server._create_listing_uuid_cache.clear()
+
+    fake_verify = SimpleNamespace(
+        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
+    )
+
+    async def fake_upload(paths, dry_run=False):
+        return json.dumps(
+            {"success": True, "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+             "total_url_chars": 100, "warnings": []}
+        )
+
+    with patch("server.upload_photos", side_effect=fake_upload), patch(
+        "server.execute_with_retry", return_value=fake_verify
+    ):
+        raw = asyncio.run(
+            server.create_listing(
+                folder_path=str(folder),
+                price=49.99,
+                quantity=1,
+                condition="Used",
+                has_caddy=False,
+                photo_paths=[str(operator_path)],
+                dry_run=True,
+            )
+        )
+
+    body = json.loads(raw)
+    # Operator-supplied paths skip glob classification; counts both 0.
+    assert body["label_photo_count"] == 0
+    assert body["visual_photo_count"] == 0
+    assert body["picture_urls_count"] == 1
