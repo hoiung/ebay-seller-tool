@@ -254,7 +254,7 @@ def test_create_listing_missing_photos_fails_loudly(tmp_path: Path) -> None:
     )
     result = json.loads(raw)
     assert "error" in result
-    assert "no IMG*.jpg photos" in result["error"]
+    assert "no IMG*.jpg or visual-*/SMART-*/DISK-TEST-VISUAL-*.png photos" in result["error"]
 
 
 def test_create_listing_unknown_mpn_fails_loudly(tmp_path: Path) -> None:
