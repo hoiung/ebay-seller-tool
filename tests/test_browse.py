@@ -344,8 +344,8 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
             )
         )
 
-    assert "audit" in result
-    assert set(result["audit"].keys()) == {
+    assert "audit_flat" in result
+    assert set(result["audit_flat"].keys()) == {
         "raw_count",
         "kept",
         "dropped_low_quality",
@@ -354,9 +354,9 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
         "dropped_outlier",
         "concentration",  # Stub #19
     }
-    assert result["audit"]["raw_count"] == 3
-    assert result["audit"]["dropped_low_quality"] == 2  # bundle + parts
-    assert result["audit"]["kept"] == 1  # only the clean comp
+    assert result["audit_flat"]["raw_count"] == 3
+    assert result["audit_flat"]["dropped_low_quality"] == 2  # bundle + parts
+    assert result["audit_flat"]["kept"] == 1  # only the clean comp
     assert result["count"] == 1  # percentiles re-computed from kept pool
     assert result["min"] == 30.0
     assert "audit_verbose" in result
@@ -388,7 +388,7 @@ def test_competitor_prices_without_own_listing_no_audit(
     )
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(browse.fetch_competitor_prices(part_number="ST2000"))
-    assert "audit" not in result
+    assert "audit_flat" not in result
     assert "audit_verbose" not in result
     assert result["count"] == 1
 
@@ -537,7 +537,7 @@ def test_competitor_prices_used_fetches_equivalence_class(
     # Per-condition raw counts surfaced in audit_verbose
     assert result["audit_verbose"]["raw_count_per_condition_id"] == {"3000": 5, "2750": 3}
     # Pre-pipeline merge: 8 unique listings (no item_id overlap between calls)
-    assert result["audit"]["raw_count"] == 8
+    assert result["audit_flat"]["raw_count"] == 8
 
 
 def test_competitor_prices_dedupe_across_conditions(
@@ -580,7 +580,7 @@ def test_competitor_prices_dedupe_across_conditions(
     # Note: original issue draft said "merged listings = 4" but correct
     # arithmetic is 5 (3 unique in 3000 + 3 in 2750 with 1 overlap = 5; None
     # excluded by item_id-None skip guard, NOT by pre-dedupe filtering).
-    assert result["audit"]["raw_count"] == 5
+    assert result["audit_flat"]["raw_count"] == 5
     # #444 Stage 5 defensive M4: catch a future regression that lets None-
     # itemId entries leak past the dedupe guard. raw_count counts pre-dedupe
     # but listings array must contain only the 5 unique-itemId entries.

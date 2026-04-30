@@ -51,14 +51,14 @@ def _find_own_listing(listings_path: Path, part_number: str) -> dict[str, Any] |
 
 
 def _summarise(label: str, result: dict[str, Any]) -> str:
-    audit = result.get("audit", {}) or {}
+    audit_flat = result.get("audit_flat", {}) or {}
     audit_verbose = result.get("audit_verbose", {}) or {}
     raw_per_cond = audit_verbose.get("raw_count_per_condition_id", {}) or {}
     return (
         f"{label}\n"
         f"  raw_count_per_condition_id: {raw_per_cond}\n"
-        f"  raw merged (post-dedupe):   {audit.get('raw_count', 'n/a')}\n"
-        f"  kept after pipeline:        {audit.get('kept', 'n/a')}\n"
+        f"  raw merged (post-dedupe):   {audit_flat.get('raw_count', 'n/a')}\n"
+        f"  kept after pipeline:        {audit_flat.get('kept', 'n/a')}\n"
         f"  count (kept pool):          {result.get('count')}\n"
         f"  percentile band p25-p75:    {result.get('p25')} - {result.get('p75')}\n"
         f"  median:                     {result.get('median')}\n"
