@@ -362,7 +362,18 @@ def _sync_find_competitor_prices(
             # Issue #444 Part B — surface per-condition raw counts even on empty pool
             # so callers can see which equivalence-class members returned zero.
             empty["audit_verbose"] = {"raw_count_per_condition_id": raw_count_per_condition_id}
-            empty["verdict"] = "ZERO_COMPS_AFTER_FILTER"
+            # Stub #20 — 3-verdict carve-out. Raw Browse returned zero items
+            # = genuinely platform-niche (LONE_SUPPLIER), distinct from "filter
+            # killed everything" (ALL_FILTERED). Different operator response.
+            empty["verdict"] = "LONE_SUPPLIER"
+            empty["recommended_action"] = "anchor_via_cogs_plus_target_margin"
+            empty["fallback"] = {
+                "rationale": (
+                    "no market signal from Browse — fall back to cost-plus + "
+                    "target margin OR own-history (get_sold_listings) for anchor"
+                ),
+                "suggested_inputs": ["floor_price_gbp", "get_sold_listings(MPN)"],
+            }
         return empty
 
     sorted_prices = sorted(prices)
@@ -411,6 +422,10 @@ def _sync_find_competitor_prices(
     audit_verbose["raw_count_per_condition_id"] = raw_count_per_condition_id
 
     if not kept:
+        # Stub #20 — ALL_FILTERED. raw>0 (we wouldn't reach here from the raw=0
+        # branch above) but every comp dropped by Layer-1/2/3. Surfaces the raw
+        # count so the operator can decide whether to relax the filter or
+        # accept lone-supplier-like fallback.
         return {
             **raw_distribution,
             "count": 0,
@@ -422,12 +437,14 @@ def _sync_find_competitor_prices(
             "listings": [],
             "audit": audit_flat,
             "audit_verbose": audit_verbose,
-            "verdict": "ZERO_COMPS_AFTER_FILTER",
+            "verdict": "ALL_FILTERED",
+            "recommended_action": "review_filter_settings",
+            "pre_filter_count": audit_flat.get("raw_count", 0),
         }
 
     kept_prices = sorted(c["price"] for c in kept)
     kept_n = len(kept_prices)
-    return {
+    out: dict[str, Any] = {
         **raw_distribution,
         "count": kept_n,
         "min": round(kept_prices[0], 2),
@@ -439,6 +456,14 @@ def _sync_find_competitor_prices(
         "audit": audit_flat,
         "audit_verbose": audit_verbose,
     }
+    # Stub #20 — THIN_POOL. 1<=kept<=3 sample is too small to anchor pricing
+    # confidently; surface the verdict + low-confidence flag so consumers can
+    # weight stats accordingly. > 3 = no verdict surfaced (normal pool).
+    if 1 <= kept_n <= 3:
+        out["verdict"] = "THIN_POOL"
+        out["recommended_action"] = "use_with_low_confidence"
+        out["confidence"] = "low"
+    return out
 
 
 async def fetch_competitor_prices(
@@ -453,10 +478,17 @@ async def fetch_competitor_prices(
 
     When ``own_listing`` is provided, runs the Issue #14 three-layer comp-filter
     pipeline (low-quality reject → apple-to-apples score → stale-drop → outlier-
-    drop) before returning. The result dict gains ``audit`` (flat 6-key) and
-    ``audit_verbose`` (per-reason histogram), and ``count``/``min``/``p25``/
-    ``median``/``p75``/``max``/``listings`` reflect the kept comps. When all
-    comps are dropped, ``verdict: 'ZERO_COMPS_AFTER_FILTER'`` is surfaced.
+    drop) before returning. The result dict gains ``audit`` (flat 7-key — Stub
+    #19 added ``concentration``) and ``audit_verbose`` (per-reason histogram),
+    and ``count``/``min``/``p25``/``median``/``p75``/``max``/``listings``
+    reflect the kept comps. Stub #20 surfaces a 3-verdict carve-out:
+
+      * ``LONE_SUPPLIER`` — raw Browse returned zero items (genuinely platform-
+        niche); pairs with ``recommended_action: anchor_via_cogs_plus_target_margin``
+      * ``ALL_FILTERED`` — raw>0 but every comp dropped by the pipeline; pairs
+        with ``recommended_action: review_filter_settings`` + ``pre_filter_count``
+      * ``THIN_POOL`` — 1<=kept<=3 sample; pairs with ``recommended_action:
+        use_with_low_confidence`` + ``confidence: low``
 
     When ``own_listing`` is None, returns the raw distribution (backward compat
     for callers that don't have own-listing context).
