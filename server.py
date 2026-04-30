@@ -1917,6 +1917,10 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
       2. Per-item failure isolation — one bad item doesn't bomb the batch
       3. Surfaces a high_return_rate_count summary inline so the operator
          doesn't have to filter the per-item dict to find the >15% outliers
+      4. Systemic-failure short-circuit (L14): tracks repeat (exception class,
+         message) signatures; when ≥3 items observed AND ≥50% share the same
+         signature, the loop aborts so an OAuth/auth/rate-limit failure can't
+         cascade through 50+ items as identical \"error\" entries.
 
     Note: per-item OAuth session reuse is NOT currently implemented — each
     call enters its own get_post_order_session(). Future optimisation: wrap
@@ -1932,11 +1936,18 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
           {
             "results": {
               "<item_id>": {"return_rate_pct": float, "sold_count": int,
-                            "returned_count": int} | {"error": str},
+                            "returned_count": int} | {"error": str, "error_class": str},
               ...
             },
-            "summary": {"total": int, "succeeded": int, "failed": int,
-                        "high_return_rate_count": int  # >15% threshold},
+            "summary": {"total": int, "processed": int, "succeeded": int,
+                        "failed": int, "high_return_rate_count": int,
+                        "high_return_rate_threshold_pct": 15.0,
+                        # On short-circuit (≥50% identical errors across ≥3 items):
+                        "short_circuited": bool,
+                        "systemic_error_class": str,
+                        "systemic_error_message": str,
+                        "systemic_error_count": int,
+                        "unprocessed_item_ids": list[str]}
           }
     """
     if not item_ids:
@@ -1950,7 +1961,16 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
     succeeded = 0
     failed = 0
     high_return = 0
-    for item_id in item_ids:
+    # L14 (Ralph Opus) — track repeat exception class + message so a systemic
+    # failure (auth-token expired, OAuth 401, rate-limit) doesn't cascade
+    # silently across every remaining item. After we've seen ≥3 calls AND
+    # ≥50% of those calls failed with the same (class, str) key, abort the
+    # loop and surface the systemic failure in the summary.
+    error_signature_counts: dict[tuple[str, str], int] = {}
+    short_circuit_threshold = 0.5
+    short_circuit_min_observations = 3
+    short_circuited = False
+    for idx, item_id in enumerate(item_ids):
         try:
             res = await rest_compute_return_rate(item_id=item_id, days=days)
             results[item_id] = res
@@ -1960,22 +1980,42 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
                 high_return += 1
         except Exception as e:  # noqa: BLE001 — boundary for per-item resilience
             log_debug(f"compute_return_rates_bulk item_id={item_id} FAILED: {e}")
-            results[item_id] = {"error": str(e)}
+            results[item_id] = {"error": str(e), "error_class": type(e).__name__}
             failed += 1
+            sig = (type(e).__name__, str(e))
+            error_signature_counts[sig] = error_signature_counts.get(sig, 0) + 1
+            observed = idx + 1
+            top_class, top_msg = max(error_signature_counts, key=error_signature_counts.get)  # type: ignore[arg-type]
+            top_count = error_signature_counts[(top_class, top_msg)]
+            if (
+                observed >= short_circuit_min_observations
+                and top_count / observed >= short_circuit_threshold
+            ):
+                log_debug(
+                    f"compute_return_rates_bulk SHORT-CIRCUIT after {observed} items "
+                    f"({top_count} {top_class!r}=='{top_msg}' — likely systemic)"
+                )
+                short_circuited = True
+                break
 
-    return json.dumps(
-        {
-            "results": results,
-            "summary": {
-                "total": len(item_ids),
-                "succeeded": succeeded,
-                "failed": failed,
-                "high_return_rate_count": high_return,
-                "high_return_rate_threshold_pct": 15.0,
-            },
-        },
-        indent=2,
-    )
+    summary: dict[str, object] = {
+        "total": len(item_ids),
+        "processed": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "high_return_rate_count": high_return,
+        "high_return_rate_threshold_pct": 15.0,
+    }
+    if short_circuited:
+        top_class, top_msg = max(error_signature_counts, key=error_signature_counts.get)  # type: ignore[arg-type]
+        summary["short_circuited"] = True
+        summary["systemic_error_class"] = top_class
+        summary["systemic_error_message"] = top_msg
+        summary["systemic_error_count"] = error_signature_counts[(top_class, top_msg)]
+        summary["unprocessed_item_ids"] = [
+            iid for iid in item_ids if iid not in results
+        ]
+    return json.dumps({"results": results, "summary": summary}, indent=2)
 
 
 @mcp.tool()
