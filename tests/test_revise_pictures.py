@@ -257,8 +257,70 @@ def test_revise_pictures_truncates_above_24_with_warning() -> None:
     assert result["truncated"] is True
     assert result["truncated_count"] == 5
     assert result["photos_count_after"] == 24
-    # Truncate from the END (preserve original gallery image at index 0).
+    # L13 fix (Ralph deferred Opus): truncate-from-end preserves index 0
+    # AND every just-uploaded URL. Pre-fix code dropped the newest entries.
     assert captured["payload"]["Item"]["PictureDetails"]["PictureURL"][0] == existing[0]
+    final_urls = captured["payload"]["Item"]["PictureDetails"]["PictureURL"]
+    for new_url in new_urls:
+        assert new_url in final_urls, f"L13: newly-uploaded {new_url} was dropped"
+    # Newest URLs sit at the tail (caller order preserved within composed[-23:]).
+    assert final_urls[-len(new_urls) :] == new_urls
+
+
+def test_revise_pictures_l13_dropped_oldest_reported_in_photos_lost() -> None:
+    """L13 fix (Ralph deferred Opus) — append+overflow surfaces the oldest URLs
+    that fell out via `photos_lost` so the operator can audit what was dropped.
+    """
+    existing = [f"https://eps/{i:02d}.jpg" for i in range(24)]
+    new_paths = [f"/tmp/new{i}.jpg" for i in range(3)]
+    new_urls = [f"https://eps/n{i}.jpg" for i in range(3)]
+
+    def _exec_side_effect(verb, payload, *args, **kwargs):
+        if verb == "GetItem":
+            return _fake_get_item(existing)
+        if verb == "ReviseFixedPriceItem":
+            return _fake_revise_response()
+
+    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
+        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
+    ), patch("ebay.pictures.upload_one", side_effect=new_urls):
+        result = _run(revise_pictures(item_id="123", photo_paths=new_paths, mode="append"))
+
+    # 24 existing + 3 new = 27 -> drop 3 oldest non-index-0 entries (existing[1..3]).
+    assert result["truncated_count"] == 3
+    assert result["photos_lost"] == existing[1:4]
+    # `photos_after` retains gallery + (existing[4..23]) + new[0..2]
+    assert result["photos_after"][0] == existing[0]
+    assert result["photos_after"][-3:] == new_urls
+
+
+def test_revise_pictures_l13_truncate_to_cap_helper_unit() -> None:
+    """L13 fix (Ralph deferred Opus) -- direct unit test for `_truncate_to_cap`."""
+    from ebay.pictures import _truncate_to_cap
+    from ebay.listings import MAX_PICTURE_URLS
+
+    # No overflow: short-circuit.
+    composed = [f"u{i}" for i in range(5)]
+    kept, dropped, n = _truncate_to_cap(composed, "append")
+    assert kept == composed
+    assert dropped == []
+    assert n == 0
+
+    # Append + overflow by 1: drop composed[1], keep gallery + last 23.
+    composed = [f"u{i}" for i in range(MAX_PICTURE_URLS + 1)]
+    kept, dropped, n = _truncate_to_cap(composed, "append")
+    assert kept[0] == composed[0]
+    assert kept[-1] == composed[-1]
+    assert dropped == [composed[1]]
+    assert n == 1
+    assert len(kept) == MAX_PICTURE_URLS
+
+    # Replace + overflow: head-slice (caller order is intent).
+    composed = [f"u{i}" for i in range(MAX_PICTURE_URLS + 5)]
+    kept, dropped, n = _truncate_to_cap(composed, "replace")
+    assert kept == composed[:MAX_PICTURE_URLS]
+    assert dropped == composed[MAX_PICTURE_URLS:]
+    assert n == 5
 
 
 def test_revise_pictures_echoes_shipping_details() -> None:
