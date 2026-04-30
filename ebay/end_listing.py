@@ -25,8 +25,25 @@ from __future__ import annotations
 
 import asyncio
 
+from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
 from ebay.client import execute_with_retry, log_debug
 from ebay.listings import audit_log_write, listing_to_dict
+
+# eBay error codes that indicate the listing changed between GetItem (step 1)
+# and EndFixedPriceItem (step 4) — i.e. the work is already done OR the listing
+# transitioned to a state where ending is no longer applicable. These are
+# operationally distinct from a genuine network/API failure: we friendly-message
+# the operator, write an audit-log entry, then re-raise so the caller can decide.
+# Source: https://developer.ebay.com/devzone/xml/docs/reference/ebay/Errors/index.html
+_LISTING_ALREADY_ENDED_CODES = frozenset(
+    {
+        "1037",  # Listing has already been ended
+        "1047",  # End reason invalid for the current state
+        "16306",  # Operation not allowed for this listing state
+        "291",  # Operation not allowed at this time
+    }
+)
 
 # eBay's documented EndFixedPriceItem.EndingReason enum (Trading API reference).
 # Source: https://developer.ebay.com/devzone/xml/docs/Reference/eBay/EndFixedPriceItem.html
@@ -97,6 +114,7 @@ async def end_listing(
 
     listing = listing_to_dict(current.reply.Item)
     live_title = listing.get("title") or ""
+    live_url = listing["listing_url"]
 
     # 2. Echo-back guard — case-insensitive substring match.
     if expected_title.strip().lower() not in live_title.lower():
@@ -115,7 +133,7 @@ async def end_listing(
             "expected_title": expected_title,
             "live_title_pre": live_title,
             "would_end": True,
-            "live_url": f"https://www.ebay.co.uk/itm/{item_id}",
+            "live_url": live_url,
         }
 
     # 4. Live path — call EndFixedPriceItem.
@@ -125,7 +143,34 @@ async def end_listing(
             "EndFixedPriceItem",
             {"ItemID": item_id, "EndingReason": ending_reason},
         )
-    except Exception as e:
+    except EbaySdkConnectionError as exc:  # noqa: BLE001 — narrow class below
+        # Distinguish "listing already changed" (caller should re-fetch) from
+        # genuine API failure. M10 fix: prior bare `except Exception` hid this
+        # signal under the generic re-raise.
+        error_codes = _extract_ebay_error_codes(exc)
+        already_ended = bool(_LISTING_ALREADY_ENDED_CODES & error_codes)
+        audit_log_write(
+            item_id=item_id,
+            fields_changed=["END"],
+            before_length=len(live_title),
+            after_length=0,
+            success=False,
+            condition_after=ending_reason,
+        )
+        if already_ended:
+            log_debug(
+                f"end_listing item_id={item_id} already-ended-or-frozen; "
+                f"codes={sorted(error_codes)} — re-fetch listing state"
+            )
+            raise ValueError(
+                f"listing {item_id} changed between GetItem and EndFixedPriceItem "
+                f"(eBay codes {sorted(error_codes)}). Re-fetch state via "
+                f"get_listing_details and decide if action is still required."
+            ) from exc
+        raise
+    except Exception:
+        # Defensive — non-eBaysdk failures (e.g. asyncio cancellation, threading
+        # errors). Audit-log + re-raise so the caller still sees the failure.
         audit_log_write(
             item_id=item_id,
             fields_changed=["END"],
@@ -157,5 +202,34 @@ async def end_listing(
         "end_time": end_time,
         "ack": ack,
         "dry_run": False,
-        "live_url": f"https://www.ebay.co.uk/itm/{item_id}",
+        "live_url": live_url,
     }
+
+
+def _extract_ebay_error_codes(exc: EbaySdkConnectionError) -> set[str]:
+    """Pull eBay error codes out of an ebaysdk ConnectionError.
+
+    The exception carries a `.response` whose `.dict()` method exposes a
+    `Errors` key (one Error dict OR a list of them). Each Error has an
+    `ErrorCode` we use to distinguish "listing already ended" from genuine
+    transport failure.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return set()
+    try:
+        body = response.dict()
+    except Exception:  # pragma: no cover — exotic response shape
+        return set()
+    errors = body.get("Errors")
+    if errors is None:
+        return set()
+    if not isinstance(errors, list):
+        errors = [errors]
+    codes: set[str] = set()
+    for err in errors:
+        if isinstance(err, dict):
+            code = err.get("ErrorCode")
+            if code:
+                codes.add(str(code))
+    return codes
