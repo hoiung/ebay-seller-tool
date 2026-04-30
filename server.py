@@ -49,7 +49,12 @@ from ebay.listings import (  # noqa: E402
     listing_to_dict,
     snapshot_listing,
 )
-from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
+from ebay.photos import (  # noqa: E402
+    VISUAL_PHOTO_PATTERNS,
+    glob_visual_photos,
+    preprocess_for_ebay,
+    upload_one,
+)
 from ebay.end_listing import (  # noqa: E402
     ALLOWED_ENDING_REASONS,
     end_listing as _end_listing_core,
@@ -94,12 +99,8 @@ CONDITION_HTML_SUFFIX: dict[str, str] = {
 
 # eBay image filenames from Hoi's phone camera (timestamp pattern).
 LABEL_PHOTO_REGEX = re.compile(r"IMG\d{8}\d{6}\.jpg$", re.IGNORECASE)
-# SMART-test visual filenames per disk-flow.sh L534 + L544 (#25 stub-body
-# correction A3): scope claimed `SMART-{serial}.png` but the writer emits
-# `tests/visual-{serial}-{stamp}.png` AND `DISK-TEST-VISUAL-{serial}.png`
-# at drive root. Glob all three for forward-compat — the union is small and
-# bounded by the 24-photo PictureDetails cap downstream.
-VISUAL_PHOTO_PATTERNS = ("visual-*.png", "SMART-*.png", "DISK-TEST-VISUAL-*.png")
+# VISUAL_PHOTO_PATTERNS lifted to ebay/photos.py — re-exported above so that
+# audit scripts can import the canonical glob without pulling FastMCP startup.
 _COPY_BLOCK_RE = re.compile(
     r'<div[^>]*class=["\'][^"\']*copy-block[^"\']*["\'][^>]*>(.*?)</div>',
     re.IGNORECASE | re.DOTALL,
@@ -256,29 +257,6 @@ def _glob_label_photos(folder: Path) -> list[str]:
             seen.add(s)
             if LABEL_PHOTO_REGEX.search(p.name):
                 results.append(s)
-    return results
-
-
-def _glob_visual_photos(folder: Path) -> list[str]:
-    """Find SMART-test visual artefacts in a product folder (#25 triple-glob).
-
-    Globs `visual-*.png`, `SMART-*.png`, and `DISK-TEST-VISUAL-*.png` — the
-    three writer conventions documented in disk-flow.sh and dotfiles HARD
-    CONTRACT. Stable order: pattern groups in declared sequence, files inside
-    each group sorted alphabetically. De-duplicates against case-insensitive
-    filesystems the same way _glob_label_photos does.
-    """
-    if not folder.exists():
-        return []
-    seen: set[str] = set()
-    results: list[str] = []
-    for pattern in VISUAL_PHOTO_PATTERNS:
-        for p in sorted(folder.glob(pattern)):
-            s = str(p)
-            if s in seen:
-                continue
-            seen.add(s)
-            results.append(s)
     return results
 
 
@@ -1096,7 +1074,7 @@ async def create_listing(
             # #25 triple-glob: regular IMG photos first (gallery image preserved
             # at index 0), then SMART-test visuals appended in pattern order.
             label_photos = _glob_label_photos(folder)
-            visual_photos = _glob_visual_photos(folder)
+            visual_photos = glob_visual_photos(folder)
             photo_paths = label_photos + visual_photos
             log_debug(
                 f"create_listing photo_glob folder={folder.name} "
