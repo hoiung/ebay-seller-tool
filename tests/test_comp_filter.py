@@ -798,10 +798,147 @@ def test_dim3_condition_self_match_not_in_equivalence_map() -> None:
     assert score == 1.0, "self-match default should fire even when ID not in equivalence map"
 
 
-def test_zero_comps_after_filter_verdict_literal() -> None:
-    """L1-A AC 5.3.3 + L1-G #3: verdict='ZERO_COMPS_AFTER_FILTER' surfaces at fetch return level.
+def test_lone_supplier_verdict_when_browse_returns_zero() -> None:
+    """Stub #20 — raw Browse returns zero items → LONE_SUPPLIER verdict + cogs-plus
+    fallback recommendation."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
 
-    Mock Browse to return all-broken comps; assert the literal verdict string fires.
+    import httpx
+
+    own = _own()
+    fake_client = MagicMock()
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp.text = "{}"
+    resp.json.return_value = {"itemSummaries": []}
+    fake_client.get.return_value = resp
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+
+    from ebay import browse
+
+    with patch("ebay.browse.get_browse_session", return_value=fake_client):
+        result = asyncio.run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253", condition="USED", own_listing=own
+            )
+        )
+    assert result.get("verdict") == "LONE_SUPPLIER"
+    assert result.get("recommended_action") == "anchor_via_cogs_plus_target_margin"
+    assert "fallback" in result
+    assert "rationale" in result["fallback"]
+    assert result["count"] == 0
+
+
+def test_thin_pool_verdict_when_kept_between_1_and_3() -> None:
+    """Stub #20 — 1<=kept<=3 → THIN_POOL verdict + use_with_low_confidence."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    import httpx
+
+    own = _own()
+    raw_items = [
+        {
+            "itemId": f"v1|good{i}",
+            "title": f"ST2000NX0253 Enterprise Capacity 2.5 SAS HDD listing {i}",
+            "price": {"value": "30.00", "currency": "GBP"},
+            "seller": {
+                "username": f"seller_{i}",
+                "feedbackPercentage": "99.9",
+                "feedbackScore": 1000,
+            },
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": f"https://i.ebayimg.com/g{i}.jpg"},
+            "additionalImages": [{"imageUrl": "https://i.ebayimg.com/g.jpg"}],
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+            "topRatedBuyingExperience": True,
+            "itemCreationDate": "2026-04-01T10:00:00Z",
+        }
+        for i in range(2)
+    ]
+    fake_client = MagicMock()
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp.text = "{}"
+    resp.json.return_value = {"itemSummaries": raw_items}
+    fake_client.get.return_value = resp
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+
+    from ebay import browse
+
+    with patch("ebay.browse.get_browse_session", return_value=fake_client):
+        result = asyncio.run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253", condition="USED", own_listing=own
+            )
+        )
+    assert result.get("verdict") == "THIN_POOL"
+    assert result.get("recommended_action") == "use_with_low_confidence"
+    assert result.get("confidence") == "low"
+    assert 1 <= result["count"] <= 3
+
+
+def test_normal_pool_no_verdict_surfaced() -> None:
+    """Stub #20 — kept > 3 → no verdict key at all (normal pool)."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    import httpx
+
+    own = _own()
+    raw_items = [
+        {
+            "itemId": f"v1|good{i}",
+            "title": f"ST2000NX0253 Enterprise Capacity 2.5 SAS HDD listing {i}",
+            "price": {"value": str(30 + i), "currency": "GBP"},
+            "seller": {
+                "username": f"seller_{i}",
+                "feedbackPercentage": "99.9",
+                "feedbackScore": 1000,
+            },
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": f"https://i.ebayimg.com/g{i}.jpg"},
+            "additionalImages": [{"imageUrl": "https://i.ebayimg.com/g.jpg"}],
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+            "topRatedBuyingExperience": True,
+            "itemCreationDate": "2026-04-01T10:00:00Z",
+        }
+        for i in range(8)
+    ]
+    fake_client = MagicMock()
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp.text = "{}"
+    resp.json.return_value = {"itemSummaries": raw_items}
+    fake_client.get.return_value = resp
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+
+    from ebay import browse
+
+    with patch("ebay.browse.get_browse_session", return_value=fake_client):
+        result = asyncio.run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253", condition="USED", own_listing=own
+            )
+        )
+    assert "verdict" not in result
+    assert result["count"] > 3
+
+
+def test_all_filtered_verdict_literal() -> None:
+    """Stub #20 (was ZERO_COMPS_AFTER_FILTER): when raw>0 but all dropped, verdict is ALL_FILTERED.
+
+    Mock Browse to return all-broken comps; assert ALL_FILTERED verdict
+    + recommended_action + pre_filter_count.
     """
     import asyncio
     from unittest.mock import MagicMock, patch
@@ -843,7 +980,9 @@ def test_zero_comps_after_filter_verdict_literal() -> None:
                 part_number="ST2000NX0253", condition="USED", own_listing=own
             )
         )
-    assert result.get("verdict") == "ZERO_COMPS_AFTER_FILTER"
+    assert result.get("verdict") == "ALL_FILTERED"
+    assert result.get("recommended_action") == "review_filter_settings"
+    assert result.get("pre_filter_count") == 3
     assert result["count"] == 0
     assert result["audit"]["dropped_low_quality"] == 3
 
