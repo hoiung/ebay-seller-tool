@@ -1510,6 +1510,7 @@ async def analyse_listing(
     item_id: str,
     window_days: int = 30,
     include_cases: bool = False,
+    include_market_concentration: bool = False,
 ) -> str:
     """Diagnose a listing: funnel + signals + decision matrix + floor/ceiling.
 
@@ -1521,6 +1522,11 @@ async def analyse_listing(
         window_days: Signals window in days. Default 30.
         include_cases: If True, call getUserCases for resolution-case data.
             Default False (avoids extra API call at 10-listing scale).
+        include_market_concentration: Stub #19. If True, fetch the comp pool
+            and surface `comp_pool_stats: {top_seller_pct, distinct_sellers,
+            herfindahl, confidence}` in the response. Default False — the comp
+            scan is the slowest call in this tool, so opt-in only when the
+            caller actually needs the concentration signal (weekly sweep).
 
     Returns:
         JSON with funnel / signals / multi_qty_note / rank_health_status /
@@ -1740,6 +1746,33 @@ async def analyse_listing(
                 "Cassini ranking on multi-quantity listings."
             )
 
+    # Stub #19 — opt-in market-concentration computation. Adds one Browse API
+    # call and one filter-pipeline run; expensive enough that we gate on the
+    # caller's explicit request to avoid latency regression for read-mostly
+    # consumers (e.g. dashboard polling).
+    comp_pool_stats: dict | None = None
+    if include_market_concentration:
+        try:
+            mpns = (listing.get("specifics") or {}).get("MPN") or []
+            mpn = str(mpns[0]) if mpns else None
+            if mpn:
+                comp_result = await fetch_competitor_prices(
+                    part_number=mpn,
+                    condition=listing.get("condition_name") or "USED",
+                    location_country="GB",
+                    own_listing=listing,
+                    own_live_price=current_price_gbp,
+                )
+                if isinstance(comp_result, dict):
+                    audit_flat = comp_result.get("audit_flat") or {}
+                    comp_pool_stats = audit_flat.get("concentration")
+        except (RuntimeError, KeyError, TypeError, ValueError) as e:
+            log_debug(
+                f"analyse_listing market_concentration_skipped item_id={item_id} "
+                f"reason={type(e).__name__}: {e}"
+            )
+            comp_pool_stats = None
+
     response_payload = {
         "item_id": str(item_id),
         "window_days": window_days,
@@ -1768,6 +1801,9 @@ async def analyse_listing(
         "suggested_ceiling_gbp": ceiling_gbp,
         "current_price_gbp": current_price_gbp,
         "price_verdict": verdict,
+        # Stub #19 — only present when include_market_concentration=True; None
+        # when the comp scan failed or the listing has no MPN to query.
+        "comp_pool_stats": comp_pool_stats,
     }
 
     # Phase 5.2.1 — only persist when Phase 2 is actually available; without
