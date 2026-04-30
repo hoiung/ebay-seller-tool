@@ -201,6 +201,115 @@ def test_live_path_audit_logs_failure_on_api_error() -> None:
     assert mock_audit.call_args.kwargs["success"] is False
 
 
+def test_m10_already_ended_translated_to_friendly_valueerror() -> None:
+    """M10 (Ralph deferred Opus) -- ebaysdk ConnectionError carrying eBay code 1037
+    ("Listing already ended") gets translated into a ValueError telling the
+    operator to re-fetch state. audit_log_write still fires success=False.
+    """
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    fake_response = SimpleNamespace()
+    fake_response.dict = lambda: {  # type: ignore[attr-defined]
+        "Errors": {"ErrorCode": "1037", "LongMessage": "Listing already ended"}
+    }
+    err = EbaySdkConnectionError("eBay 1037")
+    err.response = fake_response  # type: ignore[attr-defined]
+
+    with patch("ebay.end_listing.execute_with_retry") as mock_exec, patch(
+        "ebay.end_listing.audit_log_write"
+    ) as mock_audit:
+        mock_exec.side_effect = [
+            _getitem_response(_live_item("HPE 3TB Hard Drive")),
+            err,
+        ]
+        with pytest.raises(ValueError, match=r"changed between GetItem and EndFixedPriceItem"):
+            asyncio.run(
+                end_listing(
+                    item_id="123",
+                    expected_title="HPE 3TB",
+                    confirm=True,
+                    dry_run=False,
+                )
+            )
+    assert mock_audit.call_count == 1
+    assert mock_audit.call_args.kwargs["success"] is False
+
+
+def test_m10_unrelated_connectionerror_reraised_unchanged() -> None:
+    """M10 (Ralph deferred Opus) -- ConnectionError WITHOUT a known
+    operation-not-allowed code re-raises the original exception (genuine
+    transport / API failure path).
+    """
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    fake_response = SimpleNamespace()
+    fake_response.dict = lambda: {  # type: ignore[attr-defined]
+        "Errors": {"ErrorCode": "10009", "LongMessage": "Internal error"}
+    }
+    err = EbaySdkConnectionError("eBay 500")
+    err.response = fake_response  # type: ignore[attr-defined]
+
+    with patch("ebay.end_listing.execute_with_retry") as mock_exec, patch(
+        "ebay.end_listing.audit_log_write"
+    ) as mock_audit:
+        mock_exec.side_effect = [
+            _getitem_response(_live_item("HPE 3TB Hard Drive")),
+            err,
+        ]
+        with pytest.raises(EbaySdkConnectionError):
+            asyncio.run(
+                end_listing(
+                    item_id="123",
+                    expected_title="HPE 3TB",
+                    confirm=True,
+                    dry_run=False,
+                )
+            )
+    assert mock_audit.call_count == 1
+    assert mock_audit.call_args.kwargs["success"] is False
+
+
+def test_m10_extract_ebay_error_codes_handles_list_of_errors() -> None:
+    """M10 (Ralph deferred Opus) -- helper handles both single-Error and
+    multi-Error response shapes without crashing.
+    """
+    from ebay.end_listing import _extract_ebay_error_codes
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    # Single Error dict
+    r1 = SimpleNamespace()
+    r1.dict = lambda: {"Errors": {"ErrorCode": "1037"}}  # type: ignore[attr-defined]
+    e1 = EbaySdkConnectionError("x")
+    e1.response = r1  # type: ignore[attr-defined]
+    assert _extract_ebay_error_codes(e1) == {"1037"}
+
+    # Multi-Error list
+    r2 = SimpleNamespace()
+    r2.dict = lambda: {  # type: ignore[attr-defined]
+        "Errors": [{"ErrorCode": "1037"}, {"ErrorCode": "1047"}]
+    }
+    e2 = EbaySdkConnectionError("x")
+    e2.response = r2  # type: ignore[attr-defined]
+    assert _extract_ebay_error_codes(e2) == {"1037", "1047"}
+
+    # No response attribute
+    e3 = EbaySdkConnectionError("no response")
+    assert _extract_ebay_error_codes(e3) == set()
+
+    # Response without .dict()
+    r4 = SimpleNamespace()
+    e4 = EbaySdkConnectionError("malformed")
+    e4.response = r4  # type: ignore[attr-defined]
+    assert _extract_ebay_error_codes(e4) == set()
+
+    # Response with no Errors key
+    r5 = SimpleNamespace()
+    r5.dict = lambda: {"Ack": "Success"}  # type: ignore[attr-defined]
+    e5 = EbaySdkConnectionError("ok-shape")
+    e5.response = r5  # type: ignore[attr-defined]
+    assert _extract_ebay_error_codes(e5) == set()
+
+
 def test_allowed_ending_reasons_enum_contents() -> None:
     """Enum frozen at expected eBay values per Trading API docs."""
     assert "NotAvailable" in ALLOWED_ENDING_REASONS

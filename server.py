@@ -1294,7 +1294,17 @@ async def create_listing(
         )
 
         # --- P3.14 Return shape ---
-        listing_url = f"https://www.ebay.co.uk/itm/{new_item_id}"
+        # M7 fix (Ralph deferred Opus, completed): prefer the server-authoritative
+        # ListingDetails.ViewItemURL captured by `landed = listing_to_dict(...)`
+        # during the post-create verify above. The verify block can fail (no
+        # `landed` defined), in which case fall back to the marketplace literal —
+        # the listing was created so we still have the item_id; the URL fallback
+        # only matters for the operator preview.
+        listing_url = (
+            landed["listing_url"]  # type: ignore[possibly-undefined]
+            if "landed" in locals() and isinstance(landed, dict) and landed.get("listing_url")
+            else f"https://www.ebay.co.uk/itm/{new_item_id}"
+        )
         return json.dumps(
             {
                 "success": True,
