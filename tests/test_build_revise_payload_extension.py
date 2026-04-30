@@ -65,8 +65,8 @@ def test_best_offer_auto_accept_in_listing_details_not_best_offer_details() -> N
     )
     listing_details = payload["Item"]["ListingDetails"]
     assert listing_details["BestOfferAutoAcceptPrice"] == {
-        "value": "44.00",
-        "_currencyID": "GBP",
+        "#text": "44.00",
+        "@attrs": {"currencyID": "GBP"},
     }
     # NOT placed under BestOfferDetails — keep them separate.
     best_offer_details = payload["Item"]["BestOfferDetails"]
@@ -81,8 +81,8 @@ def test_minimum_best_offer_price_in_listing_details() -> None:
         best_offer_auto_decline_gbp=36.0,
     )
     assert payload["Item"]["ListingDetails"]["MinimumBestOfferPrice"] == {
-        "value": "36.00",
-        "_currencyID": "GBP",
+        "#text": "36.00",
+        "@attrs": {"currencyID": "GBP"},
     }
 
 
@@ -94,20 +94,20 @@ def test_both_best_offer_thresholds_set_together() -> None:
         best_offer_auto_decline_gbp=36.0,
     )
     listing_details = payload["Item"]["ListingDetails"]
-    assert listing_details["BestOfferAutoAcceptPrice"]["value"] == "44.00"
-    assert listing_details["MinimumBestOfferPrice"]["value"] == "36.00"
+    assert listing_details["BestOfferAutoAcceptPrice"]["#text"] == "44.00"
+    assert listing_details["MinimumBestOfferPrice"]["#text"] == "36.00"
 
 
 def test_best_offer_amounts_decimal_no_float_drift() -> None:
     """Decimal(str(...)) avoids float drift like Decimal(0.1)=0.1000000000000000055..."""
     payload = build_revise_payload(item_id="111", best_offer_auto_accept_gbp=0.1)
-    assert payload["Item"]["ListingDetails"]["BestOfferAutoAcceptPrice"]["value"] == "0.10"
+    assert payload["Item"]["ListingDetails"]["BestOfferAutoAcceptPrice"]["#text"] == "0.10"
 
 
 def test_best_offer_amount_two_dp_rounds_correctly() -> None:
     payload = build_revise_payload(item_id="111", best_offer_auto_accept_gbp=44.567)
     # ROUND_HALF_EVEN — 44.567 -> 44.57
-    assert payload["Item"]["ListingDetails"]["BestOfferAutoAcceptPrice"]["value"] == "44.57"
+    assert payload["Item"]["ListingDetails"]["BestOfferAutoAcceptPrice"]["#text"] == "44.57"
 
 
 def test_best_offer_currency_override() -> None:
@@ -117,7 +117,8 @@ def test_best_offer_currency_override() -> None:
         currency="USD",
     )
     assert (
-        payload["Item"]["ListingDetails"]["BestOfferAutoAcceptPrice"]["_currencyID"] == "USD"
+        payload["Item"]["ListingDetails"]["BestOfferAutoAcceptPrice"]["@attrs"]["currencyID"]
+        == "USD"
     )
 
 

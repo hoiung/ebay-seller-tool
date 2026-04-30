@@ -60,8 +60,8 @@ def test_build_add_payload_full_payload_shape() -> None:
 
     assert item["Quantity"] == "1"
     assert item["UUID"] == VALID_UUID
-    assert item["StartPrice"]["_currencyID"] == "GBP"
-    assert item["StartPrice"]["value"] == "49.99"
+    assert item["StartPrice"]["@attrs"]["currencyID"] == "GBP"
+    assert item["StartPrice"]["#text"] == "49.99"
     assert item["PictureDetails"]["PictureURL"] == [
         "https://i.ebayimg.com/images/g/abc/$_57.JPG",
         "https://i.ebayimg.com/images/g/def/$_57.JPG",
@@ -69,7 +69,8 @@ def test_build_add_payload_full_payload_shape() -> None:
     assert item["ShippingDetails"]["GlobalShipping"] == "true"
     assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true"
     assert (
-        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["value"] == "0.00"
+        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["#text"]
+        == "0.00"
     )
     assert item["ReturnPolicy"]["ReturnsAcceptedOption"] == "ReturnsNotAccepted"
     assert item["ReturnPolicy"]["InternationalReturnsAcceptedOption"] == "ReturnsNotAccepted"
@@ -105,7 +106,7 @@ def test_build_add_payload_full_payload_shape() -> None:
 )
 def test_build_add_payload_price_stringified_two_dp(price: float, expected: str) -> None:
     payload = _minimal(price=price)
-    assert payload["Item"]["StartPrice"]["value"] == expected
+    assert payload["Item"]["StartPrice"]["#text"] == expected
 
 
 @pytest.mark.parametrize(
@@ -219,4 +220,4 @@ def test_build_add_payload_custom_location_details_override_env() -> None:
     assert payload["Item"]["Location"] == "New York"
     assert payload["Item"]["PostalCode"] == "10001"
     assert payload["Item"]["Currency"] == "USD"
-    assert payload["Item"]["StartPrice"]["_currencyID"] == "USD"
+    assert payload["Item"]["StartPrice"]["@attrs"]["currencyID"] == "USD"
