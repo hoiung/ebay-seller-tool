@@ -498,3 +498,55 @@ def compute_over_pricing(
         "recommended_floor": p55_clean if overpriced else None,
         "recommended_ceiling": p65_clean if overpriced else None,
     }
+
+
+def compute_best_offer_thresholds(
+    floor_gbp: float,
+    live_price_gbp: float,
+    auto_accept_pct: float = 0.88,
+    auto_decline_pct: float = 0.72,
+    floor_buffer_pct: float = 0.05,
+) -> dict[str, Any]:
+    """G-NEW-1 — recommend Best Offer auto-accept / auto-decline thresholds.
+
+    Pure-function helper. Consumers (server.py recommend_best_offer_thresholds
+    MCP tool, analyse_listing's enable_best_offer suggestion) supply the floor
+    + live price; this returns the recommended pair plus a rationale string.
+
+    Composition rule:
+        auto_accept = max(floor * (1 + buffer), pct * live_price)
+        auto_decline = max(floor, decline_pct * live_price)
+
+    The buffer above the floor on auto_accept defends margin: the floor is
+    where break-even sits; auto-accepting AT the floor accepts every offer
+    that just clears break-even, which is too aggressive given Best-Offer
+    sellers typically expect some margin retention. 5% default matches the
+    skill canonical 88%/72% pair.
+
+    Floor guardrail: if either threshold would land below the floor, the
+    rationale flags it explicitly so callers can surface the diagnostic
+    rather than silently clamp.
+    """
+    floor_with_buffer = floor_gbp * (1.0 + floor_buffer_pct)
+    auto_accept_raw = auto_accept_pct * live_price_gbp
+    auto_decline_raw = auto_decline_pct * live_price_gbp
+
+    auto_accept = max(floor_with_buffer, auto_accept_raw)
+    auto_decline = max(floor_gbp, auto_decline_raw)
+
+    if auto_accept < floor_gbp:
+        rationale = "auto_accept_below_floor — drop_floor_first"
+    else:
+        rationale = (
+            f"auto_accept = max(floor*{1.0 + floor_buffer_pct:.2f}={floor_with_buffer:.2f}, "
+            f"{auto_accept_pct:.0%}*live={auto_accept_raw:.2f}); "
+            f"auto_decline = max(floor={floor_gbp:.2f}, "
+            f"{auto_decline_pct:.0%}*live={auto_decline_raw:.2f})"
+        )
+
+    return {
+        "auto_accept_gbp": round(auto_accept, 2),
+        "auto_decline_gbp": round(auto_decline, 2),
+        "floor_gbp": round(floor_gbp, 2),
+        "rationale": rationale,
+    }
