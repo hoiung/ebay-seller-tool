@@ -10,9 +10,11 @@ Composition rule:
     replace: just new EPS uploads (DESTRUCTIVE — confirm=True required)
 
 eBay caps PictureDetails.PictureURL at MAX_PICTURE_URLS (24). Beyond that the
-listing rejects; this function warns AND truncates to the cap rather than
-silently dropping the overflow. The caller is informed via the response
-`truncated` / `truncated_count` fields.
+listing rejects; this function warns AND truncates to the cap. Append-mode
+truncation preserves index 0 (gallery anchor) + every newest entry, dropping
+oldest non-index-0 URLs first — the operator's just-uploaded photos always
+survive. Replace-mode honours caller-supplied order via head-slice. The caller
+is informed via response `truncated` / `truncated_count` / `photos_lost` fields.
 
 ShippingDetails is echoed back via extract_shipping_details() — eBay otherwise
 overwrites with default config on every Revise call. The Revise-path Quantity
@@ -91,21 +93,18 @@ async def revise_pictures(
 
     listing = listing_to_dict(current.reply.Item)
     photos_before = list(listing["photos"])
+    live_url = listing["listing_url"]
 
     # 2. Dry-run: skip uploads, project the URL plan with placeholder URLs so the
     #    caller can preview ordering + see what gets dropped in replace mode.
     if dry_run:
         placeholder_urls = [f"<dry-run-upload:{p}>" for p in photo_paths]
-        composed = (
+        composed_full = (
             photos_before + placeholder_urls if mode == "append" else list(placeholder_urls)
         )
-        truncated = False
-        truncated_count = 0
-        if len(composed) > MAX_PICTURE_URLS:
-            truncated_count = len(composed) - MAX_PICTURE_URLS
-            composed = composed[:MAX_PICTURE_URLS]
-            truncated = True
-        photos_lost = list(photos_before) if mode == "replace" else []
+        composed, dropped_oldest, truncated_count = _truncate_to_cap(composed_full, mode)
+        truncated = truncated_count > 0
+        photos_lost = list(photos_before) if mode == "replace" else dropped_oldest
         return {
             "dry_run": True,
             "item_id": item_id,
@@ -117,7 +116,7 @@ async def revise_pictures(
             "photos_count_after": len(composed),
             "truncated": truncated,
             "truncated_count": truncated_count,
-            "live_url": f"https://www.ebay.co.uk/itm/{item_id}",
+            "live_url": live_url,
         }
 
     # 3. Upload new photos to eBay Picture Services.
@@ -130,21 +129,18 @@ async def revise_pictures(
 
     # 4. Compose ordered URL list.
     if mode == "append":
-        composed = photos_before + new_urls
+        composed_full = photos_before + new_urls
     else:
-        composed = list(new_urls)
+        composed_full = list(new_urls)
 
-    truncated = False
-    truncated_count = 0
-    if len(composed) > MAX_PICTURE_URLS:
-        truncated_count = len(composed) - MAX_PICTURE_URLS
+    composed, dropped_oldest, truncated_count = _truncate_to_cap(composed_full, mode)
+    truncated = truncated_count > 0
+    if truncated:
         log_debug(
             f"revise_pictures TRUNCATED item_id={item_id} mode={mode} "
-            f"composed_count={len(composed)} cap={MAX_PICTURE_URLS} "
-            f"dropping_last={truncated_count}"
+            f"composed_count={len(composed_full)} cap={MAX_PICTURE_URLS} "
+            f"dropped={truncated_count} preserve_index_0={mode == 'append'}"
         )
-        composed = composed[:MAX_PICTURE_URLS]
-        truncated = True
 
     # 5. Build payload — echo current ShippingDetails so eBay doesn't overwrite.
     shipping = extract_shipping_details(current.reply.Item)
@@ -183,7 +179,7 @@ async def revise_pictures(
         success=True,
     )
 
-    photos_lost = list(photos_before) if mode == "replace" else []
+    photos_lost = list(photos_before) if mode == "replace" else dropped_oldest
     return {
         "ok": True,
         "item_id": item_id,
@@ -196,8 +192,36 @@ async def revise_pictures(
         "truncated": truncated,
         "truncated_count": truncated_count,
         "fees": fees,
-        "live_url": f"https://www.ebay.co.uk/itm/{item_id}",
+        "live_url": live_url,
     }
+
+
+def _truncate_to_cap(composed: list[str], mode: str) -> tuple[list[str], list[str], int]:
+    """Truncate composed URL list to MAX_PICTURE_URLS preserving the right end.
+
+    Append-mode rule (L13 fix — Ralph Opus finding):
+      eBay's MAX_PICTURE_URLS cap is 24. When append + overflow, the OLD
+      behaviour `composed[:cap]` dropped the LAST entries — i.e. the URLs the
+      operator JUST uploaded. Silent data loss.
+      New behaviour preserves index 0 (the gallery image) AND every newest
+      entry, dropping oldest non-index-0 URLs first.
+
+    Replace-mode keeps the front-slice behaviour: caller supplied the explicit
+    full set in the order they want, so honouring head-order matches intent.
+
+    Returns (kept, dropped_oldest, truncated_count).
+    """
+    overflow = len(composed) - MAX_PICTURE_URLS
+    if overflow <= 0:
+        return composed, [], 0
+    if mode == "append":
+        # Preserve composed[0] (gallery anchor) + the last (cap-1) entries.
+        kept = [composed[0]] + composed[-(MAX_PICTURE_URLS - 1):]
+        # Dropped slice = the middle that fell out.
+        dropped = composed[1 : 1 + overflow]
+        return kept, dropped, overflow
+    # Replace: front-slice (caller-supplied order is intentional).
+    return composed[:MAX_PICTURE_URLS], composed[MAX_PICTURE_URLS:], overflow
 
 
 def _extract_fees(reply: object) -> list[dict[str, str]]:

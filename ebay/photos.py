@@ -6,6 +6,11 @@ preprocess_for_ebay: one-pass validation + EXIF-transpose + RGB convert +
 upload_one: wraps UploadSiteHostedPictures multipart for a single image,
   returns the eBay-hosted FullURL.
 
+VISUAL_PHOTO_PATTERNS + glob_visual_photos: canonical disk-flow.sh visual-
+photo glob (#25 triple-glob — `visual-*.png`, `SMART-*.png`,
+`DISK-TEST-VISUAL-*.png`). Lifted out of server.py so audit scripts can
+import without pulling FastMCP startup (M4 — Ralph deferred Opus dedup).
+
 HEIC input is supported best-effort via pillow-heif (optional — iPhone users
 only). Missing → ImportError swallowed at module import, HEIC paths then
 fail inside Pillow's Image.open with its own clear error.
@@ -19,6 +24,13 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from ebay.client import execute_with_retry, log_debug
+
+# SMART-test visual filenames per disk-flow.sh L534 + L544 (#25 stub-body
+# correction A3): scope claimed `SMART-{serial}.png` but the writer emits
+# `tests/visual-{serial}-{stamp}.png` AND `DISK-TEST-VISUAL-{serial}.png`
+# at drive root. Glob all three for forward-compat — the union is small and
+# bounded by the 24-photo PictureDetails cap downstream.
+VISUAL_PHOTO_PATTERNS = ("visual-*.png", "SMART-*.png", "DISK-TEST-VISUAL-*.png")
 
 try:  # iPhone HEIC support is opt-in.
     from pillow_heif import register_heif_opener  # type: ignore[import-not-found]
@@ -67,6 +79,32 @@ def preprocess_for_ebay(path: str) -> bytes:
         buf = BytesIO()
         im.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
         return buf.getvalue()
+
+
+def glob_visual_photos(folder: Path) -> list[str]:
+    """Find SMART-test visual artefacts in a product folder (#25 triple-glob).
+
+    Globs `visual-*.png`, `SMART-*.png`, and `DISK-TEST-VISUAL-*.png` — the
+    three writer conventions documented in disk-flow.sh and dotfiles HARD
+    CONTRACT. Stable order: pattern groups in declared sequence, files inside
+    each group sorted alphabetically. De-duplicates against case-insensitive
+    filesystems.
+
+    Returns the file paths as strings so callers (server.py photo-upload flow,
+    audit_smart_visuals.py) don't need to re-stringify.
+    """
+    if not folder.exists():
+        return []
+    seen: set[str] = set()
+    results: list[str] = []
+    for pattern in VISUAL_PHOTO_PATTERNS:
+        for p in sorted(folder.glob(pattern)):
+            s = str(p)
+            if s in seen:
+                continue
+            seen.add(s)
+            results.append(s)
+    return results
 
 
 def upload_one(bytes_data: bytes) -> str:

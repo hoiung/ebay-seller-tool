@@ -49,7 +49,12 @@ from ebay.listings import (  # noqa: E402
     listing_to_dict,
     snapshot_listing,
 )
-from ebay.photos import preprocess_for_ebay, upload_one  # noqa: E402
+from ebay.photos import (  # noqa: E402
+    VISUAL_PHOTO_PATTERNS,
+    glob_visual_photos,
+    preprocess_for_ebay,
+    upload_one,
+)
 from ebay.end_listing import (  # noqa: E402
     ALLOWED_ENDING_REASONS,
     end_listing as _end_listing_core,
@@ -94,12 +99,8 @@ CONDITION_HTML_SUFFIX: dict[str, str] = {
 
 # eBay image filenames from Hoi's phone camera (timestamp pattern).
 LABEL_PHOTO_REGEX = re.compile(r"IMG\d{8}\d{6}\.jpg$", re.IGNORECASE)
-# SMART-test visual filenames per disk-flow.sh L534 + L544 (#25 stub-body
-# correction A3): scope claimed `SMART-{serial}.png` but the writer emits
-# `tests/visual-{serial}-{stamp}.png` AND `DISK-TEST-VISUAL-{serial}.png`
-# at drive root. Glob all three for forward-compat — the union is small and
-# bounded by the 24-photo PictureDetails cap downstream.
-VISUAL_PHOTO_PATTERNS = ("visual-*.png", "SMART-*.png", "DISK-TEST-VISUAL-*.png")
+# VISUAL_PHOTO_PATTERNS lifted to ebay/photos.py — re-exported above so that
+# audit scripts can import the canonical glob without pulling FastMCP startup.
 _COPY_BLOCK_RE = re.compile(
     r'<div[^>]*class=["\'][^"\']*copy-block[^"\']*["\'][^>]*>(.*?)</div>',
     re.IGNORECASE | re.DOTALL,
@@ -256,29 +257,6 @@ def _glob_label_photos(folder: Path) -> list[str]:
             seen.add(s)
             if LABEL_PHOTO_REGEX.search(p.name):
                 results.append(s)
-    return results
-
-
-def _glob_visual_photos(folder: Path) -> list[str]:
-    """Find SMART-test visual artefacts in a product folder (#25 triple-glob).
-
-    Globs `visual-*.png`, `SMART-*.png`, and `DISK-TEST-VISUAL-*.png` — the
-    three writer conventions documented in disk-flow.sh and dotfiles HARD
-    CONTRACT. Stable order: pattern groups in declared sequence, files inside
-    each group sorted alphabetically. De-duplicates against case-insensitive
-    filesystems the same way _glob_label_photos does.
-    """
-    if not folder.exists():
-        return []
-    seen: set[str] = set()
-    results: list[str] = []
-    for pattern in VISUAL_PHOTO_PATTERNS:
-        for p in sorted(folder.glob(pattern)):
-            s = str(p)
-            if s in seen:
-                continue
-            seen.add(s)
-            results.append(s)
     return results
 
 
@@ -1096,7 +1074,7 @@ async def create_listing(
             # #25 triple-glob: regular IMG photos first (gallery image preserved
             # at index 0), then SMART-test visuals appended in pattern order.
             label_photos = _glob_label_photos(folder)
-            visual_photos = _glob_visual_photos(folder)
+            visual_photos = glob_visual_photos(folder)
             photo_paths = label_photos + visual_photos
             log_debug(
                 f"create_listing photo_glob folder={folder.name} "
@@ -1316,7 +1294,17 @@ async def create_listing(
         )
 
         # --- P3.14 Return shape ---
-        listing_url = f"https://www.ebay.co.uk/itm/{new_item_id}"
+        # M7 fix (Ralph deferred Opus, completed): prefer the server-authoritative
+        # ListingDetails.ViewItemURL captured by `landed = listing_to_dict(...)`
+        # during the post-create verify above. The verify block can fail (no
+        # `landed` defined), in which case fall back to the marketplace literal —
+        # the listing was created so we still have the item_id; the URL fallback
+        # only matters for the operator preview.
+        listing_url = (
+            landed["listing_url"]  # type: ignore[possibly-undefined]
+            if "landed" in locals() and isinstance(landed, dict) and landed.get("listing_url")
+            else f"https://www.ebay.co.uk/itm/{new_item_id}"
+        )
         return json.dumps(
             {
                 "success": True,
@@ -1766,9 +1754,7 @@ async def analyse_listing(
                     own_live_price=current_price_gbp,
                 )
                 if isinstance(comp_result, dict):
-                    # fetch_competitor_prices returns the flat audit under key
-                    # `audit` (not `audit_flat`); see browse.py:_sync_find_competitor_prices.
-                    audit_flat = comp_result.get("audit") or {}
+                    audit_flat = comp_result.get("audit_flat") or {}
                     comp_pool_stats = audit_flat.get("concentration")
                     # Stub #20 — surface 3-verdict carve-out + per-verdict
                     # recommended_action so analyse_listing's decision matrix
@@ -1917,6 +1903,10 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
       2. Per-item failure isolation — one bad item doesn't bomb the batch
       3. Surfaces a high_return_rate_count summary inline so the operator
          doesn't have to filter the per-item dict to find the >15% outliers
+      4. Systemic-failure short-circuit (L14): tracks repeat (exception class,
+         message) signatures; when ≥3 items observed AND ≥50% share the same
+         signature, the loop aborts so an OAuth/auth/rate-limit failure can't
+         cascade through 50+ items as identical \"error\" entries.
 
     Note: per-item OAuth session reuse is NOT currently implemented — each
     call enters its own get_post_order_session(). Future optimisation: wrap
@@ -1932,11 +1922,18 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
           {
             "results": {
               "<item_id>": {"return_rate_pct": float, "sold_count": int,
-                            "returned_count": int} | {"error": str},
+                            "returned_count": int} | {"error": str, "error_class": str},
               ...
             },
-            "summary": {"total": int, "succeeded": int, "failed": int,
-                        "high_return_rate_count": int  # >15% threshold},
+            "summary": {"total": int, "processed": int, "succeeded": int,
+                        "failed": int, "high_return_rate_count": int,
+                        "high_return_rate_threshold_pct": 15.0,
+                        # On short-circuit (≥50% identical errors across ≥3 items):
+                        "short_circuited": bool,
+                        "systemic_error_class": str,
+                        "systemic_error_message": str,
+                        "systemic_error_count": int,
+                        "unprocessed_item_ids": list[str]}
           }
     """
     if not item_ids:
@@ -1950,7 +1947,16 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
     succeeded = 0
     failed = 0
     high_return = 0
-    for item_id in item_ids:
+    # L14 (Ralph Opus) — track repeat exception class + message so a systemic
+    # failure (auth-token expired, OAuth 401, rate-limit) doesn't cascade
+    # silently across every remaining item. After we've seen ≥3 calls AND
+    # ≥50% of those calls failed with the same (class, str) key, abort the
+    # loop and surface the systemic failure in the summary.
+    error_signature_counts: dict[tuple[str, str], int] = {}
+    short_circuit_threshold = 0.5
+    short_circuit_min_observations = 3
+    short_circuited = False
+    for idx, item_id in enumerate(item_ids):
         try:
             res = await rest_compute_return_rate(item_id=item_id, days=days)
             results[item_id] = res
@@ -1960,22 +1966,42 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
                 high_return += 1
         except Exception as e:  # noqa: BLE001 — boundary for per-item resilience
             log_debug(f"compute_return_rates_bulk item_id={item_id} FAILED: {e}")
-            results[item_id] = {"error": str(e)}
+            results[item_id] = {"error": str(e), "error_class": type(e).__name__}
             failed += 1
+            sig = (type(e).__name__, str(e))
+            error_signature_counts[sig] = error_signature_counts.get(sig, 0) + 1
+            observed = idx + 1
+            top_class, top_msg = max(error_signature_counts, key=error_signature_counts.get)  # type: ignore[arg-type]
+            top_count = error_signature_counts[(top_class, top_msg)]
+            if (
+                observed >= short_circuit_min_observations
+                and top_count / observed >= short_circuit_threshold
+            ):
+                log_debug(
+                    f"compute_return_rates_bulk SHORT-CIRCUIT after {observed} items "
+                    f"({top_count} {top_class!r}=='{top_msg}' — likely systemic)"
+                )
+                short_circuited = True
+                break
 
-    return json.dumps(
-        {
-            "results": results,
-            "summary": {
-                "total": len(item_ids),
-                "succeeded": succeeded,
-                "failed": failed,
-                "high_return_rate_count": high_return,
-                "high_return_rate_threshold_pct": 15.0,
-            },
-        },
-        indent=2,
-    )
+    summary: dict[str, object] = {
+        "total": len(item_ids),
+        "processed": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "high_return_rate_count": high_return,
+        "high_return_rate_threshold_pct": 15.0,
+    }
+    if short_circuited:
+        top_class, top_msg = max(error_signature_counts, key=error_signature_counts.get)  # type: ignore[arg-type]
+        summary["short_circuited"] = True
+        summary["systemic_error_class"] = top_class
+        summary["systemic_error_message"] = top_msg
+        summary["systemic_error_count"] = error_signature_counts[(top_class, top_msg)]
+        summary["unprocessed_item_ids"] = [
+            iid for iid in item_ids if iid not in results
+        ]
+    return json.dumps({"results": results, "summary": summary}, indent=2)
 
 
 @mcp.tool()
