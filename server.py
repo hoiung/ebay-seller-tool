@@ -1751,6 +1751,8 @@ async def analyse_listing(
     # caller's explicit request to avoid latency regression for read-mostly
     # consumers (e.g. dashboard polling).
     comp_pool_stats: dict | None = None
+    comp_verdict: str | None = None  # Stub #20 — 3-verdict carve-out
+    comp_recommended_action: str | None = None
     if include_market_concentration:
         try:
             mpns = (listing.get("specifics") or {}).get("MPN") or []
@@ -1768,6 +1770,12 @@ async def analyse_listing(
                     # `audit` (not `audit_flat`); see browse.py:_sync_find_competitor_prices.
                     audit_flat = comp_result.get("audit") or {}
                     comp_pool_stats = audit_flat.get("concentration")
+                    # Stub #20 — surface 3-verdict carve-out + per-verdict
+                    # recommended_action so analyse_listing's decision matrix
+                    # consumer routes on LONE_SUPPLIER / THIN_POOL / ALL_FILTERED
+                    # correctly. Verdict only present for non-normal pools.
+                    comp_verdict = comp_result.get("verdict")
+                    comp_recommended_action = comp_result.get("recommended_action")
         except (RuntimeError, KeyError, TypeError, ValueError) as e:
             log_debug(
                 f"analyse_listing market_concentration_skipped item_id={item_id} "
@@ -1806,6 +1814,14 @@ async def analyse_listing(
         # Stub #19 — only present when include_market_concentration=True; None
         # when the comp scan failed or the listing has no MPN to query.
         "comp_pool_stats": comp_pool_stats,
+        # Stub #20 — 3-verdict carve-out (LONE_SUPPLIER / THIN_POOL /
+        # ALL_FILTERED). Only set when the comp scan ran AND the pool was
+        # non-normal. Operator decision-matrix consumer routes on these:
+        #   LONE_SUPPLIER  → anchor_via_cogs_plus_target_margin
+        #   THIN_POOL      → use_with_low_confidence
+        #   ALL_FILTERED   → review_filter_settings
+        "comp_verdict": comp_verdict,
+        "comp_recommended_action": comp_recommended_action,
     }
 
     # Phase 5.2.1 — only persist when Phase 2 is actually available; without
@@ -1895,11 +1911,17 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
     """G-NEW-11 — bulk per-SKU return rates for the weekly-sweep skill flow.
 
     Loop the per-item compute_return_rate call across many item_ids in a single
-    MCP invocation. Justification over shell-loop: avoids N tool-call round
-    trips + lets the OAuth session be reused once across all calls (vs
-    re-acquiring per shell loop iteration). Returns a flat dict keyed by
-    item_id; per-item failures surface as `{error: str}` value rather than
-    bombing the whole batch.
+    MCP invocation. Justification over shell-loop:
+
+      1. Avoids N tool-call round-trips at the MCP wire layer
+      2. Per-item failure isolation — one bad item doesn't bomb the batch
+      3. Surfaces a high_return_rate_count summary inline so the operator
+         doesn't have to filter the per-item dict to find the >15% outliers
+
+    Note: per-item OAuth session reuse is NOT currently implemented — each
+    call enters its own get_post_order_session(). Future optimisation: wrap
+    a single context manager around the loop. The MCP wire-layer saving is
+    the dominant win today.
 
     Args:
         item_ids: List of eBay item IDs.
