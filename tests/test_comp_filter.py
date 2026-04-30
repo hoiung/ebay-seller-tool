@@ -358,6 +358,205 @@ def test_caddy_detection_has_caddy_runtime_arg() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Stub #18 — distinct-SKU mpn_mismatch hard-reject
+# ---------------------------------------------------------------------------
+
+
+def test_mpn_mismatch_dropped_when_own_mpn_absent_from_title() -> None:
+    """Stub #18 canonical case: own=ST2000NX0403, comp=ST2000NX0253. Different
+    SKUs (different firmware/label) — must not pool as same comp set."""
+    own = _own(
+        title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["ST2000NX0403"], "Form Factor": ['2.5"']},
+    )
+    comps = [
+        _comp(title="ST2000NX0253 Seagate 2TB 2.5 SAS HDD"),
+    ]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 0
+    assert audit["dropped_reasons"]["mpn_mismatch"] == 1
+
+
+def test_mpn_match_kept_when_own_mpn_in_comp_title() -> None:
+    """own=ST2000NX0253, comp title contains it → kept."""
+    own = _own()  # MPN=ST2000NX0253
+    comps = [_comp(title="ST2000NX0253 Seagate Enterprise Capacity 2TB 2.5 SAS")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+    assert "mpn_mismatch" not in audit["dropped_reasons"]
+
+
+def test_mpn_mismatch_case_insensitive_match() -> None:
+    """own=ST2000NX0253 matches comp title 'st2000nx0253' (lowercase) — case-insensitive."""
+    own = _own()
+    comps = [_comp(title="seagate st2000nx0253 enterprise capacity 2tb 2.5 sas hdd used")]
+    survivors, _ = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+
+
+def test_mpn_mismatch_skipped_when_own_has_no_mpn() -> None:
+    """No MPN in own.specifics → fall back to soft Dim-1, no over-restriction."""
+    # Use a generic own title without any series keyword to avoid series_mismatch
+    # (this test is targeting the mpn-skip branch only).
+    own = _own(
+        title="Generic 2TB SAS HDD",
+        specifics={"Form Factor": ['2.5"']},  # no MPN key
+    )
+    comps = [_comp(title="ST2000NX0253 Seagate 2TB SAS HDD")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+    assert "mpn_mismatch" not in audit["dropped_reasons"]
+
+
+def test_mpn_mismatch_multi_mpn_any_match_keeps() -> None:
+    """own.MPN=[A, B], comp title has B → kept (ANY-of match)."""
+    own = _own(
+        title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["ST2000NX0403", "ST2000NX0273"], "Form Factor": ['2.5"']},
+    )
+    comps = [_comp(title="ST2000NX0273 Seagate 2TB 2.5 SAS HDD")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert len(survivors) == 1
+    assert "mpn_mismatch" not in audit["dropped_reasons"]
+
+
+def test_mpn_mismatch_sibling_allowlist_keeps_cross_sku() -> None:
+    """When sibling allowlist has own→[sibling], comp matching the sibling MPN passes."""
+    import yaml
+
+    from ebay.browse import _load_filter_config, reset_filter_cache
+
+    # Inject a temporary sibling-allowlist by patching the cached config dict.
+    cfg = _load_filter_config()
+    original = cfg["comp_filter"].get("sibling_allowlist", {})
+    cfg["comp_filter"]["sibling_allowlist"] = {"ST2000NX0403": ["ST2000NX0253"]}
+    try:
+        # Avoid series-name interference: use a title without "Enterprise Capacity"
+        own = _own(
+            title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+            specifics={"MPN": ["ST2000NX0403"], "Form Factor": ['2.5"']},
+        )
+        comps = [_comp(title="ST2000NX0253 Seagate 2TB SAS HDD")]
+        survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+        assert len(survivors) == 1
+        assert "mpn_mismatch" not in audit["dropped_reasons"]
+    finally:
+        cfg["comp_filter"]["sibling_allowlist"] = original
+        reset_filter_cache()
+    # Suppress unused-import warning when yaml import not exercised
+    _ = yaml
+
+
+def test_seller_concentration_thin_pool_short_circuits() -> None:
+    """Stub #19 — n<min_pool_size returns confidence=insufficient_pool, no flag."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [
+        {"seller": "alice", "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": "alice", "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": "bob", "seller_feedback_score": 200, "seller_feedback_pct": "98.0"},
+    ]
+    out = compute_seller_concentration(comps)
+    assert out["confidence"] == "insufficient_pool"
+    assert out["top_seller_pct"] is None
+    assert out["herfindahl"] is None
+    assert out["distinct_sellers"] == 2
+
+
+def test_seller_concentration_monoculture_flags_low() -> None:
+    """top_seller_pct > threshold (0.40) → confidence=low."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [{"seller": "alice", "seller_feedback_score": 100, "seller_feedback_pct": "99"}] * 6
+    comps += [{"seller": "bob", "seller_feedback_score": 200, "seller_feedback_pct": "98"}] * 2
+    out = compute_seller_concentration(comps)
+    assert out["top_seller_pct"] == 0.75  # 6/8
+    assert out["distinct_sellers"] == 2
+    assert out["confidence"] == "low"
+    assert 0 < out["herfindahl"] <= 1
+
+
+def test_seller_concentration_balanced_pool_normal() -> None:
+    """No seller dominates (<= threshold) → confidence=normal."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [
+        {"seller": f"seller_{i}", "seller_feedback_score": 100, "seller_feedback_pct": "99"}
+        for i in range(10)
+    ]
+    # All 10 distinct sellers → top_seller_pct = 0.10
+    out = compute_seller_concentration(comps)
+    assert out["distinct_sellers"] == 10
+    assert out["top_seller_pct"] == 0.10
+    assert out["confidence"] == "normal"
+
+
+def test_seller_concentration_null_username_falls_back_to_feedback_profile() -> None:
+    """US-seller null username → fall back to feedback_score+feedback_pct quasi-id.
+
+    Two comps with same null username but distinct feedback profiles → 2 distinct
+    sellers (NOT 1 — would-be the case under naive null-collapsing)."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [
+        {"seller": None, "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": None, "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": None, "seller_feedback_score": 500, "seller_feedback_pct": "97.5"},
+        {"seller": None, "seller_feedback_score": 500, "seller_feedback_pct": "97.5"},
+    ]
+    out = compute_seller_concentration(comps)
+    # 2 distinct quasi-ids (100/99.0 vs 500/97.5), 2 each = balanced
+    assert out["distinct_sellers"] == 2
+    assert out["top_seller_pct"] == 0.50  # not "low" (threshold 0.40 is exclusive)
+
+
+def test_seller_concentration_empty_pool() -> None:
+    """Empty list → distinct=0, confidence=insufficient_pool."""
+    from ebay.browse import compute_seller_concentration
+
+    out = compute_seller_concentration([])
+    assert out["distinct_sellers"] == 0
+    assert out["confidence"] == "insufficient_pool"
+
+
+def test_run_comp_filter_pipeline_surfaces_concentration() -> None:
+    """audit_flat.concentration is populated after pipeline run."""
+    from ebay.browse import run_comp_filter_pipeline
+
+    # Use an own without series-name to avoid filter dropping the comps;
+    # focus the test on concentration computation, not filter behaviour.
+    own = _own(
+        title="Seagate ST2000NX0253 2TB 2.5 SAS HDD",  # no Enterprise Capacity / Exos
+        specifics={"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+    )
+    comps = [
+        _comp(
+            item_id=f"v1|{i}",
+            title=f"ST2000NX0253 unit {i} 2.5 SAS HDD",
+            seller="alice" if i < 4 else "bob",
+        )
+        for i in range(6)
+    ]
+    _, audit_flat, _ = run_comp_filter_pipeline(comps, own)
+    assert "concentration" in audit_flat
+    # Should keep at least 4 (passes Layer-1 + scoring); 2 distinct sellers
+    assert audit_flat["kept"] >= 4
+    assert audit_flat["concentration"]["distinct_sellers"] == 2
+
+
+def test_mpn_mismatch_empty_allowlist_default_drops() -> None:
+    """Default config has empty sibling_allowlist → no escape hatch, drops."""
+    own = _own(
+        title="Seagate ST2000NX0403 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["ST2000NX0403"], "Form Factor": ['2.5"']},
+    )
+    comps = [_comp(title="ST2000NX0253 Seagate 2TB SAS HDD")]
+    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
+    assert audit["dropped_reasons"]["mpn_mismatch"] == 1
+    assert len(survivors) == 0
+
+
+# ---------------------------------------------------------------------------
 # Phase 4.5 — drop_price_outliers (IQR with 3 guards)
 # ---------------------------------------------------------------------------
 
@@ -424,8 +623,9 @@ def test_drop_outlier_method_none_pass_through() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_pipeline_audit_flat_six_keys() -> None:
-    """5.1 — flat audit dict has exactly 6 user-facing keys."""
+def test_pipeline_audit_flat_seven_keys() -> None:
+    """5.1 — flat audit dict has the documented user-facing keys (concentration
+    added per Stub #19)."""
     comps = [_comp(item_id=str(i), title=f"ST2000NX0253 listing {i}") for i in range(8)]
     _, audit_flat, _ = run_comp_filter_pipeline(
         comps,
@@ -446,6 +646,7 @@ def test_pipeline_audit_flat_six_keys() -> None:
         "dropped_apple_to_apples",
         "dropped_stale",
         "dropped_outlier",
+        "concentration",
     }
 
 
@@ -597,10 +798,147 @@ def test_dim3_condition_self_match_not_in_equivalence_map() -> None:
     assert score == 1.0, "self-match default should fire even when ID not in equivalence map"
 
 
-def test_zero_comps_after_filter_verdict_literal() -> None:
-    """L1-A AC 5.3.3 + L1-G #3: verdict='ZERO_COMPS_AFTER_FILTER' surfaces at fetch return level.
+def test_lone_supplier_verdict_when_browse_returns_zero() -> None:
+    """Stub #20 — raw Browse returns zero items → LONE_SUPPLIER verdict + cogs-plus
+    fallback recommendation."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
 
-    Mock Browse to return all-broken comps; assert the literal verdict string fires.
+    import httpx
+
+    own = _own()
+    fake_client = MagicMock()
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp.text = "{}"
+    resp.json.return_value = {"itemSummaries": []}
+    fake_client.get.return_value = resp
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+
+    from ebay import browse
+
+    with patch("ebay.browse.get_browse_session", return_value=fake_client):
+        result = asyncio.run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253", condition="USED", own_listing=own
+            )
+        )
+    assert result.get("verdict") == "LONE_SUPPLIER"
+    assert result.get("recommended_action") == "anchor_via_cogs_plus_target_margin"
+    assert "fallback" in result
+    assert "rationale" in result["fallback"]
+    assert result["count"] == 0
+
+
+def test_thin_pool_verdict_when_kept_between_1_and_3() -> None:
+    """Stub #20 — 1<=kept<=3 → THIN_POOL verdict + use_with_low_confidence."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    import httpx
+
+    own = _own()
+    raw_items = [
+        {
+            "itemId": f"v1|good{i}",
+            "title": f"ST2000NX0253 Enterprise Capacity 2.5 SAS HDD listing {i}",
+            "price": {"value": "30.00", "currency": "GBP"},
+            "seller": {
+                "username": f"seller_{i}",
+                "feedbackPercentage": "99.9",
+                "feedbackScore": 1000,
+            },
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": f"https://i.ebayimg.com/g{i}.jpg"},
+            "additionalImages": [{"imageUrl": "https://i.ebayimg.com/g.jpg"}],
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+            "topRatedBuyingExperience": True,
+            "itemCreationDate": "2026-04-01T10:00:00Z",
+        }
+        for i in range(2)
+    ]
+    fake_client = MagicMock()
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp.text = "{}"
+    resp.json.return_value = {"itemSummaries": raw_items}
+    fake_client.get.return_value = resp
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+
+    from ebay import browse
+
+    with patch("ebay.browse.get_browse_session", return_value=fake_client):
+        result = asyncio.run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253", condition="USED", own_listing=own
+            )
+        )
+    assert result.get("verdict") == "THIN_POOL"
+    assert result.get("recommended_action") == "use_with_low_confidence"
+    assert result.get("confidence") == "low"
+    assert 1 <= result["count"] <= 3
+
+
+def test_normal_pool_no_verdict_surfaced() -> None:
+    """Stub #20 — kept > 3 → no verdict key at all (normal pool)."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    import httpx
+
+    own = _own()
+    raw_items = [
+        {
+            "itemId": f"v1|good{i}",
+            "title": f"ST2000NX0253 Enterprise Capacity 2.5 SAS HDD listing {i}",
+            "price": {"value": str(30 + i), "currency": "GBP"},
+            "seller": {
+                "username": f"seller_{i}",
+                "feedbackPercentage": "99.9",
+                "feedbackScore": 1000,
+            },
+            "condition": "Used",
+            "conditionId": "3000",
+            "image": {"imageUrl": f"https://i.ebayimg.com/g{i}.jpg"},
+            "additionalImages": [{"imageUrl": "https://i.ebayimg.com/g.jpg"}],
+            "returnTerms": {"returnsAccepted": True, "returnsWithinDays": 30},
+            "topRatedBuyingExperience": True,
+            "itemCreationDate": "2026-04-01T10:00:00Z",
+        }
+        for i in range(8)
+    ]
+    fake_client = MagicMock()
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    resp.text = "{}"
+    resp.json.return_value = {"itemSummaries": raw_items}
+    fake_client.get.return_value = resp
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = False
+
+    from ebay import browse
+
+    with patch("ebay.browse.get_browse_session", return_value=fake_client):
+        result = asyncio.run(
+            browse.fetch_competitor_prices(
+                part_number="ST2000NX0253", condition="USED", own_listing=own
+            )
+        )
+    assert "verdict" not in result
+    assert result["count"] > 3
+
+
+def test_all_filtered_verdict_literal() -> None:
+    """Stub #20 (was ZERO_COMPS_AFTER_FILTER): when raw>0 but all dropped, verdict is ALL_FILTERED.
+
+    Mock Browse to return all-broken comps; assert ALL_FILTERED verdict
+    + recommended_action + pre_filter_count.
     """
     import asyncio
     from unittest.mock import MagicMock, patch
@@ -642,7 +980,9 @@ def test_zero_comps_after_filter_verdict_literal() -> None:
                 part_number="ST2000NX0253", condition="USED", own_listing=own
             )
         )
-    assert result.get("verdict") == "ZERO_COMPS_AFTER_FILTER"
+    assert result.get("verdict") == "ALL_FILTERED"
+    assert result.get("recommended_action") == "review_filter_settings"
+    assert result.get("pre_filter_count") == 3
     assert result["count"] == 0
     assert result["audit"]["dropped_low_quality"] == 3
 

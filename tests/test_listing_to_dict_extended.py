@@ -95,11 +95,58 @@ def test_listing_to_dict_promoted_listing_false_default() -> None:
 
 
 def test_listing_to_dict_handles_missing_optional_fields() -> None:
+    # #16 fix: BestOfferEnabled defaults to False (boolean-only contract) when
+    # the element is absent from GetItem response — never None.
     item = _build_item(BestOfferEnabled=None, QuestionCount=None, BestOfferCount=None)
     d = listing_to_dict(item)
     assert d["best_offer_count"] == 0
     assert d["question_count"] == 0
-    assert d["best_offer_enabled"] is None
+    assert d["best_offer_enabled"] is False
+
+
+def test_listing_to_dict_best_offer_enabled_absent() -> None:
+    # New regression fixture: simulates GetItem response with BestOfferEnabled
+    # element absent (eBay omits it for listings without Best Offer configured).
+    item = _build_item(BestOfferEnabled=None)
+    d = listing_to_dict(item)
+    assert d["best_offer_enabled"] is False  # NOT None, NOT True
+    assert isinstance(d["best_offer_enabled"], bool)
+
+
+def test_listing_to_dict_best_offer_enabled_false_string() -> None:
+    # New regression fixture: BestOfferEnabled="false" XML string value.
+    item = _build_item(BestOfferEnabled="false")
+    d = listing_to_dict(item)
+    assert d["best_offer_enabled"] is False
+    assert isinstance(d["best_offer_enabled"], bool)
+
+
+def test_listing_to_dict_surfaces_best_offer_thresholds() -> None:
+    """AP #18 surfaced gap — Item.ListingDetails.BestOfferAutoAcceptPrice +
+    MinimumBestOfferPrice need to be reachable for restore round-trips and
+    for recommend_best_offer_thresholds to compare current vs proposed."""
+    item = _build_item(
+        ListingDetails=SimpleNamespace(
+            ViewItemURL="https://www.ebay.co.uk/itm/12345",
+            StartTime="2026-03-15T10:22:00Z",
+            EndTime="2026-04-14T10:22:00Z",
+            RelistCount="0",
+            BestOfferAutoAcceptPrice=SimpleNamespace(value="44.00", _currencyID="GBP"),
+            MinimumBestOfferPrice=SimpleNamespace(value="36.00", _currencyID="GBP"),
+        )
+    )
+    d = listing_to_dict(item)
+    assert d["best_offer_auto_accept_gbp"] == 44.0
+    assert d["best_offer_auto_decline_gbp"] == 36.0
+
+
+def test_listing_to_dict_best_offer_thresholds_absent_returns_none() -> None:
+    """When BestOfferAutoAcceptPrice / MinimumBestOfferPrice elements absent,
+    surface as None (not 0, not 'missing') — matches eBay's 'Best Offer not
+    configured' state."""
+    d = listing_to_dict(_build_item())  # default fixture has no thresholds
+    assert d["best_offer_auto_accept_gbp"] is None
+    assert d["best_offer_auto_decline_gbp"] is None
 
 
 def test_listing_to_dict_handles_missing_shipping() -> None:

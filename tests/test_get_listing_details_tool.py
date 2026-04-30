@@ -221,6 +221,21 @@ def test_analyse_listing_phase2_backfills_views(tmp_path, monkeypatch) -> None:
         parsed["recommended_action"] is None or "Rewrite title" not in parsed["recommended_action"]
     )
 
+    # #17 fix (Stage 1 L2 F2): days_on_site key present in response. Item built
+    # with StartTime=30d ago, so value should be 29 or 30 (depending on sub-day
+    # rounding in days_on_site computation at listings.py:182-188).
+    assert "days_on_site" in parsed
+    assert parsed["days_on_site"] in (29, 30)
+
+    # G-NEW-3: days-to-sell distribution surfaced. With empty transactions list,
+    # n_samples=0 and percentiles are None.
+    assert parsed["days_to_sell_n_samples"] == 0
+    assert parsed["days_to_sell_p25"] is None
+    assert parsed["days_to_sell_p50"] is None
+    assert parsed["days_to_sell_p75"] is None
+    # Backwards compat: median preserved
+    assert parsed["days_to_sell_median"] is None
+
     # Phase 5.2.1 — happy path emits analysis_baseline snapshot.
     assert snap_path.exists(), "analyse_listing should have written analysis_baseline snapshot"
     lines = snap_path.read_text().strip().split("\n")
@@ -309,3 +324,84 @@ def test_analyse_listing_phase2_unavailable_returns_data_gap(tmp_path, monkeypat
 
     # Phase 5.2.1 — Phase 2 unavailable → NO snapshot written (gated on phase2_available).
     assert not snap_path.exists(), "snapshot should NOT be written when phase2_available=False"
+
+
+def test_analyse_listing_days_to_sell_distribution(tmp_path, monkeypatch) -> None:
+    """G-NEW-3: analyse_listing surfaces days-to-sell p25/p50/p75/n_samples
+    computed from per-item seller transactions. Verifies linear-interpolation
+    percentile math against a known input distribution.
+
+    Distribution: 4 transactions with days_to_sell = [2, 5, 7, 12]
+      Sorted: [2, 5, 7, 12], n=4
+      p25 = (n-1)*0.25 = 0.75 → idx 0..1, frac 0.75 → 2 + 0.75*(5-2) = 4.25
+      p50 = (n-1)*0.50 = 1.5  → idx 1..2, frac 0.5  → 5 + 0.5*(7-5)  = 6.0
+      p75 = (n-1)*0.75 = 2.25 → idx 2..3, frac 0.25 → 7 + 0.25*(12-7) = 8.25
+      median (legacy alias of p50) = 6.0
+    """
+    snap_path = tmp_path / "snap.jsonl"
+    monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(snap_path))
+
+    async def fake_fetch_seller_transactions(**_):
+        return {
+            "transactions": [
+                {"item_id": "999", "days_to_sell": 2},
+                {"item_id": "999", "days_to_sell": 5},
+                {"item_id": "999", "days_to_sell": 7},
+                {"item_id": "999", "days_to_sell": 12},
+                {"item_id": "888", "days_to_sell": 100},  # different item — filtered out
+                {"item_id": "999", "days_to_sell": None},  # null filtered out
+            ]
+        }
+
+    async def fake_fetch_listing_feedback(**_):
+        return {"entries": []}
+
+    async def fake_fetch_listing_cases(**_):
+        return {"open_cases": 0}
+
+    async def fake_fetch_sold_listings(**_):
+        return {"listings": []}
+
+    async def fake_fetch_unsold_listings(**_):
+        return {"listings": []}
+
+    async def fake_raises(*_, **__):
+        raise RuntimeError("phase 2 not relevant for this test")
+
+    async def fake_return_rate_raises(**_):
+        raise RuntimeError("not relevant")
+
+    item_stub = _fake_item("999")
+    from datetime import datetime, timedelta, timezone
+
+    start_30d = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    item_stub.ListingDetails = SimpleNamespace(
+        StartTime=start_30d, EndTime=None, ViewItemURL="https://ebay.co.uk/itm/999"
+    )
+
+    with (
+        patch("server.execute_with_retry", return_value=_reply(Item=item_stub)),
+        patch("server.fetch_seller_transactions", side_effect=fake_fetch_seller_transactions),
+        patch("server.fetch_listing_feedback", side_effect=fake_fetch_listing_feedback),
+        patch("server.fetch_listing_cases", side_effect=fake_fetch_listing_cases),
+        patch("server.fetch_sold_listings", side_effect=fake_fetch_sold_listings),
+        patch("server.fetch_unsold_listings", side_effect=fake_fetch_unsold_listings),
+        patch("server.fetch_traffic_report", side_effect=fake_raises),
+        patch("server.rest_compute_return_rate", side_effect=fake_return_rate_raises),
+    ):
+        tool = server.mcp._tool_manager._tools["analyse_listing"]
+        result_json = _run(tool.fn(item_id="999"))
+
+    parsed = json.loads(result_json)
+    assert "error" not in parsed
+
+    # 4 valid txns for item 999 (item 888 + None excluded)
+    assert parsed["days_to_sell_n_samples"] == 4
+
+    # Linear-interp percentiles per docstring above
+    assert parsed["days_to_sell_p25"] == 4.25
+    assert parsed["days_to_sell_p50"] == 6.0
+    assert parsed["days_to_sell_p75"] == 8.25
+
+    # Backwards compat: median preserved (== p50)
+    assert parsed["days_to_sell_median"] == 6.0

@@ -183,6 +183,11 @@ def _fetch_one_condition_id(
     in-itemAffiliateWebUrl) detection forward so the orchestrator can recompute
     promoted_count from deduped listings without re-walking raw items.
     """
+    # Stub #19 — set fieldgroups=ADDITIONAL_SELLER_DETAILS so seller.username +
+    # feedbackScore + feedbackPercentage land in the response. Per D2 platform
+    # change 2025-09-26 Browse API depreciates seller.username for US sellers
+    # (renders as null); the EXTENDED group is the only way to retrieve seller
+    # quality signals at all. UK/EU sellers continue to populate username.
     params = {
         "q": part_number,
         "filter": (
@@ -191,6 +196,7 @@ def _fetch_one_condition_id(
             f"itemLocationCountry:{{{location_country}}}"
         ),
         "limit": str(min(max(limit, 1), 200)),
+        "fieldgroups": "ADDITIONAL_SELLER_DETAILS",
     }
     with get_browse_session() as client:
         response = client.get("/buy/browse/v1/item_summary/search", params=params)
@@ -356,7 +362,18 @@ def _sync_find_competitor_prices(
             # Issue #444 Part B — surface per-condition raw counts even on empty pool
             # so callers can see which equivalence-class members returned zero.
             empty["audit_verbose"] = {"raw_count_per_condition_id": raw_count_per_condition_id}
-            empty["verdict"] = "ZERO_COMPS_AFTER_FILTER"
+            # Stub #20 — 3-verdict carve-out. Raw Browse returned zero items
+            # = genuinely platform-niche (LONE_SUPPLIER), distinct from "filter
+            # killed everything" (ALL_FILTERED). Different operator response.
+            empty["verdict"] = "LONE_SUPPLIER"
+            empty["recommended_action"] = "anchor_via_cogs_plus_target_margin"
+            empty["fallback"] = {
+                "rationale": (
+                    "no market signal from Browse — fall back to cost-plus + "
+                    "target margin OR own-history (get_sold_listings) for anchor"
+                ),
+                "suggested_inputs": ["floor_price_gbp", "get_sold_listings(MPN)"],
+            }
         return empty
 
     sorted_prices = sorted(prices)
@@ -405,6 +422,10 @@ def _sync_find_competitor_prices(
     audit_verbose["raw_count_per_condition_id"] = raw_count_per_condition_id
 
     if not kept:
+        # Stub #20 — ALL_FILTERED. raw>0 (we wouldn't reach here from the raw=0
+        # branch above) but every comp dropped by Layer-1/2/3. Surfaces the raw
+        # count so the operator can decide whether to relax the filter or
+        # accept lone-supplier-like fallback.
         return {
             **raw_distribution,
             "count": 0,
@@ -416,12 +437,14 @@ def _sync_find_competitor_prices(
             "listings": [],
             "audit": audit_flat,
             "audit_verbose": audit_verbose,
-            "verdict": "ZERO_COMPS_AFTER_FILTER",
+            "verdict": "ALL_FILTERED",
+            "recommended_action": "review_filter_settings",
+            "pre_filter_count": audit_flat.get("raw_count", 0),
         }
 
     kept_prices = sorted(c["price"] for c in kept)
     kept_n = len(kept_prices)
-    return {
+    out: dict[str, Any] = {
         **raw_distribution,
         "count": kept_n,
         "min": round(kept_prices[0], 2),
@@ -433,6 +456,14 @@ def _sync_find_competitor_prices(
         "audit": audit_flat,
         "audit_verbose": audit_verbose,
     }
+    # Stub #20 — THIN_POOL. 1<=kept<=3 sample is too small to anchor pricing
+    # confidently; surface the verdict + low-confidence flag so consumers can
+    # weight stats accordingly. > 3 = no verdict surfaced (normal pool).
+    if 1 <= kept_n <= 3:
+        out["verdict"] = "THIN_POOL"
+        out["recommended_action"] = "use_with_low_confidence"
+        out["confidence"] = "low"
+    return out
 
 
 async def fetch_competitor_prices(
@@ -447,10 +478,17 @@ async def fetch_competitor_prices(
 
     When ``own_listing`` is provided, runs the Issue #14 three-layer comp-filter
     pipeline (low-quality reject → apple-to-apples score → stale-drop → outlier-
-    drop) before returning. The result dict gains ``audit`` (flat 6-key) and
-    ``audit_verbose`` (per-reason histogram), and ``count``/``min``/``p25``/
-    ``median``/``p75``/``max``/``listings`` reflect the kept comps. When all
-    comps are dropped, ``verdict: 'ZERO_COMPS_AFTER_FILTER'`` is surfaced.
+    drop) before returning. The result dict gains ``audit`` (flat 7-key — Stub
+    #19 added ``concentration``) and ``audit_verbose`` (per-reason histogram),
+    and ``count``/``min``/``p25``/``median``/``p75``/``max``/``listings``
+    reflect the kept comps. Stub #20 surfaces a 3-verdict carve-out:
+
+      * ``LONE_SUPPLIER`` — raw Browse returned zero items (genuinely platform-
+        niche); pairs with ``recommended_action: anchor_via_cogs_plus_target_margin``
+      * ``ALL_FILTERED`` — raw>0 but every comp dropped by the pipeline; pairs
+        with ``recommended_action: review_filter_settings`` + ``pre_filter_count``
+      * ``THIN_POOL`` — 1<=kept<=3 sample; pairs with ``recommended_action:
+        use_with_low_confidence`` + ``confidence: low``
 
     When ``own_listing`` is None, returns the raw distribution (backward compat
     for callers that don't have own-listing context).
@@ -521,6 +559,45 @@ def _own_series_name(own_listing: dict[str, Any] | None) -> str | None:
     return matched[0]
 
 
+def _own_mpns(own_listing: dict[str, Any] | None) -> list[str]:
+    """Extract own MPN list (uppercased, stripped) from own_listing.specifics.
+
+    Returns [] when own_listing is None, has no specifics, or no MPN key.
+    Multi-MPN listings supported (eBay item_specifics MPN can be a list).
+    """
+    if not own_listing:
+        return []
+    specifics = own_listing.get("specifics") or {}
+    mpns = specifics.get("MPN") or []
+    if isinstance(mpns, str):
+        mpns = [mpns]
+    return [str(m).upper().strip() for m in mpns if str(m).strip()]
+
+
+def _comp_title_has_own_or_sibling_mpn(
+    comp_title_upper: str,
+    own_mpns: list[str],
+    sibling_allowlist: dict[str, list[str]],
+) -> bool:
+    """Stub #18 — comp passes mpn_mismatch gate if its title contains:
+        (a) any own.MPN, OR
+        (b) any sibling MPN from the allowlist for any own.MPN.
+
+    The allowlist is keyed by own.MPN → list of accepted sibling MPNs. Designed
+    to be authored bidirectionally for symmetry (add the same pair on both
+    sides), but this function is one-directional per call.
+    """
+    if any(mpn and mpn in comp_title_upper for mpn in own_mpns):
+        return True
+    if not sibling_allowlist:
+        return False
+    siblings: set[str] = set()
+    for own_mpn in own_mpns:
+        for s in sibling_allowlist.get(own_mpn, []) or []:
+            siblings.add(str(s).upper().strip())
+    return any(s and s in comp_title_upper for s in siblings)
+
+
 def filter_low_quality_competitors(
     comp_listings: list[dict[str, Any]],
     own_listing: dict[str, Any] | None = None,
@@ -547,6 +624,13 @@ def filter_low_quality_competitors(
     caddy_patterns = _compiled_caddy_patterns()
     own_has_caddy = _own_has_caddy(own_listing)
     own_series = _own_series_name(own_listing)
+    # Stub #18 — distinct-SKU verification. Extract own's MPN list; gate the
+    # mpn_mismatch hard-reject on `len(own_mpns) >= 1` (skip when no MPN in
+    # specifics so we don't over-restrict listings without a known part number).
+    own_mpns = _own_mpns(own_listing)
+    sibling_allowlist = (
+        cfg.get("comp_filter", {}).get("sibling_allowlist", {}) if own_mpns else {}
+    )
 
     survivors: list[dict[str, Any]] = []
     drops: dict[str, int] = {}
@@ -554,6 +638,7 @@ def filter_low_quality_competitors(
     for comp in comp_listings:
         title = str(comp.get("title") or "")
         title_lower = title.lower()
+        title_upper = title.upper()
 
         if require_image and (
             comp.get("image_url") is None and (comp.get("additional_image_count") or 0) == 0
@@ -576,6 +661,17 @@ def filter_low_quality_competitors(
 
         if own_series and not re.search(r"\b" + re.escape(own_series) + r"\b", title_lower):
             drops["series_mismatch"] = drops.get("series_mismatch", 0) + 1
+            continue
+
+        # Stub #18 — mpn_mismatch hard-reject. Browse API has no native MPN
+        # parameter, so we filter client-side: if own MPN(s) are known and
+        # NONE appear in the comp title, the comp is for a different SKU
+        # (e.g. ST2000NX0253 vs ST2000NX0403 — same family, different firmware).
+        # Sibling-allowlist provides escape hatch for legitimate cross-MPN pairs.
+        if own_mpns and not _comp_title_has_own_or_sibling_mpn(
+            title_upper, own_mpns, sibling_allowlist
+        ):
+            drops["mpn_mismatch"] = drops.get("mpn_mismatch", 0) + 1
             continue
 
         survivors.append(comp)
@@ -872,6 +968,70 @@ def drop_price_outliers(
 # ---------------------------------------------------------------------------
 
 
+def compute_seller_concentration(comps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Stub #19 — compute seller-pool concentration stats from a comp list.
+
+    Returns a 4-key dict:
+      top_seller_pct      — share of comps held by the most-listed seller, 0..1
+      distinct_sellers    — count of unique seller identities
+      herfindahl          — HHI (sum of squared shares), 0..1
+      confidence          — 'normal' | 'low' | 'insufficient_pool'
+
+    Identity resolution: prefer ``comp["seller"]`` (Browse username); when null
+    (US sellers post 2025-09-26 deprecation) fall back to a quasi-identity
+    composed from feedback_score + feedback_pct so two comps from "same
+    feedback profile" are treated as one seller. Imperfect but better than
+    treating every null username as a unique seller.
+
+    Thin-pool short-circuit: when distinct_sellers == 0 OR len(comps) < the
+    configured ``concentration.min_pool_size`` (default 4), all numeric stats
+    return None and confidence='insufficient_pool' — never flag concentration
+    on under-powered samples.
+
+    Boundary alignment with the THIN_POOL verdict in _sync_find_competitor_prices:
+    THIN_POOL fires when 1<=kept_n<=3 (sample exists but is thin); concentration
+    short-circuits when n<4. Both treat n>=4 as "enough to compute" — at n=3
+    a consumer reads `verdict: THIN_POOL` AND `concentration.confidence:
+    insufficient_pool`, which agree. At n=4, the verdict has no THIN_POOL flag
+    and concentration is computed — matching the "normal pool" cutoff.
+    """
+    from collections import Counter
+
+    cfg = _load_filter_config()
+    conc_cfg = cfg.get("comp_filter", {}).get("concentration", {}) or {}
+    threshold_pct = float(conc_cfg.get("threshold_pct", 0.40))
+    min_pool_size = int(conc_cfg.get("min_pool_size", 4))
+
+    def _quasi_id(c: dict[str, Any]) -> str:
+        seller = c.get("seller")
+        if seller:
+            return f"seller:{str(seller).lower()}"
+        # Fallback: feedback profile (handles null username cases)
+        fb_score = c.get("seller_feedback_score") or "x"
+        fb_pct = c.get("seller_feedback_pct") or "x"
+        return f"fb:{fb_score}:{fb_pct}"
+
+    distinct = len({_quasi_id(c) for c in comps})
+    if distinct == 0 or len(comps) < min_pool_size:
+        return {
+            "top_seller_pct": None,
+            "distinct_sellers": distinct,
+            "herfindahl": None,
+            "confidence": "insufficient_pool",
+        }
+
+    counts = Counter(_quasi_id(c) for c in comps)
+    n = len(comps)
+    top_pct = counts.most_common(1)[0][1] / n
+    herfindahl = sum((c / n) ** 2 for c in counts.values())
+    return {
+        "top_seller_pct": round(top_pct, 4),
+        "distinct_sellers": distinct,
+        "herfindahl": round(herfindahl, 4),
+        "confidence": "low" if top_pct > threshold_pct else "normal",
+    }
+
+
 def run_comp_filter_pipeline(
     raw_listings: list[dict[str, Any]],
     own_listing: dict[str, Any] | None,
@@ -926,6 +1086,12 @@ def run_comp_filter_pipeline(
         }
     after_outlier = len(survivors_outlier)
 
+    # Stub #19 — seller-pool concentration on the FINAL kept set (post-Layer-3).
+    # Computing on survivors_outlier rather than raw_listings means the metric
+    # reflects the comp pool the operator will actually see in pricing decisions,
+    # not the raw Browse response (which includes everything we filter out).
+    concentration = compute_seller_concentration(survivors_outlier)
+
     audit_flat = {
         "raw_count": raw_count,
         "kept": after_outlier,
@@ -933,6 +1099,7 @@ def run_comp_filter_pipeline(
         "dropped_apple_to_apples": after_low_quality - after_score,
         "dropped_stale": after_score - after_stale,
         "dropped_outlier": after_stale - after_outlier,
+        "concentration": concentration,
     }
     audit_verbose = {
         "low_quality_drops": dict(lq_audit.get("dropped_reasons", {})),

@@ -11,6 +11,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 from ebay.client import log_debug
@@ -167,6 +168,8 @@ def listing_to_dict(item: object) -> dict:
     end_time = None
     relist_count = 0
     promoted_listing = False
+    best_offer_auto_accept_gbp: float | None = None
+    best_offer_auto_decline_gbp: float | None = None
     if listing_details is not None:
         start_time = _parse_iso_ts(getattr(listing_details, "StartTime", None))
         end_time = _parse_iso_ts(getattr(listing_details, "EndTime", None))
@@ -178,6 +181,22 @@ def listing_to_dict(item: object) -> dict:
         promoted_raw = getattr(listing_details, "PromotedListing", None)
         if promoted_raw is not None:
             promoted_listing = str(promoted_raw).lower() == "true"
+        # AP #18 surfaced gap: ListingDetails carries BestOfferAutoAcceptPrice
+        # + MinimumBestOfferPrice (the auto-decline floor) when Best Offer is
+        # configured. Required for safe restore/revise round-trips and for
+        # recommend_best_offer_thresholds to compare current vs proposed.
+        accept_amt = getattr(listing_details, "BestOfferAutoAcceptPrice", None)
+        decline_amt = getattr(listing_details, "MinimumBestOfferPrice", None)
+        if accept_amt is not None:
+            try:
+                best_offer_auto_accept_gbp = float(getattr(accept_amt, "value", accept_amt))
+            except (TypeError, ValueError):
+                best_offer_auto_accept_gbp = None
+        if decline_amt is not None:
+            try:
+                best_offer_auto_decline_gbp = float(getattr(decline_amt, "value", decline_amt))
+            except (TypeError, ValueError):
+                best_offer_auto_decline_gbp = None
 
     days_on_site = None
     if start_time is not None:
@@ -189,10 +208,15 @@ def listing_to_dict(item: object) -> dict:
 
     best_offer_count = int(getattr(item, "BestOfferCount", 0) or 0)
     question_count = int(getattr(item, "QuestionCount", 0) or 0)
-    best_offer_enabled_raw = getattr(item, "BestOfferEnabled", None)
-    best_offer_enabled = None
-    if best_offer_enabled_raw is not None:
-        best_offer_enabled = str(best_offer_enabled_raw).lower() == "true"
+    # Boolean-only contract (#16 fix per Stage 1 L2 F1): default-to-"false" when
+    # the BestOfferEnabled element is absent on the GetItem response (eBay omits
+    # it for listings that don't have Best Offer configured). Prior behaviour
+    # leaked None to downstream consumers (analyse_listing response, score_apple_to_apple
+    # Layer-2, pricing_review per-listing block) which couldn't differentiate
+    # "field absent" from "field is False" — same operational meaning, different
+    # type. Now a single bool, no None leak.
+    best_offer_enabled_raw = getattr(item, "BestOfferEnabled", "false")
+    best_offer_enabled = str(best_offer_enabled_raw).lower() == "true"
 
     return {
         "item_id": str(item.ItemID),
@@ -230,6 +254,8 @@ def listing_to_dict(item: object) -> dict:
         "view_count": None,
         "best_offer_count": best_offer_count,
         "best_offer_enabled": best_offer_enabled,
+        "best_offer_auto_accept_gbp": best_offer_auto_accept_gbp,
+        "best_offer_auto_decline_gbp": best_offer_auto_decline_gbp,
         "question_count": question_count,
         "relist_count": relist_count,
         "promoted_listing": promoted_listing,
@@ -373,6 +399,11 @@ def cdata_wrap(html: str) -> str:
     return f"<![CDATA[{escaped}]]>"
 
 
+def _decimal_str(value: float | int | str) -> str:
+    """Two-dp string for an Amount value, via Decimal(str(...)) to avoid float drift."""
+    return str(Decimal(str(value)).quantize(Decimal("0.01")))
+
+
 def build_revise_payload(
     item_id: str,
     title: str | None = None,
@@ -382,6 +413,11 @@ def build_revise_payload(
     condition_id: int | None = None,
     condition_description: str | None = None,
     item_specifics: dict[str, str | list[str]] | None = None,
+    picture_urls: list[str] | None = None,
+    best_offer_enabled: bool | None = None,
+    best_offer_auto_accept_gbp: float | None = None,
+    best_offer_auto_decline_gbp: float | None = None,
+    currency: str = _EBAY_UK_SITE_CURRENCY,
 ) -> dict:
     """Build the ReviseFixedPriceItem payload dict.
 
@@ -400,6 +436,19 @@ def build_revise_payload(
 
     item_specifics: Dict of name -> value(s). Single string or list of strings.
     Replaces the entire ItemSpecifics block on the listing.
+
+    picture_urls: Replace the listing's PictureDetails.PictureURL list. eBay
+    accepts up to MAX_PICTURE_URLS (24); the caller is responsible for
+    composing append-vs-replace semantics — this function only writes the
+    final ordered URL list.
+
+    best_offer_enabled: When True/False, sets Item.BestOfferDetails.BestOfferEnabled.
+    None leaves the listing's current Best Offer toggle untouched.
+
+    best_offer_auto_accept_gbp / best_offer_auto_decline_gbp: Trading API field
+    placement (D2 verified): Item.ListingDetails.BestOfferAutoAcceptPrice and
+    Item.ListingDetails.MinimumBestOfferPrice (NOT under BestOfferDetails).
+    Decimal-stringified to two dp; currency echoes location_details["Currency"].
     """
     item: dict = {"ItemID": item_id}
     if title is not None:
@@ -420,6 +469,41 @@ def build_revise_payload(
             else:
                 nvl.append({"Name": name, "Value": [value]})
         item["ItemSpecifics"] = {"NameValueList": nvl}
+
+    if picture_urls is not None:
+        if len(picture_urls) > MAX_PICTURE_URLS:
+            raise ValueError(
+                f"picture_urls must contain at most {MAX_PICTURE_URLS} URLs "
+                f"(got {len(picture_urls)})"
+            )
+        joined_urls_len = sum(len(u) for u in picture_urls)
+        if joined_urls_len >= MAX_PICTURE_URLS_JOINED_CHARS:
+            raise ValueError(
+                f"picture_urls total length {joined_urls_len} chars exceeds eBay "
+                f"<{MAX_PICTURE_URLS_JOINED_CHARS} cap"
+            )
+        item["PictureDetails"] = {"PictureURL": list(picture_urls)}
+
+    if best_offer_enabled is not None:
+        item["BestOfferDetails"] = {
+            "BestOfferEnabled": "true" if best_offer_enabled else "false"
+        }
+
+    if best_offer_auto_accept_gbp is not None or best_offer_auto_decline_gbp is not None:
+        listing_details = item.setdefault("ListingDetails", {})
+        # ebaysdk 2.2.0 dict→XML serialiser: `{"#text": V, "@attrs": {"currencyID": C}}`
+        # emits `<X currencyID="C">V</X>`. The legacy `{"value": V, "_currencyID": C}`
+        # form serialises as nested children and triggers eBay schema error 20170.
+        if best_offer_auto_accept_gbp is not None:
+            listing_details["BestOfferAutoAcceptPrice"] = {
+                "#text": _decimal_str(best_offer_auto_accept_gbp),
+                "@attrs": {"currencyID": currency},
+            }
+        if best_offer_auto_decline_gbp is not None:
+            listing_details["MinimumBestOfferPrice"] = {
+                "#text": _decimal_str(best_offer_auto_decline_gbp),
+                "@attrs": {"currencyID": currency},
+            }
 
     # eBay requires ShippingDetails on every ReviseFixedPriceItem call
     if shipping_details is not None:
@@ -521,8 +605,8 @@ def build_add_payload(
                 "ShippingServicePriority": "1",
                 "ShippingService": "UK_RoyalMailSecondClassStandard",
                 "ShippingServiceCost": {
-                    "value": "0.00",
-                    "_currencyID": location_details["Currency"],
+                    "#text": "0.00",
+                    "@attrs": {"currencyID": location_details["Currency"]},
                 },
                 "FreeShipping": "true",
             },
@@ -545,8 +629,8 @@ def build_add_payload(
         "Description": cdata_wrap(description_html),
         "PrimaryCategory": {"CategoryID": _HDD_CATEGORY_ID},
         "StartPrice": {
-            "value": f"{price:.2f}",
-            "_currencyID": location_details["Currency"],
+            "#text": f"{price:.2f}",
+            "@attrs": {"currencyID": location_details["Currency"]},
         },
         "Quantity": str(int(quantity)),
         "ConditionID": str(condition_id),
