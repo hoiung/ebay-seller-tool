@@ -1889,6 +1889,73 @@ async def compute_return_rate(item_id: str, days: int = 90) -> str:
 
 @mcp.tool()
 @with_error_handling
+async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
+    """G-NEW-11 — bulk per-SKU return rates for the weekly-sweep skill flow.
+
+    Loop the per-item compute_return_rate call across many item_ids in a single
+    MCP invocation. Justification over shell-loop: avoids N tool-call round
+    trips + lets the OAuth session be reused once across all calls (vs
+    re-acquiring per shell loop iteration). Returns a flat dict keyed by
+    item_id; per-item failures surface as `{error: str}` value rather than
+    bombing the whole batch.
+
+    Args:
+        item_ids: List of eBay item IDs.
+        days: Window for both sold-count + returns (1-90). Default 90.
+
+    Returns:
+        JSON with shape:
+          {
+            "results": {
+              "<item_id>": {"return_rate_pct": float, "sold_count": int,
+                            "returned_count": int} | {"error": str},
+              ...
+            },
+            "summary": {"total": int, "succeeded": int, "failed": int,
+                        "high_return_rate_count": int  # >15% threshold},
+          }
+    """
+    if not item_ids:
+        return json.dumps({"error": "item_ids must be non-empty"})
+    if not 1 <= days <= 90:
+        return json.dumps({"error": f"days must be in [1, 90], got {days}"})
+
+    log_debug(f"compute_return_rates_bulk item_count={len(item_ids)} days={days}")
+
+    results: dict[str, dict] = {}
+    succeeded = 0
+    failed = 0
+    high_return = 0
+    for item_id in item_ids:
+        try:
+            res = await rest_compute_return_rate(item_id=item_id, days=days)
+            results[item_id] = res
+            succeeded += 1
+            rate = res.get("return_rate_pct")
+            if isinstance(rate, (int, float)) and rate > 15.0:
+                high_return += 1
+        except Exception as e:  # noqa: BLE001 — boundary for per-item resilience
+            log_debug(f"compute_return_rates_bulk item_id={item_id} FAILED: {e}")
+            results[item_id] = {"error": str(e)}
+            failed += 1
+
+    return json.dumps(
+        {
+            "results": results,
+            "summary": {
+                "total": len(item_ids),
+                "succeeded": succeeded,
+                "failed": failed,
+                "high_return_rate_count": high_return,
+                "high_return_rate_threshold_pct": 15.0,
+            },
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+@with_error_handling
 async def find_competitor_prices(
     part_number: str,
     condition: str = "USED",
