@@ -183,6 +183,11 @@ def _fetch_one_condition_id(
     in-itemAffiliateWebUrl) detection forward so the orchestrator can recompute
     promoted_count from deduped listings without re-walking raw items.
     """
+    # Stub #19 — set fieldgroups=ADDITIONAL_SELLER_DETAILS so seller.username +
+    # feedbackScore + feedbackPercentage land in the response. Per D2 platform
+    # change 2025-09-26 Browse API depreciates seller.username for US sellers
+    # (renders as null); the EXTENDED group is the only way to retrieve seller
+    # quality signals at all. UK/EU sellers continue to populate username.
     params = {
         "q": part_number,
         "filter": (
@@ -191,6 +196,7 @@ def _fetch_one_condition_id(
             f"itemLocationCountry:{{{location_country}}}"
         ),
         "limit": str(min(max(limit, 1), 200)),
+        "fieldgroups": "ADDITIONAL_SELLER_DETAILS",
     }
     with get_browse_session() as client:
         response = client.get("/buy/browse/v1/item_summary/search", params=params)
@@ -930,6 +936,63 @@ def drop_price_outliers(
 # ---------------------------------------------------------------------------
 
 
+def compute_seller_concentration(comps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Stub #19 — compute seller-pool concentration stats from a comp list.
+
+    Returns a 4-key dict:
+      top_seller_pct      — share of comps held by the most-listed seller, 0..1
+      distinct_sellers    — count of unique seller identities
+      herfindahl          — HHI (sum of squared shares), 0..1
+      confidence          — 'normal' | 'low' | 'insufficient_pool'
+
+    Identity resolution: prefer ``comp["seller"]`` (Browse username); when null
+    (US sellers post 2025-09-26 deprecation) fall back to a quasi-identity
+    composed from feedback_score + feedback_pct so two comps from "same
+    feedback profile" are treated as one seller. Imperfect but better than
+    treating every null username as a unique seller.
+
+    Thin-pool short-circuit: when distinct_sellers == 0 OR len(comps) < the
+    configured ``concentration.min_pool_size`` (default 4), all numeric stats
+    return None and confidence='insufficient_pool' — never flag concentration
+    on under-powered samples.
+    """
+    from collections import Counter
+
+    cfg = _load_filter_config()
+    conc_cfg = cfg.get("comp_filter", {}).get("concentration", {}) or {}
+    threshold_pct = float(conc_cfg.get("threshold_pct", 0.40))
+    min_pool_size = int(conc_cfg.get("min_pool_size", 4))
+
+    def _quasi_id(c: dict[str, Any]) -> str:
+        seller = c.get("seller")
+        if seller:
+            return f"seller:{str(seller).lower()}"
+        # Fallback: feedback profile (handles null username cases)
+        fb_score = c.get("seller_feedback_score") or "x"
+        fb_pct = c.get("seller_feedback_pct") or "x"
+        return f"fb:{fb_score}:{fb_pct}"
+
+    distinct = len({_quasi_id(c) for c in comps})
+    if distinct == 0 or len(comps) < min_pool_size:
+        return {
+            "top_seller_pct": None,
+            "distinct_sellers": distinct,
+            "herfindahl": None,
+            "confidence": "insufficient_pool",
+        }
+
+    counts = Counter(_quasi_id(c) for c in comps)
+    n = len(comps)
+    top_pct = counts.most_common(1)[0][1] / n
+    herfindahl = sum((c / n) ** 2 for c in counts.values())
+    return {
+        "top_seller_pct": round(top_pct, 4),
+        "distinct_sellers": distinct,
+        "herfindahl": round(herfindahl, 4),
+        "confidence": "low" if top_pct > threshold_pct else "normal",
+    }
+
+
 def run_comp_filter_pipeline(
     raw_listings: list[dict[str, Any]],
     own_listing: dict[str, Any] | None,
@@ -984,6 +1047,12 @@ def run_comp_filter_pipeline(
         }
     after_outlier = len(survivors_outlier)
 
+    # Stub #19 — seller-pool concentration on the FINAL kept set (post-Layer-3).
+    # Computing on survivors_outlier rather than raw_listings means the metric
+    # reflects the comp pool the operator will actually see in pricing decisions,
+    # not the raw Browse response (which includes everything we filter out).
+    concentration = compute_seller_concentration(survivors_outlier)
+
     audit_flat = {
         "raw_count": raw_count,
         "kept": after_outlier,
@@ -991,6 +1060,7 @@ def run_comp_filter_pipeline(
         "dropped_apple_to_apples": after_low_quality - after_score,
         "dropped_stale": after_score - after_stale,
         "dropped_outlier": after_stale - after_outlier,
+        "concentration": concentration,
     }
     audit_verbose = {
         "low_quality_drops": dict(lq_audit.get("dropped_reasons", {})),

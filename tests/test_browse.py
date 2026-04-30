@@ -352,6 +352,7 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
         "dropped_apple_to_apples",
         "dropped_stale",
         "dropped_outlier",
+        "concentration",  # Stub #19
     }
     assert result["audit"]["raw_count"] == 3
     assert result["audit"]["dropped_low_quality"] == 2  # bundle + parts

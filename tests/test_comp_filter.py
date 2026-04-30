@@ -447,6 +447,103 @@ def test_mpn_mismatch_sibling_allowlist_keeps_cross_sku() -> None:
     _ = yaml
 
 
+def test_seller_concentration_thin_pool_short_circuits() -> None:
+    """Stub #19 — n<min_pool_size returns confidence=insufficient_pool, no flag."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [
+        {"seller": "alice", "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": "alice", "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": "bob", "seller_feedback_score": 200, "seller_feedback_pct": "98.0"},
+    ]
+    out = compute_seller_concentration(comps)
+    assert out["confidence"] == "insufficient_pool"
+    assert out["top_seller_pct"] is None
+    assert out["herfindahl"] is None
+    assert out["distinct_sellers"] == 2
+
+
+def test_seller_concentration_monoculture_flags_low() -> None:
+    """top_seller_pct > threshold (0.40) → confidence=low."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [{"seller": "alice", "seller_feedback_score": 100, "seller_feedback_pct": "99"}] * 6
+    comps += [{"seller": "bob", "seller_feedback_score": 200, "seller_feedback_pct": "98"}] * 2
+    out = compute_seller_concentration(comps)
+    assert out["top_seller_pct"] == 0.75  # 6/8
+    assert out["distinct_sellers"] == 2
+    assert out["confidence"] == "low"
+    assert 0 < out["herfindahl"] <= 1
+
+
+def test_seller_concentration_balanced_pool_normal() -> None:
+    """No seller dominates (<= threshold) → confidence=normal."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [
+        {"seller": f"seller_{i}", "seller_feedback_score": 100, "seller_feedback_pct": "99"}
+        for i in range(10)
+    ]
+    # All 10 distinct sellers → top_seller_pct = 0.10
+    out = compute_seller_concentration(comps)
+    assert out["distinct_sellers"] == 10
+    assert out["top_seller_pct"] == 0.10
+    assert out["confidence"] == "normal"
+
+
+def test_seller_concentration_null_username_falls_back_to_feedback_profile() -> None:
+    """US-seller null username → fall back to feedback_score+feedback_pct quasi-id.
+
+    Two comps with same null username but distinct feedback profiles → 2 distinct
+    sellers (NOT 1 — would-be the case under naive null-collapsing)."""
+    from ebay.browse import compute_seller_concentration
+
+    comps = [
+        {"seller": None, "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": None, "seller_feedback_score": 100, "seller_feedback_pct": "99.0"},
+        {"seller": None, "seller_feedback_score": 500, "seller_feedback_pct": "97.5"},
+        {"seller": None, "seller_feedback_score": 500, "seller_feedback_pct": "97.5"},
+    ]
+    out = compute_seller_concentration(comps)
+    # 2 distinct quasi-ids (100/99.0 vs 500/97.5), 2 each = balanced
+    assert out["distinct_sellers"] == 2
+    assert out["top_seller_pct"] == 0.50  # not "low" (threshold 0.40 is exclusive)
+
+
+def test_seller_concentration_empty_pool() -> None:
+    """Empty list → distinct=0, confidence=insufficient_pool."""
+    from ebay.browse import compute_seller_concentration
+
+    out = compute_seller_concentration([])
+    assert out["distinct_sellers"] == 0
+    assert out["confidence"] == "insufficient_pool"
+
+
+def test_run_comp_filter_pipeline_surfaces_concentration() -> None:
+    """audit_flat.concentration is populated after pipeline run."""
+    from ebay.browse import run_comp_filter_pipeline
+
+    # Use an own without series-name to avoid filter dropping the comps;
+    # focus the test on concentration computation, not filter behaviour.
+    own = _own(
+        title="Seagate ST2000NX0253 2TB 2.5 SAS HDD",  # no Enterprise Capacity / Exos
+        specifics={"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+    )
+    comps = [
+        _comp(
+            item_id=f"v1|{i}",
+            title=f"ST2000NX0253 unit {i} 2.5 SAS HDD",
+            seller="alice" if i < 4 else "bob",
+        )
+        for i in range(6)
+    ]
+    _, audit_flat, _ = run_comp_filter_pipeline(comps, own)
+    assert "concentration" in audit_flat
+    # Should keep at least 4 (passes Layer-1 + scoring); 2 distinct sellers
+    assert audit_flat["kept"] >= 4
+    assert audit_flat["concentration"]["distinct_sellers"] == 2
+
+
 def test_mpn_mismatch_empty_allowlist_default_drops() -> None:
     """Default config has empty sibling_allowlist → no escape hatch, drops."""
     own = _own(
@@ -526,8 +623,9 @@ def test_drop_outlier_method_none_pass_through() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_pipeline_audit_flat_six_keys() -> None:
-    """5.1 — flat audit dict has exactly 6 user-facing keys."""
+def test_pipeline_audit_flat_seven_keys() -> None:
+    """5.1 — flat audit dict has the documented user-facing keys (concentration
+    added per Stub #19)."""
     comps = [_comp(item_id=str(i), title=f"ST2000NX0253 listing {i}") for i in range(8)]
     _, audit_flat, _ = run_comp_filter_pipeline(
         comps,
@@ -548,6 +646,7 @@ def test_pipeline_audit_flat_six_keys() -> None:
         "dropped_apple_to_apples",
         "dropped_stale",
         "dropped_outlier",
+        "concentration",
     }
 
 
