@@ -244,6 +244,103 @@ def test_guardrail_error_message_cites_source() -> None:
     assert "COGS £0.00" in err
 
 
+def test_best_offer_auto_accept_below_floor_refused() -> None:
+    """Phase 4 #24 — auto_accept below floor is the same loss as listing below it."""
+    from server import update_listing
+
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("50.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
+            "default",
+        )
+        result = _run(
+            update_listing(
+                item_id="999",
+                best_offer_enabled=True,
+                best_offer_auto_accept_gbp=10.0,
+                dry_run=False,
+            )
+        )
+    body = json.loads(result)
+    assert "error" in body
+    assert "best_offer_auto_accept_gbp" in body["error"]
+    assert "below" in body["error"]
+    assert body["floor_gbp"] == 18.0
+
+
+def test_best_offer_auto_accept_at_floor_accepted_dry_run() -> None:
+    """Auto-accept at the exact floor passes the guardrail."""
+    from server import update_listing
+
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("50.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
+            "default",
+        )
+        result = _run(
+            update_listing(
+                item_id="999",
+                best_offer_enabled=True,
+                best_offer_auto_accept_gbp=18.0,
+                best_offer_auto_decline_gbp=18.0,
+                dry_run=True,
+            )
+        )
+    body = json.loads(result)
+    assert body["dry_run"] is True
+    assert "error" not in body
+    assert "best_offer_auto_accept_gbp" in body["diff"]
+
+
+def test_best_offer_auto_accept_below_decline_refused() -> None:
+    """Pre-flight: auto_accept >= MinimumBestOfferPrice (auto_decline) — eBay rejects otherwise."""
+    from server import update_listing
+
+    # No GetItem call expected — pre-flight gate runs before fetch.
+    result = _run(
+        update_listing(
+            item_id="999",
+            best_offer_enabled=True,
+            best_offer_auto_accept_gbp=20.0,
+            best_offer_auto_decline_gbp=30.0,  # decline > accept = invalid
+            dry_run=True,
+        )
+    )
+    body = json.loads(result)
+    assert "error" in body
+    assert "auto_accept_gbp" in body["error"]
+    assert "auto_decline" in body["error"]
+
+
+def test_best_offer_negative_amount_refused() -> None:
+    from server import update_listing
+
+    result = _run(
+        update_listing(
+            item_id="999",
+            best_offer_auto_accept_gbp=-1.0,
+            dry_run=True,
+        )
+    )
+    body = json.loads(result)
+    assert "error" in body
+    assert "must be > 0" in body["error"]
+
+
 def test_guardrail_additive_only_21_field_invariance() -> None:
     """AC 4.3c: guardrail must not reach ReviseFixedPriceItem when rejecting.
 

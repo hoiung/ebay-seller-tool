@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference XML mock for ReviseFixedPriceItem (Phase 4 #23 / #24 / G-NEW-1).
+
+  ebaysdk parses Trading API responses into duck-typed SimpleNamespace-like
+  objects, so the unit tests under tests/test_revise_pictures.py and
+  tests/test_recommend_best_offer_thresholds_tool.py mock execute_with_retry
+  with SimpleNamespace stubs directly — they don't load this XML at runtime.
+
+  This file documents the live Trading API response shape so:
+   - future debugging can compare against eBay's documented schema, and
+   - readers diffing the test mocks against eBay reality have a
+     concrete reference for which fields exist on the response.
+
+  Source: https://developer.ebay.com/devzone/xml/docs/Reference/eBay/ReviseFixedPriceItem.html
+  Captured: 2026-04-30 (Phase 4 of ebay-ops#10 omnibus).
+-->
+<ReviseFixedPriceItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Timestamp>2026-04-30T12:00:00.000Z</Timestamp>
+  <Ack>Success</Ack>
+  <Version>1349</Version>
+  <Build>E1349_INTL_APIXO_BUNDLED</Build>
+  <ItemID>123456789012</ItemID>
+  <StartTime>2026-04-30T12:00:00.000Z</StartTime>
+  <EndTime>2026-05-30T12:00:00.000Z</EndTime>
+  <Fees>
+    <Fee>
+      <Name>InsertionFee</Name>
+      <Fee currencyID="GBP">0.00</Fee>
+    </Fee>
+    <Fee>
+      <Name>ListingFee</Name>
+      <Fee currencyID="GBP">0.00</Fee>
+    </Fee>
+  </Fees>
+</ReviseFixedPriceItemResponse>
