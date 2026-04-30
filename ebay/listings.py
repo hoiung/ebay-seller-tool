@@ -471,15 +471,18 @@ def build_revise_payload(
 
     if best_offer_auto_accept_gbp is not None or best_offer_auto_decline_gbp is not None:
         listing_details = item.setdefault("ListingDetails", {})
+        # ebaysdk 2.2.0 dict→XML serialiser: `{"#text": V, "@attrs": {"currencyID": C}}`
+        # emits `<X currencyID="C">V</X>`. The legacy `{"value": V, "_currencyID": C}`
+        # form serialises as nested children and triggers eBay schema error 20170.
         if best_offer_auto_accept_gbp is not None:
             listing_details["BestOfferAutoAcceptPrice"] = {
-                "value": _decimal_str(best_offer_auto_accept_gbp),
-                "_currencyID": currency,
+                "#text": _decimal_str(best_offer_auto_accept_gbp),
+                "@attrs": {"currencyID": currency},
             }
         if best_offer_auto_decline_gbp is not None:
             listing_details["MinimumBestOfferPrice"] = {
-                "value": _decimal_str(best_offer_auto_decline_gbp),
-                "_currencyID": currency,
+                "#text": _decimal_str(best_offer_auto_decline_gbp),
+                "@attrs": {"currencyID": currency},
             }
 
     # eBay requires ShippingDetails on every ReviseFixedPriceItem call
@@ -582,8 +585,8 @@ def build_add_payload(
                 "ShippingServicePriority": "1",
                 "ShippingService": "UK_RoyalMailSecondClassStandard",
                 "ShippingServiceCost": {
-                    "value": "0.00",
-                    "_currencyID": location_details["Currency"],
+                    "#text": "0.00",
+                    "@attrs": {"currencyID": location_details["Currency"]},
                 },
                 "FreeShipping": "true",
             },
@@ -606,8 +609,8 @@ def build_add_payload(
         "Description": cdata_wrap(description_html),
         "PrimaryCategory": {"CategoryID": _HDD_CATEGORY_ID},
         "StartPrice": {
-            "value": f"{price:.2f}",
-            "_currencyID": location_details["Currency"],
+            "#text": f"{price:.2f}",
+            "@attrs": {"currencyID": location_details["Currency"]},
         },
         "Quantity": str(int(quantity)),
         "ConditionID": str(condition_id),
