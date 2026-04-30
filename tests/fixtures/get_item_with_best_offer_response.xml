@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference XML mock for GetItem with BestOfferDetails + ListingDetails Best
+  Offer thresholds (Phase 4 #24 stub-body correction F9 + D2).
+
+  Field placement (verified against Trading API docs):
+   - Item.BestOfferDetails.BestOfferEnabled (boolean string, on/off ONLY)
+   - Item.ListingDetails.BestOfferAutoAcceptPrice (Amount, NOT BestOfferDetails)
+   - Item.ListingDetails.MinimumBestOfferPrice (Amount — auto-decline floor;
+     NOT named "BestOfferAutoDeclinePrice" — that field doesn't exist)
+
+  Like revise_fixed_price_item_response.xml, this file documents the schema;
+  unit tests use SimpleNamespace mocks rather than parsing XML at test time.
+-->
+<GetItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Timestamp>2026-04-30T12:00:00.000Z</Timestamp>
+  <Ack>Success</Ack>
+  <Version>1349</Version>
+  <Item>
+    <ItemID>123456789012</ItemID>
+    <Title>Seagate Enterprise Capacity 2TB ST2000NX0253</Title>
+    <Description><![CDATA[<p>Drive description ...</p>]]></Description>
+    <Currency>GBP</Currency>
+    <Country>GB</Country>
+    <Site>UK</Site>
+    <Quantity>1</Quantity>
+    <SellingStatus>
+      <CurrentPrice currencyID="GBP">50.00</CurrentPrice>
+      <QuantitySold>0</QuantitySold>
+    </SellingStatus>
+    <BestOfferDetails>
+      <BestOfferEnabled>true</BestOfferEnabled>
+      <BestOfferCount>0</BestOfferCount>
+    </BestOfferDetails>
+    <ListingDetails>
+      <ViewItemURL>https://www.ebay.co.uk/itm/123456789012</ViewItemURL>
+      <StartTime>2026-04-01T10:00:00.000Z</StartTime>
+      <EndTime>2026-05-01T10:00:00.000Z</EndTime>
+      <RelistCount>0</RelistCount>
+      <PromotedListing>false</PromotedListing>
+      <BestOfferAutoAcceptPrice currencyID="GBP">44.00</BestOfferAutoAcceptPrice>
+      <MinimumBestOfferPrice currencyID="GBP">36.00</MinimumBestOfferPrice>
+    </ListingDetails>
+    <PictureDetails>
+      <PictureURL>https://i.ebayimg.com/images/g/abc/$_57.JPG</PictureURL>
+      <PictureURL>https://i.ebayimg.com/images/g/def/$_57.JPG</PictureURL>
+    </PictureDetails>
+    <ShippingDetails>
+      <ShippingType>Flat</ShippingType>
+      <ShippingServiceOptions>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingService>UK_RoyalMailSecondClassStandard</ShippingService>
+        <ShippingServiceCost currencyID="GBP">0.00</ShippingServiceCost>
+        <FreeShipping>true</FreeShipping>
+      </ShippingServiceOptions>
+    </ShippingDetails>
+  </Item>
+</GetItemResponse>
