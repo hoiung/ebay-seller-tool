@@ -351,7 +351,7 @@ def _sync_find_competitor_prices(
             "listings": [],
         }
         if own_listing is not None:
-            empty["audit"] = {
+            empty["audit_flat"] = {
                 "raw_count": 0,
                 "kept": 0,
                 "dropped_low_quality": 0,
@@ -435,7 +435,7 @@ def _sync_find_competitor_prices(
             "p75": None,
             "max": None,
             "listings": [],
-            "audit": audit_flat,
+            "audit_flat": audit_flat,
             "audit_verbose": audit_verbose,
             "verdict": "ALL_FILTERED",
             "recommended_action": "review_filter_settings",
@@ -453,7 +453,7 @@ def _sync_find_competitor_prices(
         "p75": round(kept_prices[min(kept_n - 1, (3 * kept_n) // 4)], 2),
         "max": round(kept_prices[-1], 2),
         "listings": kept,
-        "audit": audit_flat,
+        "audit_flat": audit_flat,
         "audit_verbose": audit_verbose,
     }
     # Stub #20 — THIN_POOL. 1<=kept<=3 sample is too small to anchor pricing
