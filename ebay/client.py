@@ -131,6 +131,17 @@ def execute_with_retry(
             log_debug(
                 f"API {verb} OK duration_ms={duration_ms:.0f} attempt={attempt + 1}/{max_attempts}"
             )
+            # #12 Phase 2.1 — record successful call for daily quota accounting.
+            # Fail-soft: accountant errors must never block a real API success.
+            try:
+                from ebay.call_accountant import record_call  # noqa: PLC0415
+
+                record_call(verb)
+            except Exception as accountant_exc:  # noqa: BLE001
+                log_debug(
+                    f"call_accountant: record_call({verb}) failed — "
+                    f"{type(accountant_exc).__name__}: {accountant_exc} (continuing)"
+                )
             return response
         except Exception as e:
             duration_ms = time.monotonic() * 1000 - start_ms
