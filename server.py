@@ -2215,8 +2215,8 @@ async def revise_pictures(
 @with_error_handling
 async def recommend_best_offer_thresholds(
     item_id: str,
-    auto_accept_pct: float = 0.88,
-    auto_decline_pct: float = 0.72,
+    auto_accept_pct: float | None = None,
+    auto_decline_pct: float | None = None,
 ) -> str:
     """G-NEW-1 — recommend Best Offer auto-accept / auto-decline thresholds.
 
@@ -2229,10 +2229,19 @@ async def recommend_best_offer_thresholds(
     item_id, best_offer_enabled=True, best_offer_auto_accept_gbp=auto_accept_gbp,
     best_offer_auto_decline_gbp=auto_decline_gbp) to apply.
 
+    Issue #16: defaults shifted from 0.88/0.72 hardcoded to None so the MCP
+    tool surface agrees with the autonomous responder by default — both
+    inherit `config/fees.yaml best_offer:` (operator-locked 0.925/0.75).
+    Operator can still override per-call by passing explicit floats. Two
+    surfaces (this MCP tool + respond_best_offers.py) now return the SAME
+    numbers for the SAME live price unless explicitly overridden.
+
     Args:
         item_id: eBay item ID.
-        auto_accept_pct: Fraction of live price for auto-accept (default 0.88).
-        auto_decline_pct: Fraction of live price for auto-decline (default 0.72).
+        auto_accept_pct: Fraction of live price for auto-accept. None (default)
+            inherits from config/fees.yaml best_offer.auto_accept_pct.
+        auto_decline_pct: Fraction of live price for auto-decline. None (default)
+            inherits from config/fees.yaml best_offer.auto_decline_pct.
 
     Returns:
         JSON with item_id, live_price_gbp, floor_gbp, auto_accept_gbp,
