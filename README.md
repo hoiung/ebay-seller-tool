@@ -18,6 +18,7 @@ Built for a side hustle selling on eBay. Managing listings manually is slow and 
 - **Get active listings** with current stats (price, quantity, views, watchers)
 - **Update inventory** quantities and pricing
 - **Smart templates** with Jinja2 for consistent listing HTML (warnings, condition badges, spec tables)
+- **Autonomous Best Offer responder** (#16) — `ebay/best_offers.py` Trading-API wrappers (`GetBestOffers` + `RespondToBestOffer`) used by a cron-driven script in the private operator skill. Operator runbook + thresholds live in the private skill repo; this repo provides the API surface only.
 
 ## Tech Stack
 
