@@ -424,6 +424,14 @@ def build_revise_payload(
     NEVER includes a Quantity key at any nesting level — this is a safety
     invariant verified by whitebox test.
 
+    NOTE (Issue #14 AC1.5): the ``price`` arg is intentionally
+    ``update_listing``-only. ``revise_listing_pictures`` (the only other
+    in-tree caller, at ``ebay/pictures.py``) relies on the ``None`` default
+    and never sets a price; the kwarg-default IS the structural guard. Do
+    not promote ``price`` to a positional parameter or change the default
+    without auditing every caller — a stray non-None price here would
+    revise the listing's price as a side-effect of a picture-only update.
+
     shipping_details: optional dict to echo back the listing's current shipping
     config. eBay requires shipping info on ReviseFixedPriceItem even for
     description-only updates. If None, a default free UK Royal Mail 2nd Class
