@@ -861,6 +861,37 @@ async def update_listing(
                 f"reason={type(e).__name__}: {e}"
             )
 
+        # Issue #14 Phase 1 — emit post_change_check from the existing
+        # post-revise GetItem response. snapshot_listing(after) lacks
+        # watch_count + view_count (see ebay/listings.py:275-288), so derive
+        # the post-change state from listing_to_dict(after_resp.reply.Item)
+        # which exposes both. No new GetItem call, no asyncio.sleep — the
+        # existing post-revise GetItem at server.py already requested
+        # IncludeWatchCount=true. Latency unchanged.
+        # FRESHNESS NOTE: this immediate snapshot is captured ~3-5s
+        # post-ReviseFixedPriceItem before watcher counts can shift;
+        # get_elasticity (Phase 2) emits a freshness_warning when the
+        # before/after pair is <7d apart.
+        try:
+            after_full = listing_to_dict(after_resp.reply.Item)
+            append_snapshot(
+                "post_change_check",
+                str(item_id),
+                {
+                    "price_gbp": price,
+                    "quantity": after_full.get("quantity"),
+                    "watch_count": after_full.get("watch_count"),
+                    "view_count": after_full.get("view_count"),
+                    "traffic_30d": None,
+                    "source": "update_listing",
+                },
+            )
+        except (OSError, ValueError) as e:
+            log_debug(
+                f"update_listing post_change_check_append_failed item_id={item_id} "
+                f"reason={type(e).__name__}: {e}"
+            )
+
     return json.dumps(success_response, indent=2)
 
 
