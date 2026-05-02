@@ -126,6 +126,16 @@ def compute_elasticity(item_id: str, before_event: str, after_event: str) -> dic
         before_event: event_type to use as 'before' baseline.
         after_event: event_type to use as 'after' check.
 
+    Pair selection: when an item has multiple events of the same type
+    (e.g. multi-revise produces multiple ``post_change_check`` rows), the
+    FIRST match in JSONL append order — i.e. the OLDEST — is selected for
+    both ``before`` and ``after``. This pairs the earliest baseline with
+    the earliest revise, which is the right contract for "did the very
+    first raise affect demand?" but NOT for "what's the elasticity of the
+    most recent revise?". For the latter, callers should pass an explicit
+    event_type pair (e.g. a custom ``after_event``) or pre-filter the
+    JSONL.
+
     Returns:
         {
             "item_id": str,
