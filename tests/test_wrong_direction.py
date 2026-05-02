@@ -248,6 +248,82 @@ def test_wrong_direction_skips_when_concentration_low() -> None:
     assert result is None
 
 
+def test_wrong_direction_propagates_sales_window_days_to_api_kwarg() -> None:
+    """AC8.3 (AP #18) — config-to-API kwarg propagation must be explicit.
+
+    The config key `wrong_direction_warn.sales_window_days` flows through:
+        config → server.py wd_window_days → _evaluate_wrong_direction_raise(
+            sales_window_days=wd_window_days) → fetch_seller_transactions(days=...)
+
+    Without an explicit `call_args.kwargs["days"] == ...` assertion, a bug
+    that hardcoded `days=14` in the helper instead of using the kwarg would
+    silently pass every other test in this file.
+    """
+    with (
+        patch("ebay.selling.fetch_seller_transactions", new_callable=AsyncMock) as mock_txns,
+        patch("ebay.browse.fetch_competitor_prices", new_callable=AsyncMock) as mock_comps,
+    ):
+        mock_txns.return_value = _txns("999", units=0)  # short-circuit on velocity
+        mock_comps.return_value = _comp_result()
+
+        # Pass a non-default window so we can assert it round-trips.
+        _run(
+            _evaluate_wrong_direction_raise(
+                item_id="999",
+                old_price=25.0,
+                new_price=35.0,
+                item_full=_item_full(),
+                sales_window_days=30,
+                min_units_sold=2,
+            )
+        )
+
+    mock_txns.assert_called_once()
+    # AP #18: assert call_args.kwargs[...] explicitly. fetch_seller_transactions
+    # accepts (days, page); helper must pass `days=sales_window_days` as kwarg.
+    assert mock_txns.call_args.kwargs.get("days") == 30, (
+        f"sales_window_days=30 must propagate to fetch_seller_transactions(days=30); "
+        f"actual call_args.kwargs={mock_txns.call_args.kwargs!r}"
+    )
+
+
+def test_wrong_direction_propagates_mpn_to_api_kwarg() -> None:
+    """AC8.3 (AP #18) — MPN propagation from item_full to fetch_competitor_prices.
+
+    Locks the contract that the helper extracts MPN from
+    item_full['specifics']['MPN'][0] and forwards it as part_number= kwarg.
+    A regression that swapped to item_full['mpn'] (a non-existent key on
+    listing_to_dict) would silently fail every short-circuit gate test
+    because mpn would be None and the helper would short-circuit on
+    "MPN missing" instead of reaching fetch_competitor_prices.
+    """
+    with (
+        patch("ebay.selling.fetch_seller_transactions", new_callable=AsyncMock) as mock_txns,
+        patch("ebay.browse.fetch_competitor_prices", new_callable=AsyncMock) as mock_comps,
+    ):
+        mock_txns.return_value = _txns("999", units=5)
+        mock_comps.return_value = _comp_result(p25=20.0, p75=30.0)
+
+        _run(
+            _evaluate_wrong_direction_raise(
+                item_id="999",
+                old_price=25.0,
+                new_price=35.0,
+                item_full=_item_full(mpn="ST2000NX0253"),
+            )
+        )
+
+    mock_comps.assert_called_once()
+    assert mock_comps.call_args.kwargs.get("part_number") == "ST2000NX0253", (
+        f"MPN must propagate as part_number=; got {mock_comps.call_args.kwargs!r}"
+    )
+    # condition propagation also asserted to lock the kwarg surface.
+    assert mock_comps.call_args.kwargs.get("condition") == "USED", (
+        f"condition_name='Used' must normalise to 'USED'; got "
+        f"{mock_comps.call_args.kwargs!r}"
+    )
+
+
 def test_wrong_direction_skips_when_mpn_missing() -> None:
     """AC3.1 contract: helper short-circuits when MPN can't be extracted from item_full.
 
