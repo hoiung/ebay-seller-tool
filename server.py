@@ -72,7 +72,7 @@ from ebay.selling import (  # noqa: E402
     fetch_sold_listings,
     fetch_unsold_listings,
 )
-from ebay.snapshots import append_snapshot  # noqa: E402
+from ebay.snapshots import append_snapshot, compute_elasticity  # noqa: E402
 from ebay.store import fetch_store_info  # noqa: E402
 
 # Single source of truth for the per-listing photo cap is ebay/listings.py —
@@ -2228,6 +2228,95 @@ async def recommend_best_offer_thresholds(
         },
         indent=2,
     )
+
+
+@mcp.tool()
+@with_error_handling
+async def get_elasticity(
+    item_id: str,
+    before_event: str = "analysis_baseline",
+    after_event: str = "post_change_check",
+) -> str:
+    """Return pricing elasticity for the given item from price_snapshots.jsonl.
+
+    Reads ~/.local/share/ebay-seller-tool/price_snapshots.jsonl, finds the
+    first matching before_event + after_event for item_id, computes
+    Δwatchers / Δprice_pct.
+
+    Use cases:
+      - Operator post-walk-back: did the price drop move watchers?
+        (expect classification=price_sensitive after a real walk-back)
+      - Operator pre-raise: was the prior raise inelastic?
+        (no point raising further if the previous raise didn't move demand)
+      - Sweep diagnostic: which listings have actionable elasticity data?
+
+    Defaults match Issue #14 Phase 1 wiring: analysis_baseline (written by
+    analyse_listing) → post_change_check (written by update_listing on every
+    real price change). Override to ("price_change", "post_change_check") to
+    measure the immediate price-action delta directly.
+
+    Args:
+        item_id: eBay item ID (string).
+        before_event: snapshot event_type to use as baseline. Default
+            "analysis_baseline".
+        after_event: snapshot event_type to use as the post-change check.
+            Default "post_change_check".
+
+    Returns:
+        JSON. On success: {item_id, before_event, after_event, before_price,
+        after_price, before_watchers, after_watchers, delta_price_pct,
+        delta_watchers, elasticity, classification, before_timestamp,
+        after_timestamp, freshness_warning?}. ``freshness_warning`` is set
+        to "events_too_close" when (after_timestamp - before_timestamp) is
+        below WRONG_DIRECTION_FRESHNESS_DAYS (default 7) — the elasticity
+        classification may be artefact rather than settled buyer behaviour.
+        Re-run after a 7+ day settled period for diagnostic confidence.
+
+        On missing data: {error: "insufficient_events", item_id,
+        before_event, after_event}.
+    """
+    result = await asyncio.to_thread(
+        compute_elasticity, str(item_id), before_event, after_event
+    )
+    if result is None:
+        return json.dumps(
+            {
+                "item_id": str(item_id),
+                "error": "insufficient_events",
+                "before_event": before_event,
+                "after_event": after_event,
+            }
+        )
+
+    # Freshness gate (AC2.4 / L2.A FN-7) — warn when before/after pair sits
+    # inside the 7-day settled window. The immediate post_change_check fired
+    # by update_listing happens ~3-5s after ReviseFixedPriceItem; watcher
+    # counts on eBay don't shift in seconds. A classification computed on
+    # this short window is a snapshot artefact, not buyer behaviour.
+    before_ts = result.get("before_timestamp")
+    after_ts = result.get("after_timestamp")
+    if before_ts and after_ts:
+        try:
+            from datetime import datetime  # noqa: PLC0415
+
+            b = datetime.fromisoformat(before_ts.replace("Z", "+00:00"))
+            a = datetime.fromisoformat(after_ts.replace("Z", "+00:00"))
+            delta_days = (a - b).total_seconds() / 86400.0
+            result["delta_days"] = round(delta_days, 3)
+            if 0 <= delta_days < 7:
+                result["freshness_warning"] = "events_too_close"
+                result["freshness_note"] = (
+                    "Watcher counts typically do not shift in <7 days; "
+                    "classification may read 'inelastic' as a snapshot artefact. "
+                    "Re-run after 7+ day settled period for diagnostic confidence."
+                )
+        except (ValueError, AttributeError) as e:
+            log_debug(
+                f"get_elasticity timestamp_parse_failed item_id={item_id} "
+                f"reason={type(e).__name__}: {e}"
+            )
+
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
