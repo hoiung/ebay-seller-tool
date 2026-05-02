@@ -436,3 +436,54 @@ def test_compute_decision_normal_band_still_counters_when_floor_below_live() -> 
     decision = rbo.compute_decision(offer, cfg_bo, floor_gbp=20.0)
     assert decision["cron_action"] == "counter"
     assert decision["counter_price_gbp"] == 47
+
+
+def test_responder_auth_token_expired_detected_by_ebay_error_code(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """Stage 5 R2 fix: auth-token expiry is detected by eBay numeric error
+    code (932 / 16110 / 17470 / 21917) extracted from the exception .response,
+    NOT by substring match on the message text. This test mocks ebaysdk
+    raising a ConnectionError whose .response carries ErrorCode=932 and
+    confirms the responder flips auth_expired and exits 1."""
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    pending = [_build_offer(buyer_offer_gbp=47.0)]
+
+    class _StubResponse:
+        def dict(self):  # noqa: D401
+            return {"Errors": {"ErrorCode": "932", "ShortMessage": "internal token reference"}}
+
+    auth_exc = EbaySdkConnectionError("internal token reference")
+    auth_exc.response = _StubResponse()
+    respond_mock = AsyncMock(side_effect=auth_exc)
+    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
+         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
+         patch.object(rbo, "respond_to_best_offer", respond_mock):
+        exit_code = rbo.main(["--apply", "--yes"])
+
+    assert exit_code == 1, "auth-token expiry must propagate exit 1"
+    rows = _read_ledger(isolated_ledger)
+    assert len(rows) == 1
+    assert rows[0]["cron_action"] == "error"
+    assert rows[0]["reason"] == "auth_expired"
+
+
+def test_responder_substring_fallback_when_no_ebay_response_attached(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """Stage 5 R2 regression guard: when an exception has NO .response
+    (transport-layer failure before eBay responds), the substring fallback
+    still detects auth-related messages. Without the fallback we'd silently
+    misclassify token expiry as unexpected error."""
+    pending = [_build_offer(buyer_offer_gbp=47.0)]
+    transport_auth_exc = Exception("AuthToken has expired (transport-layer)")
+    respond_mock = AsyncMock(side_effect=transport_auth_exc)
+    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
+         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
+         patch.object(rbo, "respond_to_best_offer", respond_mock):
+        exit_code = rbo.main(["--apply", "--yes"])
+
+    assert exit_code == 1
+    rows = _read_ledger(isolated_ledger)
+    assert rows[0]["reason"] == "auth_expired"
