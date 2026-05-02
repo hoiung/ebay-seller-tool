@@ -660,14 +660,20 @@ async def _evaluate_wrong_direction_raise(
     # helper. Importing at module top would couple the whole module to the
     # eBay API surface.
     from ebay.browse import fetch_competitor_prices  # noqa: PLC0415
+    from ebay.client import log_warn  # noqa: PLC0415
     from ebay.selling import fetch_seller_transactions  # noqa: PLC0415
 
     # 1. Sales-velocity check.
     try:
         txns = await fetch_seller_transactions(days=sales_window_days)
-    except Exception:  # noqa: BLE001
-        # Velocity unknown — be conservative, don't fire spurious WARN. Caller
-        # logs are best-effort observability.
+    except Exception as e:  # noqa: BLE001
+        # Velocity unknown — be conservative, don't fire spurious WARN.
+        # Per AP #12: surface the silent skip so operator sees WHY the WARN
+        # didn't fire (transient API failure vs no recent sales).
+        log_warn(
+            f"wrong_direction_eval skipped item={item_id} "
+            f"stage=fetch_seller_transactions reason={type(e).__name__}: {e}"
+        )
         return None
     units_sold = 0
     for t in txns.get("transactions", []) or []:
@@ -704,7 +710,11 @@ async def _evaluate_wrong_direction_raise(
             own_listing=item_full,
             own_live_price=old_price,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        log_warn(
+            f"wrong_direction_eval skipped item={item_id} "
+            f"stage=fetch_competitor_prices reason={type(e).__name__}: {e}"
+        )
         return None
     verdict = comp_result.get("verdict")
     if verdict in {"LONE_SUPPLIER", "THIN_POOL", "ALL_FILTERED"}:
