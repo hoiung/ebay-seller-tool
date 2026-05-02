@@ -79,3 +79,22 @@ return_rates_bulk:
   # as `high_return_rate_threshold_pct`). Listings exceeding this rate
   # need a per-SKU floor-price review.
   high_return_rate_threshold_pct: 15.0
+
+# Issue #16 — Best Offer auto-counter thresholds (operator-tunable post-merge).
+# Read by:
+#   - ebay/analytics.py compute_best_offer_thresholds (config-driven path
+#     when caller omits kwargs; explicit kwargs override config — preserves
+#     #14 Phase 6 enable_best_offer_all.py + recommend_best_offer_thresholds
+#     behaviour for callers that pass DEFAULT_AUTO_ACCEPT_PCT explicitly).
+#   - .claude/skills/ebay-seller-tool/scripts/respond_best_offers.py (direct
+#     read for the autonomous responder; bypasses the analytics floor-buffer
+#     since the responder is the contract author for offers, not a
+#     diagnostic suggestion).
+# Locked design — operator decision 2026-05-02; do NOT relitigate values
+# without operator sign-off. Round-down-to-pound creates psychological
+# discount (£23 vs £23.13 on a £25 listing).
+best_offer:
+  auto_accept_pct:  0.925   # offers ≥ floor(0.925 × live, £) → auto-accept at buyer's offer
+  auto_decline_pct: 0.75    # offers < floor(0.75  × live, £) → auto-decline (wild lowballs)
+  counter_offer_pct: 0.95   # auto-counter at floor(0.95 × live, £) for offers in [0.75, 0.925) band
+  round_down_to_pound: true # apply math.floor() to GBP thresholds (psychological discount)
