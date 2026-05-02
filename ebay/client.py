@@ -19,6 +19,18 @@ def log_debug(msg: str) -> None:
     print(f"[ebay-seller-tool {ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def log_info(msg: str) -> None:
+    """Log a structured INFO line — visible by default but quieter than WARN.
+
+    Right level for "expected but operator-relevant" signals: e.g. "0 pending
+    offers" from the autonomous Best Offer responder, where escalating to
+    WARN would spam the journal on every quiet day, but `log_debug` would
+    leave the operator's daily-check grep blind to the no-activity signal.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+    print(f"[ebay-seller-tool {ts}] INFO: {msg}", file=sys.stderr, flush=True)
+
+
 def log_warn(msg: str) -> None:
     """Log a structured WARNING to stderr (Issue #14 Phase 3 — AC3.4).
 
