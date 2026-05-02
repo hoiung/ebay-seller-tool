@@ -595,6 +595,155 @@ def compute_over_pricing(
     }
 
 
+async def _evaluate_wrong_direction_raise(
+    item_id: str,
+    old_price: float,
+    new_price: float,
+    item_full: dict[str, Any],
+    sales_window_days: int = 14,
+    min_units_sold: int = 1,
+) -> dict[str, Any] | None:
+    """Issue #14 Phase 3 — fire WARN when a price RAISE looks wrong-direction.
+
+    Returns a warning dict on trigger, or None when the raise looks fine.
+
+    Caller passes update_listing's existing ``current_full = listing_to_dict(
+    current.reply.Item)`` (server.py:650) as ``item_full`` — NOT the
+    ``snapshot_listing`` ``before`` dict. ``snapshot_listing`` returns only
+    basic fields (no specifics, no watch_count); this helper accesses MPN,
+    condition_name, watch_count, quantity_available which require the
+    listing_to_dict shape. NO new GetItem call inside the helper —
+    caller-side reuse only.
+
+    Triggers WARN when ALL hold:
+      1. ``new_price > old_price`` (already checked at call site).
+      2. ``units_sold`` for ``item_id`` in last ``sales_window_days`` days
+         is at least ``min_units_sold`` (from GetSellerTransactions).
+      3. ``positional ≠ BELOW_P25`` (raising INTO market mid-band is fine).
+      4. NOT ``_stock_clearance_exempt`` (Stub #21: qty>5 + DTS<3 is
+         intentional clearance, not defect — known scope_gap for qty=2-5).
+      5. ``comp_verdict ∉ {LONE_SUPPLIER, THIN_POOL, ALL_FILTERED}`` (no /
+         weak market signal to validate against — Stub #20).
+      6. ``concentration.confidence != 'low'`` (Stub #19 — comp pool
+         dominated by single seller is not reliable signal).
+
+    Restock context is operator-mental in v1: WARN fires on velocity +
+    positional + comp signal alone; the recommendation string surfaces
+    restock framing for operator judgement. No `restock` config knob.
+
+    Args:
+        item_id: eBay item ID for the listing being raised.
+        old_price: pre-raise live price (GBP).
+        new_price: proposed new price (GBP).
+        item_full: ``listing_to_dict()`` shape (specifics, condition_name,
+            watch_count, quantity_available).
+        sales_window_days: window for "did this listing recently sell?"
+            (config: ``wrong_direction_warn.sales_window_days``).
+        min_units_sold: minimum units in window to consider velocity > 0
+            (config: ``wrong_direction_warn.min_units_sold``).
+
+    Returns:
+        ``None`` when the raise is fine OR signals are missing OR the comp
+        pool is too thin to judge. ``dict`` with rule + delta + units_sold
+        + recommendation when the raise looks wrong-direction.
+    """
+    # Lazy imports — analytics.py is otherwise a pure compute layer; the
+    # async fetchers it touches here are operationally bounded to this one
+    # helper. Importing at module top would couple the whole module to the
+    # eBay API surface.
+    from ebay.browse import fetch_competitor_prices  # noqa: PLC0415
+    from ebay.selling import fetch_seller_transactions  # noqa: PLC0415
+
+    # 1. Sales-velocity check.
+    try:
+        txns = await fetch_seller_transactions(days=sales_window_days)
+    except Exception:  # noqa: BLE001
+        # Velocity unknown — be conservative, don't fire spurious WARN. Caller
+        # logs are best-effort observability.
+        return None
+    units_sold = 0
+    for t in txns.get("transactions", []) or []:
+        if str(t.get("item_id")) == str(item_id):
+            try:
+                units_sold += int(t.get("quantity_purchased") or 0)
+            except (TypeError, ValueError):
+                continue
+    if units_sold < min_units_sold:
+        return None  # No recent sales → raise is sensible (stalled listing).
+
+    # 2. Comp-pool + positional check. Need MPN + condition_name from the
+    # listing_to_dict shape. Missing either short-circuits to None (can't
+    # judge without a market signal).
+    specifics = item_full.get("specifics") or {}
+    mpn_list = specifics.get("MPN") if isinstance(specifics, dict) else None
+    if not mpn_list or not isinstance(mpn_list, list) or not mpn_list[0]:
+        return None
+    mpn = str(mpn_list[0]).strip()
+    condition_name = item_full.get("condition_name") or "USED"
+    # eBay condition values vary in case; fetch_competitor_prices accepts
+    # NEW / USED / USED_EXCELLENT / OPENED / FOR_PARTS literals.
+    # secret-allow: false positive on "_token" variable name — this is an
+    # eBay condition enum literal (NEW / USED / OPENED / FOR_PARTS), not a
+    # credential.
+    cond_value = "USED" if str(condition_name).lower().startswith("used") else str(
+        condition_name
+    ).upper().replace(" ", "_")
+
+    try:
+        comp_result = await fetch_competitor_prices(
+            part_number=mpn,
+            condition=cond_value,
+            own_listing=item_full,
+            own_live_price=old_price,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    verdict = comp_result.get("verdict")
+    if verdict in {"LONE_SUPPLIER", "THIN_POOL", "ALL_FILTERED"}:
+        # Stub #20 — no usable market signal to anchor against.
+        return None
+    audit = comp_result.get("audit") or {}
+    concentration = audit.get("concentration") or {}
+    if concentration.get("confidence") == "low":
+        # Stub #19 — comp pool dominated by single seller; signal unreliable.
+        return None
+
+    pricing = compute_under_pricing(
+        live_price=old_price,
+        p25_clean=comp_result.get("p25"),
+        p75_clean=comp_result.get("p75"),
+        units_sold_per_day=units_sold / max(sales_window_days, 1),
+        days_to_sell_median=item_full.get("days_to_sell_median"),
+        quantity_available=item_full.get("quantity_available"),
+    )
+    if pricing.get("positional") == "BELOW_P25":
+        # Raising INTO market mid-band is sensible.
+        return None
+    if pricing.get("stock_clearance_exempt") is True:
+        # Multi-qty fast-clearance — intentional posture, not defect.
+        return None
+
+    # All gates passed → fire WARN.
+    watch_count = int(item_full.get("watch_count") or 0)
+    delta_pct = (new_price - old_price) / old_price * 100.0
+    return {
+        "rule": "wrong_direction_raise_v1",
+        "old_price": old_price,
+        "new_price": new_price,
+        "delta_pct": round(delta_pct, 2),
+        "units_sold_window_days": sales_window_days,
+        "units_sold": units_sold,
+        "watch_count": watch_count,
+        "comp_positional_pre_raise": pricing.get("positional"),
+        "recommendation": (
+            f"Item sold {units_sold} unit(s) in last {sales_window_days}d at £{old_price:.2f}. "
+            f"Position pre-raise: {pricing.get('positional')}. "
+            f"Raising risks killing velocity. Confirm restock-context "
+            f"(raise OK if restock=YES; hold/drop if restock=NO)."
+        ),
+    }
+
+
 def compute_best_offer_thresholds(
     floor_gbp: float,
     live_price_gbp: float,

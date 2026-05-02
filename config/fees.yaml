@@ -41,6 +41,17 @@ under_pricing:
   recommended_band_low_pct: 40   # p40 of clean comps = AMBER recommendation
   recommended_band_high_pct: 55  # p55 of clean comps = RED upper recommendation
 
+# Issue #14 (ebay-ops) Phase 3 — wrong-direction-raise WARN config.
+# Read by ebay/analytics.py _evaluate_wrong_direction_raise(); fires a
+# structured WARN through ebay/client.py log_warn() when update_listing
+# raises the price on a listing that has recent sales (velocity > 0) and
+# is NOT positioned BELOW_P25 / NOT stock-clearance-exempt / has a usable
+# comp pool. Observability — does NOT block the change. See SKILL.md
+# "£25 → £35 grounding case" for the historical pattern this auto-flags.
+wrong_direction_warn:
+  sales_window_days: 14   # window for "did this listing recently sell?"
+  min_units_sold: 1       # minimum units sold in window to consider velocity > 0
+
 # Issue #14 Phase 4 — IQR-based price-outlier rejection. Runs between
 # drop_stale_competitors and percentile compute. Always log-space for HDD
 # pools (max/min > 10 in 5/5 observed sample pools per Stage 1 F-E).

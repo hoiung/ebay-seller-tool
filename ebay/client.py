@@ -19,6 +19,22 @@ def log_debug(msg: str) -> None:
     print(f"[ebay-seller-tool {ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def log_warn(msg: str) -> None:
+    """Log a structured WARNING to stderr (Issue #14 Phase 3 — AC3.4).
+
+    Mirrors :func:`log_debug` shape so downstream log scrapers see the same
+    ``[ebay-seller-tool TS]`` prefix, but tags the line with ``WARN`` so the
+    operator can grep/filter for warnings explicitly. MCP uses stdout for
+    the protocol wire; warnings go to stderr like every other log line.
+
+    Used by ``update_listing`` to emit the wrong-direction-raise WARN so the
+    raise-on-moving-listing pattern (see SKILL.md grounding case) is loud at
+    decision time, not 10 days post-hoc.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+    print(f"[ebay-seller-tool {ts}] WARN: {msg}", file=sys.stderr, flush=True)
+
+
 @lru_cache(maxsize=1)
 def get_trading_api() -> Trading:
     """

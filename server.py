@@ -23,6 +23,7 @@ load_dotenv()
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from ebay.analytics import (  # noqa: E402
+    _evaluate_wrong_direction_raise,
     compute_best_offer_thresholds,
     compute_funnel,
     compute_rank_health,
@@ -36,7 +37,7 @@ from ebay.analytics import (  # noqa: E402
 )
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.browse import fetch_competitor_prices  # noqa: E402
-from ebay.client import execute_with_retry, log_debug  # noqa: E402
+from ebay.client import execute_with_retry, log_debug, log_warn  # noqa: E402
 from ebay.hdd_specs import HDD_SPECS  # noqa: E402
 from ebay.listings import (  # noqa: E402
     MAX_PICTURE_URLS,
@@ -739,12 +740,57 @@ async def update_listing(
                 indent=2,
             )
 
+    # Issue #14 Phase 3 — wrong-direction-raise WARN evaluation. Runs BEFORE
+    # ReviseFixedPriceItem so the WARN appears even when dry_run=True; that
+    # way operator sees the signal at decision time, not after the fact.
+    # Observability ONLY — does NOT block the change. The helper short-
+    # circuits to None when there's no usable signal (no recent sales / no
+    # comp pool / BELOW_P25 / stock_clearance_exempt) so spurious WARNs are
+    # avoided.
+    wrong_direction_warning: dict | None = None
+    if price is not None and "price" in diff:
+        try:
+            old_price_val = float(before.get("price")) if before.get("price") else None
+        except (TypeError, ValueError):
+            old_price_val = None
+        if old_price_val is not None and price > old_price_val:
+            try:
+                from ebay.fees import _load_fees_config  # noqa: PLC0415
+
+                cfg_wd = _load_fees_config().get("wrong_direction_warn", {}) or {}
+                wd_window_days = int(cfg_wd.get("sales_window_days", 14))
+                wd_min_units = int(cfg_wd.get("min_units_sold", 1))
+                wrong_direction_warning = await _evaluate_wrong_direction_raise(
+                    item_id=str(item_id),
+                    old_price=old_price_val,
+                    new_price=float(price),
+                    item_full=current_full,
+                    sales_window_days=wd_window_days,
+                    min_units_sold=wd_min_units,
+                )
+                if wrong_direction_warning is not None:
+                    log_warn(
+                        f"WRONG_DIRECTION_RAISE item={item_id} "
+                        f"old=£{old_price_val:.2f} new=£{price:.2f} "
+                        f"units_sold_{wd_window_days}d="
+                        f"{wrong_direction_warning['units_sold']} "
+                        f"watch_count={wrong_direction_warning['watch_count']} "
+                        f"recommendation={wrong_direction_warning['recommendation']}"
+                    )
+            except (KeyError, ValueError, TypeError) as e:
+                log_debug(
+                    f"update_listing wrong_direction_eval_failed item_id={item_id} "
+                    f"reason={type(e).__name__}: {e}"
+                )
+
     if dry_run:
         dry_response: dict[str, object] = {"dry_run": True, "item_id": item_id, "diff": diff}
         if floor_payload is not None:
             dry_response.update(floor_payload)
         if current_analysis is not None:
             dry_response["current_analysis"] = current_analysis
+        if wrong_direction_warning is not None:
+            dry_response["wrong_direction_warning"] = wrong_direction_warning
         return json.dumps(dry_response, indent=2)
 
     # Build and send ReviseFixedPriceItem payload — echo back current shipping config
@@ -833,6 +879,8 @@ async def update_listing(
     if floor_payload is not None:
         success_response["floor_verdict"] = floor_payload["price_verdict"]
         success_response["return_rate_source"] = floor_payload["return_rate_source"]
+    if wrong_direction_warning is not None:
+        success_response["wrong_direction_warning"] = wrong_direction_warning
 
     # Phase 5.2.2 — emit price_change snapshot only when price actually changed.
     if "price" in diff:
