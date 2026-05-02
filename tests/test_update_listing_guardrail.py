@@ -510,3 +510,49 @@ def test_guardrail_additive_only_21_field_invariance() -> None:
     assert mock_exec.call_args_list[0].args[0] == "GetItem"
     revise_calls = [c for c in mock_exec.call_args_list if c.args[0] == "ReviseFixedPriceItem"]
     assert revise_calls == []
+
+
+def test_update_listing_dry_run_surfaces_wrong_direction_warning_field() -> None:
+    """Stage 5 L2.C — integration: wrong_direction_warning must reach the
+    update_listing response (not just the helper return value). Phase 3
+    helper coverage in test_wrong_direction.py only exercises
+    `_evaluate_wrong_direction_raise` directly; this test pins the wiring
+    from helper-result -> response['wrong_direction_warning'] in the
+    dry_run path so a future refactor that drops the field assignment in
+    server.py:792-793 fails loudly.
+    """
+    from server import update_listing
+
+    fake_warning = {
+        "rule": "wrong_direction_raise_v1",
+        "old_price": 25.0,
+        "new_price": 35.0,
+        "delta_pct": 40.0,
+        "units_sold": 5,
+        "units_sold_window_days": 14,
+        "watch_count": 7,
+        "comp_positional_pre_raise": "BETWEEN_P25_P75",
+        "recommendation": "Item sold 5 unit(s) ... Raising risks killing velocity. ... restock-context",
+    }
+
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_get_item("25.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+        patch("server._evaluate_wrong_direction_raise", new_callable=AsyncMock) as mock_eval,
+    ):
+        mock_floor.return_value = (
+            {
+                "floor_gbp": 7.94,
+                "suggested_ceiling_gbp": 50.00,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
+            "default",
+        )
+        mock_eval.return_value = fake_warning
+
+        result = _run(update_listing(item_id="999", price=35.0, dry_run=True))
+
+    body = json.loads(result)
+    assert body.get("dry_run") is True
+    assert "wrong_direction_warning" in body
+    assert body["wrong_direction_warning"] == fake_warning
