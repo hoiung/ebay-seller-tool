@@ -42,6 +42,11 @@ QUOTA_HEADROOM_FLOOR = 10
 
 _STATE_DIR = Path.home() / ".local" / "share" / "ebay-seller-tool"
 _RETENTION_DAYS = 30
+# Stage 5 R3 fix — flock-vs-rename race. _atomic_write_json uses
+# tempfile + os.replace which UNLINKS the original inode; the held flock on
+# the original fd is then on a deleted inode that no other process ever
+# encounters. Lock a separate sentinel file that NEVER gets renamed.
+_LOCKFILE_SUFFIX = ".lock"
 # Stage 5 fix L1.J — was 30s. The accountant fires from the Trading API hot
 # path (every successful execute_with_retry), and a stuck process holding the
 # flock would block the API caller for up to 30s. 5s keeps tail latency well
@@ -61,6 +66,12 @@ def _today_yyyymmdd() -> str:
 
 def _file_for(yyyymmdd: str) -> Path:
     return _STATE_DIR / f"api-calls-{yyyymmdd}.json"
+
+
+def _lockfile_for(yyyymmdd: str) -> Path:
+    """Lock-target path for the daily counter. NEVER renamed; flock on this
+    fd survives _atomic_write_json's rename of the data file."""
+    return _STATE_DIR / f"api-calls-{yyyymmdd}{_LOCKFILE_SUFFIX}"
 
 
 def _ensure_state_dir() -> None:
@@ -116,11 +127,15 @@ def _read_counts(path: Path) -> dict:
         return {}
 
 
-def _maybe_prune(today: str) -> None:
+def _maybe_prune_locked(today: str) -> None:
     """Delete daily counter files older than ``_RETENTION_DAYS`` days.
 
     Uses an in-file marker on today's counter to short-circuit so the prune
     runs at most once per calendar day. Fail-soft on filesystem errors.
+
+    Stage 5 R3 — caller MUST hold the daily lockfile; we read+write the
+    data file's prune marker inline with the increment to avoid the
+    lost-update race when prune ran without the lock.
     """
     today_path = _file_for(today)
     counts = _read_counts(today_path)
@@ -130,6 +145,9 @@ def _maybe_prune(today: str) -> None:
     try:
         for f in _STATE_DIR.iterdir():
             name = f.name
+            # Skip our own lockfiles; we only prune data files.
+            if name.endswith(_LOCKFILE_SUFFIX):
+                continue
             if not (name.startswith("api-calls-") and name.endswith(".json")):
                 continue
             stamp = name[len("api-calls-"):-len(".json")]
@@ -139,6 +157,8 @@ def _maybe_prune(today: str) -> None:
                 continue
             if file_date < cutoff_date:
                 f.unlink(missing_ok=True)
+                # Also remove the matching lockfile if present.
+                _STATE_DIR.joinpath(f"api-calls-{stamp}{_LOCKFILE_SUFFIX}").unlink(missing_ok=True)
     except OSError:
         return
     counts[_PRUNE_MARKER] = today
@@ -170,18 +190,26 @@ def record_call(call_name: str) -> None:
     _ensure_state_dir()
     today = _today_yyyymmdd()
     path = _file_for(today)
-    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
+    lockpath = _lockfile_for(today)
+    # Lock the sentinel file (never renamed), then operate on the data file.
+    # _atomic_write_json renames the data path's inode out from under us,
+    # which would invalidate a lock held on the data fd.
+    lock_fd = os.open(str(lockpath), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        _acquire_lock(fd)
+        _acquire_lock(lock_fd)
         counts = _read_counts(path)
         counts[call_name] = int(counts.get(call_name, 0)) + 1
         _atomic_write_json(path, counts)
+        # _maybe_prune INSIDE the lock — without this, prune's read-modify-
+        # write on the same data file races the next record_call's increment
+        # (lost-update). One lock holder writes prune marker, others see it
+        # and short-circuit per the existing _PRUNE_MARKER guard.
+        _maybe_prune_locked(today)
     finally:
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
         finally:
-            os.close(fd)
-    _maybe_prune(today)
+            os.close(lock_fd)
 
 
 def today_count(call_name: str) -> int:
