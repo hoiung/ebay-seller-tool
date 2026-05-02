@@ -1,9 +1,17 @@
 """
 Floor-price math + listing diagnostic synthesis.
 
-Pure computation layer — no eBay API calls here. Trading-API extraction
+Pure computation layer for the bulk of the module — Trading-API extraction
 lives in ebay/selling.py; REST Analytics + Post-Order in ebay/rest.py
 (Phase 2). This module consumes their outputs.
+
+**Carve-out (Issue #14 Phase 3)**: ``_evaluate_wrong_direction_raise`` is
+the single private async helper that breaks the pure-compute contract.
+It calls ``fetch_competitor_prices`` and ``fetch_seller_transactions``
+via *lazy imports* to keep the broader module free of API coupling at
+import time. The lazy-import pattern is deliberate so unit tests can
+patch the API surfaces without dragging the analytics layer into the
+mock graph. Only ``update_listing`` may invoke the helper.
 
 Formula (Issue #4, research §4):
     fixed  = cogs + per_order_fee + packaging + postage_out + time_sale
