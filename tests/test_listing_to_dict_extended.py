@@ -22,7 +22,11 @@ def _build_item(**overrides):
             RelistCount="0",
         ),
         BestOfferCount="1",
-        BestOfferEnabled="true",
+        BestOfferDetails=SimpleNamespace(
+            BestOfferEnabled="true",
+            BestOfferCount="1",
+            NewBestOffer="false",
+        ),
         QuestionCount="2",
         WatchCount="7",
         HitCount="142",
@@ -96,8 +100,9 @@ def test_listing_to_dict_promoted_listing_false_default() -> None:
 
 def test_listing_to_dict_handles_missing_optional_fields() -> None:
     # #16 fix: BestOfferEnabled defaults to False (boolean-only contract) when
-    # the element is absent from GetItem response — never None.
-    item = _build_item(BestOfferEnabled=None, QuestionCount=None, BestOfferCount=None)
+    # the element is absent from GetItem response — never None. Real-shape: the
+    # field lives under BestOfferDetails (not on Item root).
+    item = _build_item(BestOfferDetails=None, QuestionCount=None, BestOfferCount=None)
     d = listing_to_dict(item)
     assert d["best_offer_count"] == 0
     assert d["question_count"] == 0
@@ -105,17 +110,47 @@ def test_listing_to_dict_handles_missing_optional_fields() -> None:
 
 
 def test_listing_to_dict_best_offer_enabled_absent() -> None:
-    # New regression fixture: simulates GetItem response with BestOfferEnabled
-    # element absent (eBay omits it for listings without Best Offer configured).
-    item = _build_item(BestOfferEnabled=None)
+    # Regression: simulates GetItem response with the BestOfferDetails element
+    # absent entirely (eBay omits the parent block for listings without Best
+    # Offer configured). Bug-shaped path before ebay-ops#17 fix: parser read
+    # `getattr(item, "BestOfferEnabled")` directly off the Item root, which
+    # silently returned absent and produced 0/N false-negatives even when
+    # listings WERE Best Offer enabled.
+    item = _build_item(BestOfferDetails=None)
     d = listing_to_dict(item)
     assert d["best_offer_enabled"] is False  # NOT None, NOT True
     assert isinstance(d["best_offer_enabled"], bool)
 
 
+def test_listing_to_dict_best_offer_enabled_true_when_nested() -> None:
+    # Regression: confirms the parser reads from BestOfferDetails.BestOfferEnabled
+    # (the real eBay API shape per GetItem) — NOT from Item.BestOfferEnabled
+    # which never exists. Pre-fix: this test would have failed because the
+    # parser ignored the nested field entirely.
+    from types import SimpleNamespace
+    item = _build_item(
+        BestOfferDetails=SimpleNamespace(
+            BestOfferEnabled="true",
+            BestOfferCount="0",
+            NewBestOffer="false",
+        ),
+    )
+    d = listing_to_dict(item)
+    assert d["best_offer_enabled"] is True
+    assert isinstance(d["best_offer_enabled"], bool)
+
+
 def test_listing_to_dict_best_offer_enabled_false_string() -> None:
-    # New regression fixture: BestOfferEnabled="false" XML string value.
-    item = _build_item(BestOfferEnabled="false")
+    # New regression fixture: BestOfferDetails.BestOfferEnabled="false" XML
+    # string value (real-shape: nested under BestOfferDetails per ebay-ops#17 fix).
+    from types import SimpleNamespace
+    item = _build_item(
+        BestOfferDetails=SimpleNamespace(
+            BestOfferEnabled="false",
+            BestOfferCount="0",
+            NewBestOffer="false",
+        ),
+    )
     d = listing_to_dict(item)
     assert d["best_offer_enabled"] is False
     assert isinstance(d["best_offer_enabled"], bool)
