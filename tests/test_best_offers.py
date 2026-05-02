@@ -65,7 +65,7 @@ def test_get_pending_best_offers_returns_parsed_list() -> None:
 
     # AP #18 — assert eBay payload explicitly
     assert mock_call.call_args[0][0] == "GetBestOffers"
-    assert mock_call.call_args[0][1]["BestOfferStatus"] == "Pending"
+    assert mock_call.call_args[0][1]["BestOfferStatus"] == "Active"
 
 
 def test_get_pending_best_offers_empty_when_no_offers() -> None:
@@ -85,7 +85,7 @@ def test_get_pending_best_offers_filters_pending_status() -> None:
         _run(get_pending_best_offers())
     assert mock_call.call_args[0][0] == "GetBestOffers"
     payload = mock_call.call_args[0][1]
-    assert payload["BestOfferStatus"] == "Pending"
+    assert payload["BestOfferStatus"] == "Active"
     assert payload["DetailLevel"] == "ReturnAll"
 
 

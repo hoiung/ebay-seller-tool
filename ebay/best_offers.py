@@ -27,8 +27,14 @@ from typing import Any, Literal
 # Action enum for respond_to_best_offer — Literal type narrows callers.
 BestOfferAction = Literal["Accept", "Counter", "Decline"]
 
-# eBay Trading API enum values for `BestOfferStatus` filter.
-_PENDING_STATUS = "Pending"
+# eBay Trading API enum values for the GetBestOffers `BestOfferStatus` REQUEST
+# filter. Stage 5 R3 fix — was "Pending" which eBay rejects with code 20139
+# "Invalid BestOfferStatus. BestOfferStatus is Invalid. Valid values are All,
+# Active." Note: individual <BestOffer> nodes in the RESPONSE carry their own
+# BestOfferStatus="Pending" field — that's a separate enum from the request
+# filter. "Active" semantically means "still pending, not yet responded or
+# expired" which is what we want.
+_ACTIVE_FILTER = "Active"
 
 
 def _as_list(node: Any) -> list:
@@ -87,7 +93,7 @@ async def get_pending_best_offers() -> list[dict[str, Any]]:
     response = await asyncio.to_thread(
         execute_with_retry,
         "GetBestOffers",
-        {"BestOfferStatus": _PENDING_STATUS, "DetailLevel": "ReturnAll"},
+        {"BestOfferStatus": _ACTIVE_FILTER, "DetailLevel": "ReturnAll"},
     )
 
     # Per-seller response shape: <ItemArray><Item><ItemID>...<BestOfferArray><BestOffer>...
