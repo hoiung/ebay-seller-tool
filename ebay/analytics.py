@@ -29,6 +29,7 @@ Worked example (cogs=0, sunk time, 10% return rate, 15% margin, £0 postage_char
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from ebay.fees import _load_fees_config
@@ -762,33 +763,111 @@ async def _evaluate_wrong_direction_raise(
     }
 
 
+def _round_down_to_pound(pct: float, live_price: float) -> int:
+    """Apply pct to live_price, floor to nearest whole pound (psychological discount)."""
+    return math.floor(pct * live_price)
+
+
+def _validate_best_offer_config(cfg_bo: dict[str, Any]) -> None:
+    """Fail Fast on malformed best_offer config — typo'd key names silently
+    fall back to defaults otherwise (violates Engineering Requirements
+    Fail Fast). Caller catches ValueError + surfaces via log_warn.
+
+    Invariants:
+      - All 4 keys present (auto_accept_pct, auto_decline_pct, counter_offer_pct, round_down_to_pound)
+      - 3 pct values in [0.0, 1.0]
+      - round_down_to_pound is bool
+      - auto_decline_pct < auto_accept_pct < 1.0
+      - counter_offer_pct >= auto_decline_pct
+    """
+    if not cfg_bo:
+        return  # absent block — caller handles via fallback path
+    required = {"auto_accept_pct", "auto_decline_pct", "counter_offer_pct", "round_down_to_pound"}
+    missing = required - set(cfg_bo.keys())
+    if missing:
+        raise ValueError(
+            f"config/fees.yaml best_offer block invalid: missing keys {sorted(missing)} — "
+            f"check for typos (e.g. auto_acceptpct vs auto_accept_pct)"
+        )
+    pct_keys = ("auto_accept_pct", "auto_decline_pct", "counter_offer_pct")
+    for key in pct_keys:
+        val = cfg_bo[key]
+        if not isinstance(val, (int, float)) or not (0.0 <= float(val) <= 1.0):
+            raise ValueError(
+                f"config/fees.yaml best_offer.{key}={val!r} invalid — must be float in [0.0, 1.0]"
+            )
+    if not isinstance(cfg_bo["round_down_to_pound"], bool):
+        raise ValueError(
+            f"config/fees.yaml best_offer.round_down_to_pound={cfg_bo['round_down_to_pound']!r} "
+            f"invalid — must be bool"
+        )
+    a, d, c = cfg_bo["auto_accept_pct"], cfg_bo["auto_decline_pct"], cfg_bo["counter_offer_pct"]
+    if not (d < a < 1.0):
+        raise ValueError(
+            f"config/fees.yaml best_offer invariant violated: "
+            f"auto_decline_pct ({d}) < auto_accept_pct ({a}) < 1.0 must hold"
+        )
+    if c < d:
+        raise ValueError(
+            f"config/fees.yaml best_offer invariant violated: "
+            f"counter_offer_pct ({c}) >= auto_decline_pct ({d}) must hold"
+        )
+
+
 def compute_best_offer_thresholds(
     floor_gbp: float,
     live_price_gbp: float,
-    auto_accept_pct: float = 0.88,
-    auto_decline_pct: float = 0.72,
+    auto_accept_pct: float | None = None,
+    auto_decline_pct: float | None = None,
     floor_buffer_pct: float = 0.05,
 ) -> dict[str, Any]:
-    """G-NEW-1 — recommend Best Offer auto-accept / auto-decline thresholds.
+    """G-NEW-1 (Issue #4) + Issue #16 — recommend Best Offer thresholds.
 
-    Pure-function helper. Consumers (server.py recommend_best_offer_thresholds
-    MCP tool, analyse_listing's enable_best_offer suggestion) supply the floor
-    + live price; this returns the recommended pair plus a rationale string.
+    Pure-function helper. Two consumer modes:
+
+    1) **Diagnostic** (server.py recommend_best_offer_thresholds, analyse_listing
+       best_offer suggestion, enable_best_offer_all.py Phase 6 dry-run): caller
+       supplies floor + live price. When pcts are None (default), reads
+       config/fees.yaml `best_offer:` block; when explicit, kwargs win. This is
+       the path Issue #16 makes config-driven so analyse_listing and the storewide
+       enable script align with the operator-locked 0.925/0.75 thresholds.
+
+    2) **Backward-compat fallback**: when neither config nor kwargs supply pcts
+       (fresh install with no `best_offer:` block), falls back to the historical
+       0.88/0.72 pair so pre-#16 callers don't crash. Schema validator (Fail
+       Fast) raises ValueError on a partially-populated/typo'd block — silent
+       fallback only on TOTALLY ABSENT block.
 
     Composition rule:
         auto_accept = max(floor * (1 + buffer), pct * live_price)
         auto_decline = max(floor, decline_pct * live_price)
+        when round_down_to_pound: apply math.floor() to both
 
-    The buffer above the floor on auto_accept defends margin: the floor is
-    where break-even sits; auto-accepting AT the floor accepts every offer
-    that just clears break-even, which is too aggressive given Best-Offer
-    sellers typically expect some margin retention. 5% default matches the
-    skill canonical 88%/72% pair.
+    The 5% buffer above floor defends margin: floor is break-even; auto-accepting
+    AT floor accepts every offer that just clears break-even. Buffer ensures a
+    minimum profit slice on auto-accepts.
 
-    Floor guardrail: if either threshold would land below the floor, the
-    rationale flags it explicitly so callers can surface the diagnostic
-    rather than silently clamp.
+    NOTE (Issue #16 AC3.2): The autonomous responder
+    (`scripts/respond_best_offers.py`) does NOT call this function — it reads
+    config directly and applies a pure formula without floor_buffer_pct. Reason:
+    the responder is the contract AUTHOR for offers (it WRITES the threshold),
+    not a diagnostic SUGGESTOR. Buffer-pct over-recommends accept thresholds
+    relative to the operator-locked 92.5% rule on low-priced listings.
     """
+    if floor_buffer_pct < 0:
+        raise ValueError(
+            f"floor_buffer_pct={floor_buffer_pct} invalid — must be >= 0 (programming error)"
+        )
+
+    cfg_bo = _load_fees_config().get("best_offer", {}) or {}
+    _validate_best_offer_config(cfg_bo)  # Fail Fast on partial/typo'd block
+
+    if auto_accept_pct is None:
+        auto_accept_pct = cfg_bo.get("auto_accept_pct", 0.88)
+    if auto_decline_pct is None:
+        auto_decline_pct = cfg_bo.get("auto_decline_pct", 0.72)
+    round_down = bool(cfg_bo.get("round_down_to_pound", False))
+
     floor_with_buffer = floor_gbp * (1.0 + floor_buffer_pct)
     auto_accept_raw = auto_accept_pct * live_price_gbp
     auto_decline_raw = auto_decline_pct * live_price_gbp
@@ -796,19 +875,21 @@ def compute_best_offer_thresholds(
     auto_accept = max(floor_with_buffer, auto_accept_raw)
     auto_decline = max(floor_gbp, auto_decline_raw)
 
-    if auto_accept < floor_gbp:
-        rationale = "auto_accept_below_floor — drop_floor_first"
-    else:
-        rationale = (
-            f"auto_accept = max(floor*{1.0 + floor_buffer_pct:.2f}={floor_with_buffer:.2f}, "
-            f"{auto_accept_pct:.0%}*live={auto_accept_raw:.2f}); "
-            f"auto_decline = max(floor={floor_gbp:.2f}, "
-            f"{auto_decline_pct:.0%}*live={auto_decline_raw:.2f})"
-        )
+    if round_down:
+        auto_accept = math.floor(auto_accept)
+        auto_decline = math.floor(auto_decline)
+
+    rationale = (
+        f"auto_accept = max(floor*{1.0 + floor_buffer_pct:.2f}={floor_with_buffer:.2f}, "
+        f"{auto_accept_pct:.0%}*live={auto_accept_raw:.2f}); "
+        f"auto_decline = max(floor={floor_gbp:.2f}, "
+        f"{auto_decline_pct:.0%}*live={auto_decline_raw:.2f})"
+        + (" [round_down_to_pound applied]" if round_down else "")
+    )
 
     return {
-        "auto_accept_gbp": round(auto_accept, 2),
-        "auto_decline_gbp": round(auto_decline, 2),
+        "auto_accept_gbp": auto_accept if round_down else round(auto_accept, 2),
+        "auto_decline_gbp": auto_decline if round_down else round(auto_decline, 2),
         "floor_gbp": round(floor_gbp, 2),
         "rationale": rationale,
     }
