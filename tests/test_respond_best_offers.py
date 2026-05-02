@@ -376,3 +376,63 @@ def test_responder_load_jsonl_tail_skips_partial_last_line(
     seen = rbo.load_recent_signatures(window_hours=10000)
     assert ("valid_offer", "abc123") in seen
     assert len(seen) == 1  # truncated row not parsed
+
+
+def test_responder_aborts_when_offer_count_exceeds_sanity_cap(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """Stage 5 gap-fill: malformed GetBestOffers response with >SANITY_OFFER_CAP
+    offers must abort the cycle (return exit 1) rather than process all of them.
+    Defensive guard against a runaway eBay response."""
+    bloated = [_build_offer(offer_id=f"o{i}") for i in range(rbo.SANITY_OFFER_CAP + 1)]
+    respond_mock = AsyncMock()
+    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=bloated)), \
+         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
+         patch.object(rbo, "respond_to_best_offer", respond_mock):
+        exit_code = rbo.main(["--apply", "--yes"])
+
+    assert exit_code == 1
+    assert respond_mock.await_count == 0  # no per-offer dispatch on abort
+
+
+def test_responder_apply_without_yes_refuses_live_mode() -> None:
+    """Stage 5 gap-fill: --apply without --yes must refuse with exit 1
+    and never reach the async main_async (no eBay API calls).
+    Mirrors the enable_best_offer_all.py CLI safety pattern."""
+    with patch.object(rbo, "main_async", AsyncMock()) as main_async_mock:
+        exit_code = rbo.main(["--apply"])
+    assert exit_code == 1
+    assert main_async_mock.await_count == 0
+
+
+def test_compute_decision_declines_when_counter_would_exceed_live_price() -> None:
+    """Stage 5 fix: when `floor_gbp >= live_price` (high-postage / small-margin
+    listings — e.g. £10 listing with computed £11 floor), countering at
+    `max(floor, floor(0.95*live))` would set counter ≥ BuyItNowPrice and eBay
+    would reject the call. Decline with explicit `unprofitable_floor_decline_*`
+    reason instead of burning API quota on a guaranteed validation error."""
+    cfg_bo = {"auto_accept_pct": 0.925, "auto_decline_pct": 0.75, "counter_offer_pct": 0.95}
+    # live=£10, floor=£11
+    #   auto_accept_gbp  = floor(0.925*10) = 9
+    #   auto_decline_gbp = floor(0.75 *10) = 7
+    #   counter_gbp      = max(11, floor(0.95*10)) = max(11, 9) = 11 ≥ live → unprofitable
+    # buyer_offer=£8 sits in the in-band range (8 ≥ 7 and 8 < 9), normally would
+    # trigger Counter; with unprofitable-floor guard it falls to decline.
+    offer = {"buyer_offer_gbp": 8.0, "live_price_gbp": 10.0}
+    decision = rbo.compute_decision(offer, cfg_bo, floor_gbp=11.0)
+    assert decision["cron_action"] == "decline"
+    assert decision["counter_price_gbp"] is None
+    assert decision["reason"].startswith("unprofitable_floor_decline_")
+    assert "floor_11" in decision["reason"]
+    assert "live_10" in decision["reason"]
+
+
+def test_compute_decision_normal_band_still_counters_when_floor_below_live() -> None:
+    """Regression guard for the unprofitable-floor fix: normal listings where
+    floor < live MUST still hit the counter branch."""
+    cfg_bo = {"auto_accept_pct": 0.925, "auto_decline_pct": 0.75, "counter_offer_pct": 0.95}
+    # live=£50, floor=£20 → counter_gbp = max(20, floor(0.95*50)) = 47 < 50
+    offer = {"buyer_offer_gbp": 40.0, "live_price_gbp": 50.0}
+    decision = rbo.compute_decision(offer, cfg_bo, floor_gbp=20.0)
+    assert decision["cron_action"] == "counter"
+    assert decision["counter_price_gbp"] == 47
