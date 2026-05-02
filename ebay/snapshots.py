@@ -7,14 +7,19 @@ Schema (per round-2 F-G template):
     {
         "timestamp": "<ISO 8601 UTC>",
         "item_id": "<eBay item id>",
-        "event": "analysis_baseline | price_change | post_change_check | weekly_sweep",
+        "event": "analysis_baseline | price_change | post_change_check",
         "price_gbp": <float | null>,
         "quantity": <int | null>,
         "watch_count": <int | null>,
         "view_count": <int | null>,
         "traffic_30d": <dict | null>,   # parse_traffic_report_response output if available
-        "source": "<analyse_listing | update_listing | sweep | manual>"
+        "source": "<analyse_listing | update_listing | manual>"
     }
+
+Issue #14 Phase 4 cleanup: ``weekly_sweep`` was removed from the enum
+(F-DEADENUM). The literal had no producer in v1; the cadence-driven
+sweep was deferred per Stage 1 §6. When sweep automation is implemented,
+re-add the literal alongside the producer in the same commit.
 
 Newline-delimited; each line is one JSON object. Parsing tools (jq, pandas)
 can stream the file without loading it whole.
@@ -32,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 _VALID_EVENT_TYPES = frozenset(
-    {"analysis_baseline", "price_change", "post_change_check", "weekly_sweep"}
+    {"analysis_baseline", "price_change", "post_change_check"}
 )
 
 # Default snapshot path. Overridable via EBAY_SNAPSHOT_PATH env var (used by
@@ -56,8 +61,8 @@ def append_snapshot(event_type: str, item_id: str, snapshot: dict[str, Any]) -> 
     event).
 
     Args:
-        event_type: one of analysis_baseline / price_change / post_change_check /
-            weekly_sweep. Raises ValueError on unknown.
+        event_type: one of analysis_baseline / price_change / post_change_check.
+            Raises ValueError on unknown.
         item_id: eBay item ID (string).
         snapshot: caller-provided fields to merge into the event row. The
             following keys take precedence over snapshot's: timestamp,
