@@ -209,13 +209,13 @@ def listing_to_dict(item: object) -> dict:
     best_offer_count = int(getattr(item, "BestOfferCount", 0) or 0)
     question_count = int(getattr(item, "QuestionCount", 0) or 0)
     # Boolean-only contract (#16 fix per Stage 1 L2 F1): default-to-"false" when
-    # the BestOfferEnabled element is absent on the GetItem response (eBay omits
-    # it for listings that don't have Best Offer configured). Prior behaviour
-    # leaked None to downstream consumers (analyse_listing response, score_apple_to_apple
-    # Layer-2, pricing_review per-listing block) which couldn't differentiate
-    # "field absent" from "field is False" — same operational meaning, different
-    # type. Now a single bool, no None leak.
-    best_offer_enabled_raw = getattr(item, "BestOfferEnabled", "false")
+    # the BestOfferEnabled element is absent (eBay omits it for listings that
+    # don't have Best Offer configured). Field is nested under BestOfferDetails
+    # — reading directly off the Item element always returned absent, masking
+    # any listing where Best Offer was enabled and producing 0/N false-negatives
+    # (caught 2026-05-02 during ebay-ops#17 audit gap).
+    best_offer_details = getattr(item, "BestOfferDetails", None)
+    best_offer_enabled_raw = getattr(best_offer_details, "BestOfferEnabled", "false") if best_offer_details is not None else "false"
     best_offer_enabled = str(best_offer_enabled_raw).lower() == "true"
 
     return {
