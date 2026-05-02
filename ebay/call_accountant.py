@@ -35,6 +35,11 @@ CALL_CAPS: dict[str, int] = {
     "AddMemberMessageRTQ": 5000,
 }
 
+# Stage 5 fix L1.G M16 — load-bearing safety margin between "send" and
+# "exhausted budget for read-side calls". Named so callers (ebay_reply.py
+# pre-flight gate) reference the same threshold without hardcoding 10.
+QUOTA_HEADROOM_FLOOR = 10
+
 _STATE_DIR = Path.home() / ".local" / "share" / "ebay-seller-tool"
 _RETENTION_DAYS = 30
 # Stage 5 fix L1.J — was 30s. The accountant fires from the Trading API hot
@@ -151,6 +156,17 @@ def record_call(call_name: str) -> None:
     """
     if not call_name or not isinstance(call_name, str):
         raise ValueError(f"call_name must be a non-empty string, got {call_name!r}")
+    # Stage 5 fix L1.G M13 — eBay Trading verbs are CamelCase; reject any
+    # name that could collide with our `_pruned` / `_meta` reserved keys
+    # (or any future namespacing we add). Same regex Trading API doc's
+    # Verb table follows.
+    import re  # noqa: PLC0415
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", call_name):
+        raise ValueError(
+            f"call_name must match [A-Za-z][A-Za-z0-9]* (CamelCase verb), "
+            f"got {call_name!r} — reserved underscore-prefixed keys conflict "
+            f"with internal markers like _pruned"
+        )
     _ensure_state_dir()
     today = _today_yyyymmdd()
     path = _file_for(today)
