@@ -180,4 +180,9 @@ def compute_elasticity(item_id: str, before_event: str, after_event: str) -> dic
         "delta_watchers": delta_watchers,
         "elasticity": elasticity,
         "classification": classification,
+        # Issue #14 Phase 2 — surface timestamps so callers can apply a
+        # freshness gate (e.g. immediate post_change_check captured ~3-5s
+        # post-revise won't show settled watcher elasticity; warn under 7d).
+        "before_timestamp": before.get("timestamp"),
+        "after_timestamp": after.get("timestamp"),
     }
