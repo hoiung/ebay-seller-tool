@@ -113,6 +113,25 @@ def test_lock_timeout_set_to_5_seconds() -> None:
     assert ca._LOCK_TIMEOUT_SECONDS == 5
 
 
+def test_call_name_regex_rejects_underscore_prefix(isolated_state) -> None:
+    """Stage 5 fix L1.G M13 — reserved underscore-prefixed keys (like
+    `_pruned`) must not be accepted as a verb name; would corrupt the
+    prune marker. Reject any non-CamelCase verb name."""
+    with pytest.raises(ValueError, match="CamelCase"):
+        ca.record_call("_pruned")
+    with pytest.raises(ValueError, match="CamelCase"):
+        ca.record_call("verb-with-dash")
+    with pytest.raises(ValueError, match="CamelCase"):
+        ca.record_call("123InvalidFirstChar")
+
+
+def test_quota_headroom_floor_constant() -> None:
+    """Stage 5 fix L1.G M16 — load-bearing safety margin between send
+    and read-side budget; must be readable + sensible default."""
+    assert ca.QUOTA_HEADROOM_FLOOR == 10
+    assert isinstance(ca.QUOTA_HEADROOM_FLOOR, int)
+
+
 def test_negative_count_when_overshot(isolated_state) -> None:
     """daily_budget_remaining must return negative on overshoot (operator-
     visible signal), never silently floor to 0."""
