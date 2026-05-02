@@ -904,7 +904,10 @@ async def update_listing(
                 },
             )
         except (OSError, ValueError) as e:
-            log_debug(
+            # JSONL append failure is a data-loss path — get_elasticity (Phase 2)
+            # will return insufficient_events without operator visibility into why.
+            # Bump to log_warn so the operator sees the broken ledger entry.
+            log_warn(
                 f"update_listing snapshot_append_failed item_id={item_id} "
                 f"reason={type(e).__name__}: {e}"
             )
@@ -935,7 +938,9 @@ async def update_listing(
                 },
             )
         except (OSError, ValueError) as e:
-            log_debug(
+            # Same data-loss rationale as price_change above — Phase 2
+            # get_elasticity depends on this snapshot landing.
+            log_warn(
                 f"update_listing post_change_check_append_failed item_id={item_id} "
                 f"reason={type(e).__name__}: {e}"
             )
