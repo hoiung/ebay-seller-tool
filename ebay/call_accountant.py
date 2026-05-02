@@ -37,7 +37,12 @@ CALL_CAPS: dict[str, int] = {
 
 _STATE_DIR = Path.home() / ".local" / "share" / "ebay-seller-tool"
 _RETENTION_DAYS = 30
-_LOCK_TIMEOUT_SECONDS = 30
+# Stage 5 fix L1.J — was 30s. The accountant fires from the Trading API hot
+# path (every successful execute_with_retry), and a stuck process holding the
+# flock would block the API caller for up to 30s. 5s keeps tail latency well
+# below MAX_CUMULATIVE_TIMEOUT_SECONDS=15s in client.py while still tolerating
+# normal contention (uncontended record_call ~4ms; 4-worker contended ~2ms).
+_LOCK_TIMEOUT_SECONDS = 5
 _PRUNE_MARKER = "_pruned"  # field on today's file marking the prune ran
 
 
