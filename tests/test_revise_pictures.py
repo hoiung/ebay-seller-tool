@@ -331,8 +331,8 @@ def test_revise_pictures_l13_truncate_to_cap_helper_unit() -> None:
     assert n == 5
 
 
-def test_revise_pictures_echoes_shipping_details() -> None:
-    """eBay overwrites ShippingDetails with default if not echoed — verify echo-back."""
+def test_revise_pictures_emits_seller_profiles() -> None:
+    """Issue #29: Business Policies — payload uses SellerProfiles, no inline Shipping."""
     captured = {}
 
     def _exec_side_effect(verb, payload, *args, **kwargs):
@@ -349,13 +349,13 @@ def test_revise_pictures_echoes_shipping_details() -> None:
     ):
         _run(revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="append"))
 
-    # Built payload includes ShippingDetails extracted from the live Item.
-    shipping = captured["payload"]["Item"]["ShippingDetails"]
-    assert shipping["ShippingType"] == "Flat"
-    sso = shipping["ShippingServiceOptions"]
-    if isinstance(sso, list):
-        sso = sso[0]
-    assert sso["ShippingService"] == "UK_RoyalMailSecondClassStandard"
+    # Built payload references the three Business Policy IDs and omits inline shipping.
+    item = captured["payload"]["Item"]
+    assert "ShippingDetails" not in item
+    sp = item["SellerProfiles"]
+    assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
+    assert sp["SellerShippingProfile"]["ShippingProfileID"] == "100000000002"
+    assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
 
 
 def test_revise_pictures_audit_log_entry(tmp_path, monkeypatch) -> None:
