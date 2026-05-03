@@ -9,7 +9,7 @@ Covers:
 - Append composition: current + new in order.
 - Replace composition: just new, photos_lost mirrors photos_before.
 - 24-photo cap: warn-and-truncate, truncated_count surfaced, no silent drop.
-- ShippingDetails echo-back: extract_shipping_details called with the live
+- SellerProfiles emission (issue #29 — Business Policies replaces inline echo)
   Item before payload build.
 - _assert_no_quantity invariant (Revise path) preserved end-to-end.
 - MCP wrapper: ValueError -> JSON error envelope.
