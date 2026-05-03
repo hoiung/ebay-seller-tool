@@ -66,16 +66,17 @@ def test_build_add_payload_full_payload_shape() -> None:
         "https://i.ebayimg.com/images/g/abc/$_57.JPG",
         "https://i.ebayimg.com/images/g/def/$_57.JPG",
     ]
-    # Business Policies (#29): SellerProfiles supplies shipping/payment/returns
-    # via Profile IDs; inline ShippingDetails / ReturnPolicy / PaymentMethods
-    # are absent and would be rejected by eBay on enrolled accounts.
-    assert "ShippingDetails" not in item
+    # Business Policies post-#29 revert: Payment + Return via SellerProfiles;
+    # SHIPPING is inline (FreeShipping=true) so Simple Delivery's "Who pays?"
+    # toggle defaults to seller-pays on new listings.
     assert "ReturnPolicy" not in item
     assert "PaymentMethods" not in item
     sp = item["SellerProfiles"]
+    assert "SellerShippingProfile" not in sp, "no shipping policy ref on AddItem"
     assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert sp["SellerShippingProfile"]["ShippingProfileID"] == "100000000002"
     assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
+    assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true"
+    assert item["ShippingDetails"]["GlobalShipping"] == "true"
     assert item["Location"] == "Coventry"  # EBAY_SELLER_LOCATION from conftest
     assert item["PostalCode"] == "CV1 1AN"  # EBAY_SELLER_POSTCODE from conftest
     assert item["Country"] == "GB"

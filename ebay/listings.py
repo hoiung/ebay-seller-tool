@@ -27,10 +27,14 @@ _MIN_ITEM_SPECIFICS_KEYS = 20
 MAX_PICTURE_URLS = 24
 MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
-# Business Policies (issue #29) — eBay account is enrolled, so AddItem and
-# ReviseFixedPriceItem MUST emit SellerProfiles referencing the three Profile IDs
-# created at ebay.co.uk/sh/policies/. Inline PaymentMethods/ShippingDetails/
-# ReturnPolicy blocks are rejected once enrolled (mixed mode forbidden).
+# Business Policies (issue #29) — eBay account is enrolled.
+# Payment + Return profiles attach via SellerProfiles for ALL operations.
+# Shipping is treated differently:
+#   - AddItem (new listings): NO shipping policy attached — inline ShippingDetails
+#     with FreeShipping=true preserves Simple Delivery's "Who pays?" defaulting
+#     to seller-pays.
+#   - ReviseFixedPriceItem (existing listings): shipping policy ref preserved
+#     so revises don't accidentally detach existing listings from default-shipping.
 _REQUIRED_SELLER_PROFILE_ENV_VARS = (
     "EBAY_PAYMENT_PROFILE_ID",
     "EBAY_SHIPPING_PROFILE_ID",
@@ -38,12 +42,16 @@ _REQUIRED_SELLER_PROFILE_ENV_VARS = (
 )
 
 
-def _build_seller_profiles_block() -> dict:
+def _build_seller_profiles_block(include_shipping: bool = True) -> dict:
     """Return the SellerProfiles dict for AddItem/ReviseFixedPriceItem payloads.
 
-    Reads the three Profile IDs from env. Fails fast (RuntimeError) if any of
-    the three is missing — there is no inline-mode fallback because eBay
-    rejects mixed-mode payloads on Business-Policies-enrolled accounts.
+    include_shipping: True for revise (preserves shipping policy ref on existing
+        listings); False for add (new listings use inline ShippingDetails so
+        Simple Delivery's "Who pays?" default stays seller-pays).
+
+    Reads Profile IDs from env. Fails fast (RuntimeError) if any required
+    var is missing. EBAY_SHIPPING_PROFILE_ID is required even when not used
+    in AddItem so the env contract stays consistent across deployments.
     """
     missing = [k for k in _REQUIRED_SELLER_PROFILE_ENV_VARS if not os.environ.get(k)]
     if missing:
@@ -51,17 +59,19 @@ def _build_seller_profiles_block() -> dict:
             "Business Policies env vars not set: "
             f"{', '.join(missing)}. See .env.example and issue #29."
         )
-    return {
+    profiles: dict = {
         "SellerPaymentProfile": {
             "PaymentProfileID": os.environ["EBAY_PAYMENT_PROFILE_ID"],
-        },
-        "SellerShippingProfile": {
-            "ShippingProfileID": os.environ["EBAY_SHIPPING_PROFILE_ID"],
         },
         "SellerReturnProfile": {
             "ReturnProfileID": os.environ["EBAY_RETURN_PROFILE_ID"],
         },
     }
+    if include_shipping:
+        profiles["SellerShippingProfile"] = {
+            "ShippingProfileID": os.environ["EBAY_SHIPPING_PROFILE_ID"],
+        }
+    return profiles
 
 
 def _parse_iso_ts(value: object) -> str | None:
@@ -570,7 +580,25 @@ def build_add_payload(
             "PostalCode": os.environ["EBAY_SELLER_POSTCODE"],
             "Currency": _EBAY_UK_SITE_CURRENCY,
         }
-    seller_profiles = _build_seller_profiles_block()
+    # AddItem path: NO shipping policy reference; inline ShippingDetails below.
+    seller_profiles = _build_seller_profiles_block(include_shipping=False)
+
+    # Inline ShippingDetails (FreeShipping=true) so Simple Delivery's
+    # "Who pays?" defaults to seller-pays on new listings. NO shipping policy
+    # reference — Simple Delivery is the operative shipping layer.
+    shipping_details = {
+        "ShippingType": "Flat",
+        "GlobalShipping": "true",
+        "ShippingServiceOptions": {
+            "ShippingServicePriority": "1",
+            "ShippingService": "UK_RoyalMailSecondClassStandard",
+            "ShippingServiceCost": {
+                "#text": "0.00",
+                "@attrs": {"currencyID": location_details["Currency"]},
+            },
+            "FreeShipping": "true",
+        },
+    }
 
     nvl = []
     for name, value in item_specifics.items():
@@ -600,6 +628,7 @@ def build_add_payload(
         "UUID": uuid_hex,
         "PictureDetails": {"PictureURL": list(picture_urls)},
         "ItemSpecifics": {"NameValueList": nvl},
+        "ShippingDetails": shipping_details,
         "SellerProfiles": seller_profiles,
     }
     if condition_description is not None:
