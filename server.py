@@ -38,6 +38,12 @@ from ebay.analytics import (  # noqa: E402
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.browse import fetch_competitor_prices  # noqa: E402
 from ebay.client import execute_with_retry, log_debug, log_warn  # noqa: E402
+from ebay.end_listing import (  # noqa: E402
+    ALLOWED_ENDING_REASONS,
+)
+from ebay.end_listing import (  # noqa: E402
+    end_listing as _end_listing_core,
+)
 from ebay.hdd_specs import HDD_SPECS  # noqa: E402
 from ebay.listings import (  # noqa: E402
     MAX_PICTURE_URLS,
@@ -54,10 +60,6 @@ from ebay.photos import (  # noqa: E402
     glob_visual_photos,
     preprocess_for_ebay,
     upload_one,
-)
-from ebay.end_listing import (  # noqa: E402
-    ALLOWED_ENDING_REASONS,
-    end_listing as _end_listing_core,
 )
 from ebay.pictures import revise_pictures as _revise_pictures_core  # noqa: E402
 from ebay.rest import compute_return_rate as rest_compute_return_rate  # noqa: E402

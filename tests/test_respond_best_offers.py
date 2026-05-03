@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -36,7 +35,6 @@ import respond_best_offers as rbo  # noqa: E402
 
 from ebay.fees import reset_fees_cache  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -44,7 +42,8 @@ from ebay.fees import reset_fees_cache  # noqa: E402
 
 @pytest.fixture
 def isolated_fees_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Synthetic fees.yaml + EBAY_FEES_CONFIG redirect (mirrors test_compute_best_offer_thresholds.py)."""
+    """Synthetic fees.yaml + EBAY_FEES_CONFIG redirect (mirrors
+    test_compute_best_offer_thresholds.py)."""
     config_path = tmp_path / "fees.yaml"
     monkeypatch.setenv("EBAY_FEES_CONFIG", str(config_path))
     base = {
@@ -161,7 +160,8 @@ def test_responder_accepts_offer_above_auto_accept_threshold(
 
 
 def test_responder_counters_offer_in_band(isolated_fees_config, isolated_ledger) -> None:
-    """Live £50, offer £40 → 40 in [floor(0.75*50)=37, floor(0.925*50)=46) → Counter at floor(0.95*50)=47."""
+    """Live £50, offer £40 → 40 in [floor(0.75*50)=37, floor(0.925*50)=46)
+    → Counter at floor(0.95*50)=47."""
     pending = [_build_offer(buyer_offer_gbp=40.0)]
 
     counter_mock = AsyncMock(
@@ -370,7 +370,10 @@ def test_responder_load_jsonl_tail_skips_partial_last_line(
         "reason": "ok",
         "error_message": None,
     }
-    rbo.LEDGER_PATH.write_text(json.dumps(valid_row) + '\n{"timestamp":"2026-05-02T14:35:00Z","offer_id":"trunc')
+    rbo.LEDGER_PATH.write_text(
+        json.dumps(valid_row)
+        + '\n{"timestamp":"2026-05-02T14:35:00Z","offer_id":"trunc'
+    )
 
     # load_recent_signatures must skip the partial line, return only valid_offer
     seen = rbo.load_recent_signatures(window_hours=10000)
