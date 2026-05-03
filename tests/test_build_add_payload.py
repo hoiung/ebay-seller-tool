@@ -66,13 +66,16 @@ def test_build_add_payload_full_payload_shape() -> None:
         "https://i.ebayimg.com/images/g/abc/$_57.JPG",
         "https://i.ebayimg.com/images/g/def/$_57.JPG",
     ]
-    assert item["ShippingDetails"]["GlobalShipping"] == "true"
-    assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true"
-    assert (
-        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["#text"] == "0.00"
-    )
-    assert item["ReturnPolicy"]["ReturnsAcceptedOption"] == "ReturnsNotAccepted"
-    assert item["ReturnPolicy"]["InternationalReturnsAcceptedOption"] == "ReturnsNotAccepted"
+    # Business Policies (#29): SellerProfiles supplies shipping/payment/returns
+    # via Profile IDs; inline ShippingDetails / ReturnPolicy / PaymentMethods
+    # are absent and would be rejected by eBay on enrolled accounts.
+    assert "ShippingDetails" not in item
+    assert "ReturnPolicy" not in item
+    assert "PaymentMethods" not in item
+    sp = item["SellerProfiles"]
+    assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
+    assert sp["SellerShippingProfile"]["ShippingProfileID"] == "100000000002"
+    assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
     assert item["Location"] == "Coventry"  # EBAY_SELLER_LOCATION from conftest
     assert item["PostalCode"] == "CV1 1AN"  # EBAY_SELLER_POSTCODE from conftest
     assert item["Country"] == "GB"
@@ -81,7 +84,6 @@ def test_build_add_payload_full_payload_shape() -> None:
     assert item["ListingType"] == "FixedPriceItem"
     assert item["ListingDuration"] == "GTC"
     assert item["DispatchTimeMax"] == "3"
-    assert item["PaymentMethods"] == []  # Managed Payments — empty list
     assert item["Description"].startswith("<![CDATA[")
     assert item["Description"].endswith("]]>")
     # ItemSpecifics serialised as NameValueList
@@ -220,3 +222,37 @@ def test_build_add_payload_custom_location_details_override_env() -> None:
     assert payload["Item"]["PostalCode"] == "10001"
     assert payload["Item"]["Currency"] == "USD"
     assert payload["Item"]["StartPrice"]["@attrs"]["currencyID"] == "USD"
+
+
+# ---- Issue #29 — Business Policies Fail-Fast ----
+
+
+@pytest.mark.parametrize(
+    "missing_var",
+    [
+        "EBAY_PAYMENT_PROFILE_ID",
+        "EBAY_SHIPPING_PROFILE_ID",
+        "EBAY_RETURN_PROFILE_ID",
+    ],
+)
+def test_build_add_payload_missing_profile_id_raises_runtime_error(
+    monkeypatch: pytest.MonkeyPatch, missing_var: str
+) -> None:
+    """Each Profile ID env var is independently required — Fail-Fast naming the var."""
+    monkeypatch.delenv(missing_var, raising=False)
+    with pytest.raises(RuntimeError, match=missing_var):
+        _minimal()
+
+
+def test_build_add_payload_all_profile_ids_missing_lists_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All three missing — error message lists all three."""
+    for var in ("EBAY_PAYMENT_PROFILE_ID", "EBAY_SHIPPING_PROFILE_ID", "EBAY_RETURN_PROFILE_ID"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(RuntimeError) as excinfo:
+        _minimal()
+    msg = str(excinfo.value)
+    assert "EBAY_PAYMENT_PROFILE_ID" in msg
+    assert "EBAY_SHIPPING_PROFILE_ID" in msg
+    assert "EBAY_RETURN_PROFILE_ID" in msg

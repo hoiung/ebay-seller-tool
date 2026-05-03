@@ -14,3 +14,9 @@ os.environ.setdefault("EBAY_AUTH_TOKEN", "test-auth-token")
 os.environ.setdefault("EBAY_SITE_ID", "3")
 os.environ.setdefault("EBAY_SELLER_LOCATION", "Coventry")
 os.environ.setdefault("EBAY_SELLER_POSTCODE", "CV1 1AN")
+# Business Policies (issue #29) — fake Profile IDs so build_add_payload +
+# build_revise_payload don't hit the Fail-Fast path during normal unit tests.
+# Tests that exercise the missing-env path delete these via monkeypatch.
+os.environ.setdefault("EBAY_PAYMENT_PROFILE_ID", "100000000001")
+os.environ.setdefault("EBAY_SHIPPING_PROFILE_ID", "100000000002")
+os.environ.setdefault("EBAY_RETURN_PROFILE_ID", "100000000003")
