@@ -84,11 +84,7 @@ def _parse_iso_ts(value: object) -> str | None:
 
 
 def _flatten_shipping_for_output(item: object) -> dict[str, object] | None:
-    """Flattened shipping dict for analytics output.
-
-    Distinct from extract_shipping_details() which produces the Revise-payload
-    shape for echo-back. This one is consumer-facing summary data.
-    """
+    """Flattened shipping dict for analytics output (consumer-facing summary)."""
     sd = getattr(item, "ShippingDetails", None)
     if sd is None:
         return None
@@ -368,67 +364,6 @@ def compute_diff(
     if item_specifics is not None:
         diff["item_specifics"] = {"after_count": len(item_specifics)}
     return diff
-
-
-def extract_shipping_details(item: object) -> dict:
-    """Extract shipping config from a GetItem response for echo-back on revision.
-
-    eBay requires ShippingDetails on every ReviseFixedPriceItem call. This
-    extracts the current config so we can echo it back without overwriting it
-    with a hardcoded default.
-    """
-    if not hasattr(item, "ShippingDetails") or item.ShippingDetails is None:
-        # Fallback if no shipping info returned (shouldn't happen for active listings)
-        return {
-            "ShippingType": "Flat",
-            "ShippingServiceOptions": {
-                "ShippingServicePriority": "1",
-                "ShippingService": "UK_RoyalMailSecondClassStandard",
-                "ShippingServiceCost": "0.00",
-                "FreeShipping": "true",
-            },
-        }
-
-    sd = item.ShippingDetails
-    result: dict = {}
-    if hasattr(sd, "ShippingType") and sd.ShippingType:
-        result["ShippingType"] = str(sd.ShippingType)
-
-    # Extract domestic shipping service options
-    if hasattr(sd, "ShippingServiceOptions") and sd.ShippingServiceOptions is not None:
-        sso = sd.ShippingServiceOptions
-        if not isinstance(sso, list):
-            sso = [sso]
-        options = []
-        for s in sso:
-            opt: dict = {}
-            for attr in ["ShippingService", "ShippingServicePriority", "FreeShipping"]:
-                val = getattr(s, attr, None)
-                if val is not None:
-                    opt[attr] = str(val).lower() if isinstance(val, bool) else str(val)
-            # Cost fields are Amount objects with .value attribute
-            for cost_attr in ["ShippingServiceCost", "ShippingServiceAdditionalCost"]:
-                val = getattr(s, cost_attr, None)
-                if val is not None:
-                    opt[cost_attr] = str(getattr(val, "value", val))
-            if opt:
-                options.append(opt)
-        if options:
-            result["ShippingServiceOptions"] = options if len(options) > 1 else options[0]
-
-    # If we couldn't extract anything useful, use the safe default
-    if not result or "ShippingServiceOptions" not in result:
-        return {
-            "ShippingType": "Flat",
-            "ShippingServiceOptions": {
-                "ShippingServicePriority": "1",
-                "ShippingService": "UK_RoyalMailSecondClassStandard",
-                "ShippingServiceCost": "0.00",
-                "FreeShipping": "true",
-            },
-        }
-
-    return result
 
 
 def cdata_wrap(html: str) -> str:
