@@ -36,9 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_VALID_EVENT_TYPES = frozenset(
-    {"analysis_baseline", "price_change", "post_change_check"}
-)
+_VALID_EVENT_TYPES = frozenset({"analysis_baseline", "price_change", "post_change_check"})
 
 # Default snapshot path. Overridable via EBAY_SNAPSHOT_PATH env var (used by
 # tests via monkeypatch).

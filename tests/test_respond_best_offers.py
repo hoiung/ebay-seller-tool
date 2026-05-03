@@ -111,8 +111,11 @@ def _read_ledger(ledger_dir: Path) -> list[dict]:
 
 
 def _build_offer(
-    *, offer_id: str = "o1", item_id: str = "287260458724",
-    buyer_offer_gbp: float = 45.0, buyer_user_id: str = "buyer_uk",
+    *,
+    offer_id: str = "o1",
+    item_id: str = "287260458724",
+    buyer_offer_gbp: float = 45.0,
+    buyer_user_id: str = "buyer_uk",
     offer_timestamp_iso: str = "2026-05-02T14:30:00Z",
 ) -> dict:
     return {
@@ -140,13 +143,17 @@ def test_responder_accepts_offer_above_auto_accept_threshold(
 
     accept_mock = AsyncMock(
         return_value={
-            "success": True, "ebay_response_status": "Success",
-            "ebay_response_code": None, "error_message": None,
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
         }
     )
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", accept_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", accept_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0
@@ -166,13 +173,17 @@ def test_responder_counters_offer_in_band(isolated_fees_config, isolated_ledger)
 
     counter_mock = AsyncMock(
         return_value={
-            "success": True, "ebay_response_status": "Success",
-            "ebay_response_code": None, "error_message": None,
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
         }
     )
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", counter_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", counter_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0
@@ -192,13 +203,17 @@ def test_responder_declines_offer_below_auto_decline_threshold(
 
     decline_mock = AsyncMock(
         return_value={
-            "success": True, "ebay_response_status": "Success",
-            "ebay_response_code": None, "error_message": None,
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
         }
     )
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", decline_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", decline_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0
@@ -215,13 +230,17 @@ def test_responder_idempotency_skips_already_responded_offer(
     pending = [_build_offer(buyer_offer_gbp=47.0)]
     accept_mock = AsyncMock(
         return_value={
-            "success": True, "ebay_response_status": "Success",
-            "ebay_response_code": None, "error_message": None,
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
         }
     )
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", accept_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", accept_mock),
+    ):
         rbo.main(["--apply", "--yes"])
         rbo.main(["--apply", "--yes"])  # same pending
 
@@ -233,9 +252,7 @@ def test_responder_idempotency_skips_already_responded_offer(
     assert rows[1]["reason"] == "already_responded_state_match"
 
 
-def test_responder_disable_flag_blocks_all_actions(
-    isolated_fees_config, isolated_ledger
-) -> None:
+def test_responder_disable_flag_blocks_all_actions(isolated_fees_config, isolated_ledger) -> None:
     """Touch disable flag → exit 0, JSONL has single skip row, no API calls fired."""
     isolated_ledger.mkdir(parents=True, exist_ok=True)
     rbo.DISABLE_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -243,8 +260,10 @@ def test_responder_disable_flag_blocks_all_actions(
 
     accept_mock = AsyncMock()
     poll_mock = AsyncMock()
-    with patch.object(rbo, "get_pending_best_offers", poll_mock), \
-         patch.object(rbo, "respond_to_best_offer", accept_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", poll_mock),
+        patch.object(rbo, "respond_to_best_offer", accept_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0
@@ -256,9 +275,7 @@ def test_responder_disable_flag_blocks_all_actions(
     assert rows[0]["cron_action"] == "skip"
 
 
-def test_responder_per_offer_error_does_not_cascade(
-    isolated_fees_config, isolated_ledger
-) -> None:
+def test_responder_per_offer_error_does_not_cascade(isolated_fees_config, isolated_ledger) -> None:
     """3 pending offers — middle one raises ConnectionError; others must succeed."""
     o1 = _build_offer(offer_id="o1", buyer_offer_gbp=47.0)
     o2 = _build_offer(offer_id="o2", buyer_offer_gbp=47.0)
@@ -268,14 +285,18 @@ def test_responder_per_offer_error_does_not_cascade(
         if offer_id == "o2":
             raise ConnectionError("transient network blip")
         return {
-            "success": True, "ebay_response_status": "Success",
-            "ebay_response_code": None, "error_message": None,
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
         }
 
     respond_mock = AsyncMock(side_effect=respond_side_effect)
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=[o1, o2, o3])), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", respond_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=[o1, o2, o3])),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", respond_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0  # transient is not auth-expiry, no exit 1
@@ -298,9 +319,11 @@ def test_responder_skips_offer_when_live_price_is_zero(
     accept any non-negative offer)."""
     pending = [_build_offer(item_id="ghost", buyer_offer_gbp=47.0)]
     accept_mock = AsyncMock()
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={}), \
-         patch.object(rbo, "respond_to_best_offer", accept_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={}),
+        patch.object(rbo, "respond_to_best_offer", accept_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0
@@ -324,19 +347,24 @@ def test_responder_skips_listing_with_best_offer_disabled_error(
     async def respond_side_effect(item_id: str, offer_id: str, action: str, **kwargs):
         if offer_id == "o1":
             return {
-                "success": False, "ebay_response_status": "Failure",
+                "success": False,
+                "ebay_response_status": "Failure",
                 "ebay_response_code": "21916",
                 "error_message": "Best Offer not available on this listing",
             }
         return {
-            "success": True, "ebay_response_status": "Success",
-            "ebay_response_code": None, "error_message": None,
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
         }
 
     respond_mock = AsyncMock(side_effect=respond_side_effect)
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=[o1, o2])), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", respond_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=[o1, o2])),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", respond_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 0
@@ -371,8 +399,7 @@ def test_responder_load_jsonl_tail_skips_partial_last_line(
         "error_message": None,
     }
     rbo.LEDGER_PATH.write_text(
-        json.dumps(valid_row)
-        + '\n{"timestamp":"2026-05-02T14:35:00Z","offer_id":"trunc'
+        json.dumps(valid_row) + '\n{"timestamp":"2026-05-02T14:35:00Z","offer_id":"trunc'
     )
 
     # load_recent_signatures must skip the partial line, return only valid_offer
@@ -389,9 +416,11 @@ def test_responder_aborts_when_offer_count_exceeds_sanity_cap(
     Defensive guard against a runaway eBay response."""
     bloated = [_build_offer(offer_id=f"o{i}") for i in range(rbo.SANITY_OFFER_CAP + 1)]
     respond_mock = AsyncMock()
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=bloated)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", respond_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=bloated)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", respond_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 1
@@ -460,9 +489,11 @@ def test_responder_auth_token_expired_detected_by_ebay_error_code(
     auth_exc = EbaySdkConnectionError("internal token reference")
     auth_exc.response = _StubResponse()
     respond_mock = AsyncMock(side_effect=auth_exc)
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", respond_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", respond_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 1, "auth-token expiry must propagate exit 1"
@@ -482,9 +513,11 @@ def test_responder_substring_fallback_when_no_ebay_response_attached(
     pending = [_build_offer(buyer_offer_gbp=47.0)]
     transport_auth_exc = Exception("AuthToken has expired (transport-layer)")
     respond_mock = AsyncMock(side_effect=transport_auth_exc)
-    with patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)), \
-         patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}), \
-         patch.object(rbo, "respond_to_best_offer", respond_mock):
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", respond_mock),
+    ):
         exit_code = rbo.main(["--apply", "--yes"])
 
     assert exit_code == 1

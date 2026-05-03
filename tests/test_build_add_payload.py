@@ -69,8 +69,7 @@ def test_build_add_payload_full_payload_shape() -> None:
     assert item["ShippingDetails"]["GlobalShipping"] == "true"
     assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true"
     assert (
-        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["#text"]
-        == "0.00"
+        item["ShippingDetails"]["ShippingServiceOptions"]["ShippingServiceCost"]["#text"] == "0.00"
     )
     assert item["ReturnPolicy"]["ReturnsAcceptedOption"] == "ReturnsNotAccepted"
     assert item["ReturnPolicy"]["InternationalReturnsAcceptedOption"] == "ReturnsNotAccepted"

@@ -101,9 +101,7 @@ def test_respond_to_best_offer_accept_action_payload_correct() -> None:
         "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
     ) as mock_call:
         result = _run(
-            respond_to_best_offer(
-                item_id="287260458724", offer_id="abc456", action="Accept"
-            )
+            respond_to_best_offer(item_id="287260458724", offer_id="abc456", action="Accept")
         )
 
     assert result["success"] is True
@@ -121,11 +119,7 @@ def test_respond_to_best_offer_accept_action_payload_correct() -> None:
 def test_respond_to_best_offer_counter_requires_counter_price() -> None:
     """ValueError when action='Counter' and counter_price_gbp omitted or non-positive."""
     with pytest.raises(ValueError, match="counter_price_gbp"):
-        _run(
-            respond_to_best_offer(
-                item_id="287260458724", offer_id="abc456", action="Counter"
-            )
-        )
+        _run(respond_to_best_offer(item_id="287260458724", offer_id="abc456", action="Counter"))
     with pytest.raises(ValueError, match="counter_price_gbp"):
         _run(
             respond_to_best_offer(
@@ -164,9 +158,7 @@ def test_respond_to_best_offer_decline_action_payload_correct() -> None:
         "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
     ) as mock_call:
         result = _run(
-            respond_to_best_offer(
-                item_id="287260458724", offer_id="abc789", action="Decline"
-            )
+            respond_to_best_offer(item_id="287260458724", offer_id="abc789", action="Decline")
         )
     assert result["success"] is True
     payload = mock_call.call_args[0][1]
@@ -185,9 +177,7 @@ def test_respond_to_best_offer_propagates_ebay_error_message() -> None:
     fake_reply = SimpleNamespace(Ack="Failure", Errors=fake_error)
     with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
         result = _run(
-            respond_to_best_offer(
-                item_id="287260458724", offer_id="def123", action="Accept"
-            )
+            respond_to_best_offer(item_id="287260458724", offer_id="def123", action="Accept")
         )
 
     assert result["success"] is False

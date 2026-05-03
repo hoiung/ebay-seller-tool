@@ -628,9 +628,7 @@ def filter_low_quality_competitors(
     # mpn_mismatch hard-reject on `len(own_mpns) >= 1` (skip when no MPN in
     # specifics so we don't over-restrict listings without a known part number).
     own_mpns = _own_mpns(own_listing)
-    sibling_allowlist = (
-        cfg.get("comp_filter", {}).get("sibling_allowlist", {}) if own_mpns else {}
-    )
+    sibling_allowlist = cfg.get("comp_filter", {}).get("sibling_allowlist", {}) if own_mpns else {}
 
     survivors: list[dict[str, Any]] = []
     drops: dict[str, int] = {}

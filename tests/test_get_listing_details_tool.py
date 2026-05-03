@@ -458,9 +458,7 @@ def test_analyse_listing_surfaces_best_offer_thresholds_when_recommended(
 
     from datetime import datetime, timedelta, timezone
 
-    start_60d = (datetime.now(timezone.utc) - timedelta(days=60)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    start_60d = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
     item_stub = _fake_item("999")
     item_stub.WatchCount = "5"
     item_stub.SellingStatus.QuantitySold = "0"

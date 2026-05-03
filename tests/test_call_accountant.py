@@ -8,6 +8,7 @@ This file mirrors the minimum-viable smoke for the four public surfaces
 (``record_call``, ``today_count``, ``daily_budget_remaining``, ``CALL_CAPS``)
 plus the flock + atomic-write contracts.
 """
+
 from __future__ import annotations
 
 import json

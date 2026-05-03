@@ -116,12 +116,14 @@ def test_revise_pictures_item_not_found_refused() -> None:
 
 def test_revise_pictures_dry_run_append_no_side_effects() -> None:
     existing = ["https://eps/a.jpg", "https://eps/b.jpg"]
-    with patch(
-        "ebay.pictures.execute_with_retry",
-        side_effect=[_fake_get_item(existing)],
-    ) as mock_exec, patch("ebay.pictures.upload_one") as mock_upload, patch(
-        "ebay.pictures.preprocess_for_ebay"
-    ) as mock_pre:
+    with (
+        patch(
+            "ebay.pictures.execute_with_retry",
+            side_effect=[_fake_get_item(existing)],
+        ) as mock_exec,
+        patch("ebay.pictures.upload_one") as mock_upload,
+        patch("ebay.pictures.preprocess_for_ebay") as mock_pre,
+    ):
         result = _run(
             revise_pictures(
                 item_id="123",
@@ -183,12 +185,12 @@ def test_revise_pictures_append_calls_revise_with_composed_urls() -> None:
             return _fake_revise_response()
         raise AssertionError(f"unexpected verb {verb}")
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", return_value=new_url):
-        result = _run(
-            revise_pictures(item_id="123", photo_paths=["/tmp/c.jpg"], mode="append")
-        )
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", return_value=new_url),
+    ):
+        result = _run(revise_pictures(item_id="123", photo_paths=["/tmp/c.jpg"], mode="append"))
 
     assert result["ok"] is True
     assert result["mode"] == "append"
@@ -217,9 +219,11 @@ def test_revise_pictures_replace_overwrites_url_list() -> None:
             return _fake_revise_response()
         raise AssertionError(f"unexpected verb {verb}")
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", return_value=new_url):
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", return_value=new_url),
+    ):
         result = _run(
             revise_pictures(
                 item_id="123",
@@ -249,9 +253,11 @@ def test_revise_pictures_truncates_above_24_with_warning() -> None:
             captured["payload"] = payload
             return _fake_revise_response()
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", side_effect=new_urls):
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", side_effect=new_urls),
+    ):
         result = _run(revise_pictures(item_id="123", photo_paths=new_paths, mode="append"))
 
     assert result["truncated"] is True
@@ -281,9 +287,11 @@ def test_revise_pictures_l13_dropped_oldest_reported_in_photos_lost() -> None:
         if verb == "ReviseFixedPriceItem":
             return _fake_revise_response()
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", side_effect=new_urls):
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", side_effect=new_urls),
+    ):
         result = _run(revise_pictures(item_id="123", photo_paths=new_paths, mode="append"))
 
     # 24 existing + 3 new = 27 -> drop 3 oldest non-index-0 entries (existing[1..3]).
@@ -334,9 +342,11 @@ def test_revise_pictures_echoes_shipping_details() -> None:
             captured["payload"] = payload
             return _fake_revise_response()
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", return_value="https://eps/x.jpg"):
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", return_value="https://eps/x.jpg"),
+    ):
         _run(revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="append"))
 
     # Built payload includes ShippingDetails extracted from the live Item.
@@ -360,9 +370,11 @@ def test_revise_pictures_audit_log_entry(tmp_path, monkeypatch) -> None:
         if verb == "ReviseFixedPriceItem":
             return _fake_revise_response()
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", return_value="https://eps/n.jpg"):
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", return_value="https://eps/n.jpg"),
+    ):
         _run(revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="append"))
 
     log_path = tmp_path / "audit.log"
@@ -386,9 +398,11 @@ def test_mcp_wrapper_returns_json_string() -> None:
         if verb == "ReviseFixedPriceItem":
             return _fake_revise_response()
 
-    with patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect), patch(
-        "ebay.pictures.preprocess_for_ebay", return_value=b"x"
-    ), patch("ebay.pictures.upload_one", return_value="https://eps/n.jpg"):
+    with (
+        patch("ebay.pictures.execute_with_retry", side_effect=_exec_side_effect),
+        patch("ebay.pictures.preprocess_for_ebay", return_value=b"x"),
+        patch("ebay.pictures.upload_one", return_value="https://eps/n.jpg"),
+    ):
         raw = _run(server.revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"]))
 
     body = json.loads(raw)
@@ -405,9 +419,7 @@ def test_mcp_wrapper_serialises_validation_error() -> None:
 
 
 def test_mcp_wrapper_replace_without_confirm() -> None:
-    raw = _run(
-        server.revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="replace")
-    )
+    raw = _run(server.revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="replace"))
     body = json.loads(raw)
     assert "error" in body
     assert "confirm=True" in body["error"]

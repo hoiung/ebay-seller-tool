@@ -99,8 +99,7 @@ async def end_listing(
         )
 
     log_debug(
-        f"end_listing item_id={item_id} reason={ending_reason} "
-        f"dry_run={dry_run} confirm={confirm}"
+        f"end_listing item_id={item_id} reason={ending_reason} dry_run={dry_run} confirm={confirm}"
     )
 
     # 1. Fetch live listing — extract title for echo-back check.

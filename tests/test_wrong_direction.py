@@ -32,9 +32,7 @@ def _txns(item_id: str, units: int) -> dict:
     if units == 0:
         return {"transactions": []}
     return {
-        "transactions": [
-            {"item_id": item_id, "quantity_purchased": units, "transaction_id": "t1"}
-        ]
+        "transactions": [{"item_id": item_id, "quantity_purchased": units, "transaction_id": "t1"}]
     }
 
 
@@ -317,8 +315,7 @@ def test_wrong_direction_propagates_mpn_to_api_kwarg() -> None:
     )
     # condition propagation also asserted to lock the kwarg surface.
     assert mock_comps.call_args.kwargs.get("condition") == "USED", (
-        f"condition_name='Used' must normalise to 'USED'; got "
-        f"{mock_comps.call_args.kwargs!r}"
+        f"condition_name='Used' must normalise to 'USED'; got {mock_comps.call_args.kwargs!r}"
     )
 
 

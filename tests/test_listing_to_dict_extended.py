@@ -128,6 +128,7 @@ def test_listing_to_dict_best_offer_enabled_true_when_nested() -> None:
     # which never exists. Pre-fix: this test would have failed because the
     # parser ignored the nested field entirely.
     from types import SimpleNamespace
+
     item = _build_item(
         BestOfferDetails=SimpleNamespace(
             BestOfferEnabled="true",
@@ -144,6 +145,7 @@ def test_listing_to_dict_best_offer_enabled_false_string() -> None:
     # New regression fixture: BestOfferDetails.BestOfferEnabled="false" XML
     # string value (real-shape: nested under BestOfferDetails per ebay-ops#17 fix).
     from types import SimpleNamespace
+
     item = _build_item(
         BestOfferDetails=SimpleNamespace(
             BestOfferEnabled="false",

@@ -150,7 +150,7 @@ def _maybe_prune_locked(today: str) -> None:
                 continue
             if not (name.startswith("api-calls-") and name.endswith(".json")):
                 continue
-            stamp = name[len("api-calls-"):-len(".json")]
+            stamp = name[len("api-calls-") : -len(".json")]
             try:
                 file_date = datetime.strptime(stamp, "%Y%m%d").date()
             except ValueError:
@@ -181,6 +181,7 @@ def record_call(call_name: str) -> None:
     # (or any future namespacing we add). Same regex Trading API doc's
     # Verb table follows.
     import re  # noqa: PLC0415
+
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", call_name):
         raise ValueError(
             f"call_name must match [A-Za-z][A-Za-z0-9]* (CamelCase verb), "

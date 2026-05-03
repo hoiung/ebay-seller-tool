@@ -165,8 +165,7 @@ async def revise_pictures(
             success=False,
         )
         log_debug(
-            f"revise_pictures FAILED post-upload item_id={item_id} "
-            f"orphan_eps_urls={new_urls}"
+            f"revise_pictures FAILED post-upload item_id={item_id} orphan_eps_urls={new_urls}"
         )
         raise
     fees = _extract_fees(response.reply)
@@ -216,7 +215,7 @@ def _truncate_to_cap(composed: list[str], mode: str) -> tuple[list[str], list[st
         return composed, [], 0
     if mode == "append":
         # Preserve composed[0] (gallery anchor) + the last (cap-1) entries.
-        kept = [composed[0]] + composed[-(MAX_PICTURE_URLS - 1):]
+        kept = [composed[0]] + composed[-(MAX_PICTURE_URLS - 1) :]
         # Dropped slice = the middle that fell out.
         dropped = composed[1 : 1 + overflow]
         return kept, dropped, overflow
