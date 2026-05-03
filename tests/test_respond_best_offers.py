@@ -24,10 +24,22 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-# ebay-ops scripts dir → sys.path so we can import respond_best_offers
+# ebay-ops scripts dir → sys.path so we can import respond_best_offers.
+# The responder lives in the PRIVATE sibling ebay-ops repo. On a clean CI
+# runner that repo is not cloned, so collection-time import would crash and
+# fail the whole pytest run. Skip the module cleanly when the script is
+# absent — local dev keeps full coverage; CI gets a clean skip.
 _RESPONDER_DIR = (
     Path.home() / "DevProjects" / "ebay-ops" / ".claude" / "skills" / "ebay-seller-tool" / "scripts"
 )
+_RESPONDER_PATH = _RESPONDER_DIR / "respond_best_offers.py"
+if not _RESPONDER_PATH.exists():
+    pytest.skip(
+        f"respond_best_offers.py not found at {_RESPONDER_PATH} "
+        "(private ebay-ops repo not cloned — expected on CI runner)",
+        allow_module_level=True,
+    )
+
 if str(_RESPONDER_DIR) not in sys.path:
     sys.path.insert(0, str(_RESPONDER_DIR))
 
