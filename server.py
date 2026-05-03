@@ -52,7 +52,6 @@ from ebay.listings import (  # noqa: E402
     build_add_payload,
     build_revise_payload,
     compute_diff,
-    extract_shipping_details,
     listing_to_dict,
     snapshot_listing,
 )
@@ -795,8 +794,8 @@ async def update_listing(
             dry_response["wrong_direction_warning"] = wrong_direction_warning
         return json.dumps(dry_response, indent=2)
 
-    # Build and send ReviseFixedPriceItem payload — echo back current shipping config
-    shipping = extract_shipping_details(current.reply.Item)
+    # Build and send ReviseFixedPriceItem payload — Business Policies (#29)
+    # supplies shipping/payment/returns via SellerProfiles, no inline echo.
 
     # Item specifics: eBay replaces the entire block, so merge new values into existing
     merged_specifics = None
@@ -811,7 +810,6 @@ async def update_listing(
         title=title,
         description_html=description_html,
         price=price,
-        shipping_details=shipping,
         condition_id=condition_id,
         condition_description=condition_description,
         item_specifics=merged_specifics,
