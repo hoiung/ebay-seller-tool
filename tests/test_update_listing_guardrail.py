@@ -553,3 +553,49 @@ def test_update_listing_dry_run_surfaces_wrong_direction_warning_field() -> None
     assert body.get("dry_run") is True
     assert "wrong_direction_warning" in body
     assert body["wrong_direction_warning"] == fake_warning
+
+
+# ---- Issue #29 — SellerProfiles emission verification ----
+
+
+def test_update_listing_revise_payload_emits_seller_profiles() -> None:
+    """Issue #29 — update_listing's ReviseFixedPriceItem payload uses Profile IDs.
+
+    Captures the second execute_with_retry call (the ReviseFixedPriceItem dispatch)
+    and asserts the payload's Item.SellerProfiles block carries the three Profile
+    IDs from conftest env, with no inline ShippingDetails / ReturnPolicy / PaymentMethods.
+    """
+    from server import update_listing
+
+    captured: dict = {}
+    get_item_calls = iter([_fake_get_item("30.00"), _fake_get_item("35.00")])
+
+    def _capture_retry(verb, payload, *args, **kwargs):
+        if verb == "ReviseFixedPriceItem":
+            captured["payload"] = payload
+            return SimpleNamespace(reply=SimpleNamespace())
+        if verb == "GetItem":
+            return next(get_item_calls)
+        return _fake_get_item("30.00")
+
+    with (
+        patch("server.execute_with_retry", side_effect=_capture_retry),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {"floor_gbp": 7.94, "suggested_ceiling_gbp": 50.00,
+             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            "default",
+        )
+        result = _run(update_listing(item_id="999", price=35.0, dry_run=False))
+
+    body = json.loads(result)
+    assert body.get("success") is True
+    item = captured["payload"]["Item"]
+    assert "ShippingDetails" not in item
+    assert "ReturnPolicy" not in item
+    assert "PaymentMethods" not in item
+    sp = item["SellerProfiles"]
+    assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
+    assert sp["SellerShippingProfile"]["ShippingProfileID"] == "100000000002"
+    assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
