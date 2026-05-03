@@ -156,9 +156,7 @@ def test_update_listing_writes_post_change_check_snapshot(tmp_path, monkeypatch)
     assert "view_count" in pcc
 
 
-def test_update_listing_post_change_check_failure_does_not_block(
-    tmp_path, monkeypatch
-) -> None:
+def test_update_listing_post_change_check_failure_does_not_block(tmp_path, monkeypatch) -> None:
     """Issue #14 AC1.2 — append_snapshot failure on post_change_check does NOT raise.
 
     Mirrors the existing fail-soft pattern for price_change (server.py:858-862).
@@ -215,9 +213,7 @@ def test_update_listing_post_change_check_failure_does_not_block(
     assert all(json.loads(line)["event"] != "post_change_check" for line in lines)
 
 
-def test_update_listing_no_post_change_check_when_only_title_changed(
-    tmp_path, monkeypatch
-) -> None:
+def test_update_listing_no_post_change_check_when_only_title_changed(tmp_path, monkeypatch) -> None:
     """Issue #14 AC1.1 — post_change_check only emits when price was in the diff.
 
     A title-only revise must not write a post_change_check (no price action

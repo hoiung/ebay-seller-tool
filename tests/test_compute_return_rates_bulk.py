@@ -36,9 +36,7 @@ def test_happy_path_aggregates_per_item() -> None:
         }
 
     with patch("server.rest_compute_return_rate", side_effect=fake_rest):
-        raw = asyncio.run(
-            server.compute_return_rates_bulk(item_ids=["a", "b", "c"], days=30)
-        )
+        raw = asyncio.run(server.compute_return_rates_bulk(item_ids=["a", "b", "c"], days=30))
     body = json.loads(raw)
     assert body["summary"]["total"] == 3
     assert body["summary"]["succeeded"] == 3
@@ -59,9 +57,7 @@ def test_partial_failure_does_not_abort_batch() -> None:
         return {"return_rate_pct": 8.0, "sold_count": 5, "returned_count": 0}
 
     with patch("server.rest_compute_return_rate", side_effect=fake_rest):
-        raw = asyncio.run(
-            server.compute_return_rates_bulk(item_ids=["a", "fail", "c"], days=30)
-        )
+        raw = asyncio.run(server.compute_return_rates_bulk(item_ids=["a", "fail", "c"], days=30))
     body = json.loads(raw)
     assert body["summary"]["total"] == 3
     assert body["summary"]["succeeded"] == 2
@@ -120,9 +116,7 @@ def test_l14_no_short_circuit_below_threshold() -> None:
         return {"return_rate_pct": 2.0, "sold_count": 8, "returned_count": 0}
 
     with patch("server.rest_compute_return_rate", side_effect=fake_rest):
-        raw = asyncio.run(
-            server.compute_return_rates_bulk(item_ids=["a", "fail", "c"], days=30)
-        )
+        raw = asyncio.run(server.compute_return_rates_bulk(item_ids=["a", "fail", "c"], days=30))
     body = json.loads(raw)
     summary = body["summary"]
     # No short-circuit: 1/3 < 0.5
@@ -145,9 +139,7 @@ def test_l14_diverse_errors_dont_short_circuit() -> None:
         return {"return_rate_pct": 1.0, "sold_count": 1, "returned_count": 0}
 
     with patch("server.rest_compute_return_rate", side_effect=fake_rest):
-        raw = asyncio.run(
-            server.compute_return_rates_bulk(item_ids=["a", "b", "c", "d"], days=30)
-        )
+        raw = asyncio.run(server.compute_return_rates_bulk(item_ids=["a", "b", "c", "d"], days=30))
     body = json.loads(raw)
     summary = body["summary"]
     # 3 distinct signatures over 3 observations -> top_count=1, 1/3 < 0.5.
@@ -168,9 +160,7 @@ def test_high_return_rate_count_flags_above_threshold() -> None:
         }
 
     with patch("server.rest_compute_return_rate", side_effect=fake_rest):
-        raw = asyncio.run(
-            server.compute_return_rates_bulk(item_ids=["a", "b", "c", "d"], days=90)
-        )
+        raw = asyncio.run(server.compute_return_rates_bulk(item_ids=["a", "b", "c", "d"], days=90))
     body = json.loads(raw)
     # 18% and 25% > 15.0; 15.0 is NOT strictly greater
     assert body["summary"]["high_return_rate_count"] == 2

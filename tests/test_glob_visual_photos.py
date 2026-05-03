@@ -108,12 +108,11 @@ def test_create_listing_multi_qty_warns_when_visuals_below_3(tmp_path: Path, mon
     (folder / "visual-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
     server._create_listing_uuid_cache.clear()
-    fake_verify = SimpleNamespace(
-        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
-    )
+    fake_verify = SimpleNamespace(reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[])))
 
-    with patch("server.upload_photos") as mock_upload, patch(
-        "server.execute_with_retry", return_value=fake_verify
+    with (
+        patch("server.upload_photos") as mock_upload,
+        patch("server.execute_with_retry", return_value=fake_verify),
     ):
         # Stub upload_photos to skip real EPS uploads.
         async def fake_upload(paths, dry_run=False):
@@ -160,18 +159,21 @@ def test_create_listing_qty_one_no_visual_warning(tmp_path: Path) -> None:
     (folder / "visual-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     server._create_listing_uuid_cache.clear()
 
-    fake_verify = SimpleNamespace(
-        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
-    )
+    fake_verify = SimpleNamespace(reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[])))
 
     async def fake_upload(paths, dry_run=False):
         return json.dumps(
-            {"success": True, "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
-             "total_url_chars": 100, "warnings": []}
+            {
+                "success": True,
+                "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+                "total_url_chars": 100,
+                "warnings": [],
+            }
         )
 
-    with patch("server.upload_photos", side_effect=fake_upload), patch(
-        "server.execute_with_retry", return_value=fake_verify
+    with (
+        patch("server.upload_photos", side_effect=fake_upload),
+        patch("server.execute_with_retry", return_value=fake_verify),
     ):
         raw = asyncio.run(
             server.create_listing(
@@ -208,18 +210,21 @@ def test_create_listing_dry_run_distinguishes_label_and_visual_counts(tmp_path: 
     (folder / "DISK-TEST-VISUAL-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     server._create_listing_uuid_cache.clear()
 
-    fake_verify = SimpleNamespace(
-        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
-    )
+    fake_verify = SimpleNamespace(reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[])))
 
     async def fake_upload(paths, dry_run=False):
         return json.dumps(
-            {"success": True, "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
-             "total_url_chars": 100, "warnings": []}
+            {
+                "success": True,
+                "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+                "total_url_chars": 100,
+                "warnings": [],
+            }
         )
 
-    with patch("server.upload_photos", side_effect=fake_upload), patch(
-        "server.execute_with_retry", return_value=fake_verify
+    with (
+        patch("server.upload_photos", side_effect=fake_upload),
+        patch("server.execute_with_retry", return_value=fake_verify),
     ):
         raw = asyncio.run(
             server.create_listing(
@@ -254,18 +259,21 @@ def test_create_listing_explicit_paths_no_classification(tmp_path: Path) -> None
     operator_path.write_bytes(b"\xff\xd8\xff")
     server._create_listing_uuid_cache.clear()
 
-    fake_verify = SimpleNamespace(
-        reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[]))
-    )
+    fake_verify = SimpleNamespace(reply=SimpleNamespace(Errors=None, Fees=SimpleNamespace(Fee=[])))
 
     async def fake_upload(paths, dry_run=False):
         return json.dumps(
-            {"success": True, "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
-             "total_url_chars": 100, "warnings": []}
+            {
+                "success": True,
+                "urls": [f"https://eps/{i}.jpg" for i in range(len(paths))],
+                "total_url_chars": 100,
+                "warnings": [],
+            }
         )
 
-    with patch("server.upload_photos", side_effect=fake_upload), patch(
-        "server.execute_with_retry", return_value=fake_verify
+    with (
+        patch("server.upload_photos", side_effect=fake_upload),
+        patch("server.execute_with_retry", return_value=fake_verify),
     ):
         raw = asyncio.run(
             server.create_listing(

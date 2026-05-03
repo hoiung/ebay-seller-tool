@@ -497,9 +497,7 @@ def build_revise_payload(
         item["PictureDetails"] = {"PictureURL": list(picture_urls)}
 
     if best_offer_enabled is not None:
-        item["BestOfferDetails"] = {
-            "BestOfferEnabled": "true" if best_offer_enabled else "false"
-        }
+        item["BestOfferDetails"] = {"BestOfferEnabled": "true" if best_offer_enabled else "false"}
 
     if best_offer_auto_accept_gbp is not None or best_offer_auto_decline_gbp is not None:
         listing_details = item.setdefault("ListingDetails", {})

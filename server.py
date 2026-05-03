@@ -2056,7 +2056,8 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
     # Stage 5 swarm: lifted to config/fees.yaml `return_rates_bulk:` block
     # so operators can tune without code changes (no-hardcoded-settings rule).
     from ebay.fees import _load_fees_config  # noqa: PLC0415
-    bulk_cfg = (_load_fees_config().get("return_rates_bulk") or {})
+
+    bulk_cfg = _load_fees_config().get("return_rates_bulk") or {}
     short_circuit_threshold = float(bulk_cfg.get("short_circuit_signature_majority_pct", 0.5))
     short_circuit_min_observations = int(bulk_cfg.get("short_circuit_min_observations", 3))
     high_return_rate_threshold = float(bulk_cfg.get("high_return_rate_threshold_pct", 15.0))
@@ -2115,9 +2116,7 @@ async def compute_return_rates_bulk(item_ids: list[str], days: int = 90) -> str:
         summary["systemic_error_class"] = top_class
         summary["systemic_error_message"] = top_msg
         summary["systemic_error_count"] = error_signature_counts[(top_class, top_msg)]
-        summary["unprocessed_item_ids"] = [
-            iid for iid in item_ids if iid not in results
-        ]
+        summary["unprocessed_item_ids"] = [iid for iid in item_ids if iid not in results]
     return json.dumps({"results": results, "summary": summary}, indent=2)
 
 
@@ -2339,9 +2338,7 @@ async def get_elasticity(
         On missing data: {error: "insufficient_events", item_id,
         before_event, after_event}.
     """
-    result = await asyncio.to_thread(
-        compute_elasticity, str(item_id), before_event, after_event
-    )
+    result = await asyncio.to_thread(compute_elasticity, str(item_id), before_event, after_event)
     if result is None:
         return json.dumps(
             {
@@ -2416,8 +2413,7 @@ async def end_listing(
         JSON: dry_run preview shape OR live shape with ack + end_time.
     """
     log_debug(
-        f"end_listing item_id={item_id} reason={ending_reason} "
-        f"dry_run={dry_run} confirm={confirm}"
+        f"end_listing item_id={item_id} reason={ending_reason} dry_run={dry_run} confirm={confirm}"
     )
     try:
         result = await _end_listing_core(

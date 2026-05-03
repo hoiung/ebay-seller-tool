@@ -705,9 +705,11 @@ async def _evaluate_wrong_direction_raise(
     # secret-allow: false positive on "_token" variable name — this is an
     # eBay condition enum literal (NEW / USED / OPENED / FOR_PARTS), not a
     # credential.
-    cond_value = "USED" if str(condition_name).lower().startswith("used") else str(
-        condition_name
-    ).upper().replace(" ", "_")
+    cond_value = (
+        "USED"
+        if str(condition_name).lower().startswith("used")
+        else str(condition_name).upper().replace(" ", "_")
+    )
 
     try:
         comp_result = await fetch_competitor_prices(

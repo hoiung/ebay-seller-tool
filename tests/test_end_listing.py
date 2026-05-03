@@ -136,17 +136,16 @@ def test_case_insensitive_title_match() -> None:
     with patch("ebay.end_listing.execute_with_retry") as mock_exec:
         mock_exec.return_value = _getitem_response(_live_item("HPE 3TB Hard Drive"))
         # Caller passes lowercase substring — must still match
-        result = asyncio.run(
-            end_listing(item_id="123", expected_title="hpe 3tb", dry_run=True)
-        )
+        result = asyncio.run(end_listing(item_id="123", expected_title="hpe 3tb", dry_run=True))
     assert result["dry_run"] is True
 
 
 def test_live_path_calls_end_fixed_price_item() -> None:
     """Live path with valid title + confirm + dry_run=False fires EndFixedPriceItem."""
-    with patch("ebay.end_listing.execute_with_retry") as mock_exec, patch(
-        "ebay.end_listing.audit_log_write"
-    ) as mock_audit:
+    with (
+        patch("ebay.end_listing.execute_with_retry") as mock_exec,
+        patch("ebay.end_listing.audit_log_write") as mock_audit,
+    ):
         # First call = GetItem, second call = EndFixedPriceItem
         mock_exec.side_effect = [
             _getitem_response(_live_item("HPE 3TB Hard Drive")),
@@ -181,9 +180,10 @@ def test_live_path_audit_logs_failure_on_api_error() -> None:
     class FakeEbayError(Exception):
         pass
 
-    with patch("ebay.end_listing.execute_with_retry") as mock_exec, patch(
-        "ebay.end_listing.audit_log_write"
-    ) as mock_audit:
+    with (
+        patch("ebay.end_listing.execute_with_retry") as mock_exec,
+        patch("ebay.end_listing.audit_log_write") as mock_audit,
+    ):
         mock_exec.side_effect = [
             _getitem_response(_live_item("HPE 3TB Hard Drive")),
             FakeEbayError("eBay rejected: rate limit"),
@@ -215,9 +215,10 @@ def test_m10_already_ended_translated_to_friendly_valueerror() -> None:
     err = EbaySdkConnectionError("eBay 1037")
     err.response = fake_response  # type: ignore[attr-defined]
 
-    with patch("ebay.end_listing.execute_with_retry") as mock_exec, patch(
-        "ebay.end_listing.audit_log_write"
-    ) as mock_audit:
+    with (
+        patch("ebay.end_listing.execute_with_retry") as mock_exec,
+        patch("ebay.end_listing.audit_log_write") as mock_audit,
+    ):
         mock_exec.side_effect = [
             _getitem_response(_live_item("HPE 3TB Hard Drive")),
             err,
@@ -249,9 +250,10 @@ def test_m10_unrelated_connectionerror_reraised_unchanged() -> None:
     err = EbaySdkConnectionError("eBay 500")
     err.response = fake_response  # type: ignore[attr-defined]
 
-    with patch("ebay.end_listing.execute_with_retry") as mock_exec, patch(
-        "ebay.end_listing.audit_log_write"
-    ) as mock_audit:
+    with (
+        patch("ebay.end_listing.execute_with_retry") as mock_exec,
+        patch("ebay.end_listing.audit_log_write") as mock_audit,
+    ):
         mock_exec.side_effect = [
             _getitem_response(_live_item("HPE 3TB Hard Drive")),
             err,
@@ -338,9 +340,7 @@ def test_each_allowed_ending_reason_accepted() -> None:
 def test_default_ending_reason_is_not_available() -> None:
     with patch("ebay.end_listing.execute_with_retry") as mock_exec:
         mock_exec.return_value = _getitem_response(_live_item("HPE 3TB Hard Drive"))
-        result = asyncio.run(
-            end_listing(item_id="123", expected_title="HPE 3TB", dry_run=True)
-        )
+        result = asyncio.run(end_listing(item_id="123", expected_title="HPE 3TB", dry_run=True))
     assert result["ending_reason"] == "NotAvailable"
 
 
