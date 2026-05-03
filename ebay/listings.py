@@ -215,7 +215,11 @@ def listing_to_dict(item: object) -> dict:
     # any listing where Best Offer was enabled and producing 0/N false-negatives
     # (caught 2026-05-02 during ebay-ops#17 audit gap).
     best_offer_details = getattr(item, "BestOfferDetails", None)
-    best_offer_enabled_raw = getattr(best_offer_details, "BestOfferEnabled", "false") if best_offer_details is not None else "false"
+    best_offer_enabled_raw = (
+        getattr(best_offer_details, "BestOfferEnabled", "false")
+        if best_offer_details is not None
+        else "false"
+    )
     best_offer_enabled = str(best_offer_enabled_raw).lower() == "true"
 
     return {
