@@ -296,8 +296,8 @@ def test_revise_pictures_l13_dropped_oldest_reported_in_photos_lost() -> None:
 
 def test_revise_pictures_l13_truncate_to_cap_helper_unit() -> None:
     """L13 fix (Ralph deferred Opus) -- direct unit test for `_truncate_to_cap`."""
-    from ebay.pictures import _truncate_to_cap
     from ebay.listings import MAX_PICTURE_URLS
+    from ebay.pictures import _truncate_to_cap
 
     # No overflow: short-circuit.
     composed = [f"u{i}" for i in range(5)]

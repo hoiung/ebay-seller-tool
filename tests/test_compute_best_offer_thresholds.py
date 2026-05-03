@@ -12,7 +12,6 @@ History:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +25,6 @@ from ebay.analytics import (
 )
 from ebay.fees import reset_fees_cache
 
-
 # ---------------------------------------------------------------------------
 # Issue #4 G-NEW-1 baseline tests — pinned to 0.88/0.72 + round_down=False via
 # explicit kwargs + `isolated_fees_config()` fixture (empty best_offer block
@@ -36,7 +34,8 @@ from ebay.fees import reset_fees_cache
 
 
 def test_canonical_88_72_against_50_quid_listing(isolated_fees_config) -> None:
-    """Floor £18, live £50 → auto_accept = max(18.90, 44.00) = 44.00; auto_decline = max(18, 36) = 36."""
+    """Floor £18, live £50 → auto_accept = max(18.90, 44.00) = 44.00;
+    auto_decline = max(18, 36) = 36."""
     isolated_fees_config()  # no best_offer block → round_down OFF
     r = compute_best_offer_thresholds(
         floor_gbp=18.0, live_price_gbp=50.0, auto_accept_pct=0.88, auto_decline_pct=0.72

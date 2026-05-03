@@ -273,8 +273,9 @@ def test_m10_extract_ebay_error_codes_handles_list_of_errors() -> None:
     """M10 (Ralph deferred Opus) -- helper handles both single-Error and
     multi-Error response shapes without crashing.
     """
-    from ebay.end_listing import _extract_ebay_error_codes
     from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    from ebay.end_listing import _extract_ebay_error_codes
 
     # Single Error dict
     r1 = SimpleNamespace()

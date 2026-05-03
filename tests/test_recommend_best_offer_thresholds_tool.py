@@ -170,7 +170,11 @@ def test_custom_pcts_override_defaults() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0, "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         raw = _run(

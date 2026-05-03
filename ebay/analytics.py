@@ -492,8 +492,10 @@ def compute_under_pricing(
         ]
     elif positional == "ABOVE_P75":
         interpretations = [
-            "Premium positioning — works when listing has clear differentiator (caddy / warranty / Top-Rated)",
-            "May suppress conversion if no differentiator visible — consider Best Offer or moderate drop",
+            "Premium positioning — works when listing has clear differentiator "
+            "(caddy / warranty / Top-Rated)",
+            "May suppress conversion if no differentiator visible — "
+            "consider Best Offer or moderate drop",
         ]
 
     return {
@@ -582,13 +584,16 @@ def compute_over_pricing(
     elif positional == "ABOVE_P75":
         if a and b and c and d:
             interpretations = [
-                "Above-market price + interest but no conversion + stale — review needed (consider Best Offer or drop to p55-p65)",
-                "Niche premium that hasn't found its buyer yet (rare; only if differentiator clearly visible in listing)",
+                "Above-market price + interest but no conversion + stale — review needed "
+                "(consider Best Offer or drop to p55-p65)",
+                "Niche premium that hasn't found its buyer yet (rare; only if "
+                "differentiator clearly visible in listing)",
             ]
         else:
             interpretations = [
                 "Premium positioning — works when listing has clear differentiator",
-                "May suppress conversion if no differentiator visible — watch watchers + days_on_site",
+                "May suppress conversion if no differentiator visible — "
+                "watch watchers + days_on_site",
             ]
 
     return {
@@ -774,7 +779,8 @@ def _validate_best_offer_config(cfg_bo: dict[str, Any]) -> None:
     Fail Fast). Caller catches ValueError + surfaces via log_warn.
 
     Invariants:
-      - All 4 keys present (auto_accept_pct, auto_decline_pct, counter_offer_pct, round_down_to_pound)
+      - All 4 keys present (auto_accept_pct, auto_decline_pct, counter_offer_pct,
+        round_down_to_pound)
       - 3 pct values in [0.0, 1.0]
       - round_down_to_pound is bool
       - auto_decline_pct < auto_accept_pct < 1.0

@@ -171,7 +171,6 @@ def test_update_listing_post_change_check_failure_does_not_block(
     from server import update_listing
 
     # First append (price_change) succeeds, second (post_change_check) raises.
-    real_append = None
     call_count = {"n": 0}
 
     def flaky_append(event_type, item_id, snapshot):
@@ -532,7 +531,9 @@ def test_update_listing_dry_run_surfaces_wrong_direction_warning_field() -> None
         "units_sold_window_days": 14,
         "watch_count": 7,
         "comp_positional_pre_raise": "BETWEEN_P25_P75",
-        "recommendation": "Item sold 5 unit(s) ... Raising risks killing velocity. ... restock-context",
+        "recommendation": (
+            "Item sold 5 unit(s) ... Raising risks killing velocity. ... restock-context"
+        ),
     }
 
     with (
