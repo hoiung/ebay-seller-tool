@@ -83,15 +83,20 @@ async def main() -> int:
         print("FAIL: SellerProfiles block missing from payload", file=sys.stderr)
         return 1
 
-    # Pre-flight assertions — confirm payload shape before going to eBay.
-    assert "ShippingDetails" not in item, "inline ShippingDetails present (must be SellerProfiles)"
+    # Pre-flight assertions — post-revert: shipping is inline (not policy),
+    # payment + return are policy refs.
+    assert "ShippingDetails" in item, "inline ShippingDetails missing"
     assert "ReturnPolicy" not in item, "inline ReturnPolicy present (must be SellerProfiles)"
     assert "PaymentMethods" not in item, "inline PaymentMethods present (must be SellerProfiles)"
+    assert "SellerShippingProfile" not in sp, "shipping policy attached — must be inline only"
+    assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true", (
+        "FreeShipping must be true (seller-pays default)"
+    )
 
-    print("=== Payload SellerProfiles ===")
-    print(f"  PaymentProfileID  = {sp['SellerPaymentProfile']['PaymentProfileID']}")
-    print(f"  ShippingProfileID = {sp['SellerShippingProfile']['ShippingProfileID']}")
-    print(f"  ReturnProfileID   = {sp['SellerReturnProfile']['ReturnProfileID']}")
+    print("=== Payload ===")
+    print(f"  PaymentProfileID = {sp['SellerPaymentProfile']['PaymentProfileID']}")
+    print(f"  ReturnProfileID  = {sp['SellerReturnProfile']['ReturnProfileID']}")
+    print(f"  Inline shipping: FreeShipping=true, UK Royal Mail 2nd Class, £0.00")
     print()
     print("Submitting to VerifyAddFixedPriceItem (no listing created)...")
 
