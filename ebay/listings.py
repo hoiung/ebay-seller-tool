@@ -27,6 +27,42 @@ _MIN_ITEM_SPECIFICS_KEYS = 20
 MAX_PICTURE_URLS = 24
 MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
+# Business Policies (issue #29) — eBay account is enrolled, so AddItem and
+# ReviseFixedPriceItem MUST emit SellerProfiles referencing the three Profile IDs
+# created at ebay.co.uk/sh/policies/. Inline PaymentMethods/ShippingDetails/
+# ReturnPolicy blocks are rejected once enrolled (mixed mode forbidden).
+_REQUIRED_SELLER_PROFILE_ENV_VARS = (
+    "EBAY_PAYMENT_PROFILE_ID",
+    "EBAY_SHIPPING_PROFILE_ID",
+    "EBAY_RETURN_PROFILE_ID",
+)
+
+
+def _build_seller_profiles_block() -> dict:
+    """Return the SellerProfiles dict for AddItem/ReviseFixedPriceItem payloads.
+
+    Reads the three Profile IDs from env. Fails fast (RuntimeError) if any of
+    the three is missing — there is no inline-mode fallback because eBay
+    rejects mixed-mode payloads on Business-Policies-enrolled accounts.
+    """
+    missing = [k for k in _REQUIRED_SELLER_PROFILE_ENV_VARS if not os.environ.get(k)]
+    if missing:
+        raise RuntimeError(
+            "Business Policies env vars not set: "
+            f"{', '.join(missing)}. See .env.example and issue #29."
+        )
+    return {
+        "SellerPaymentProfile": {
+            "PaymentProfileID": os.environ["EBAY_PAYMENT_PROFILE_ID"],
+        },
+        "SellerShippingProfile": {
+            "ShippingProfileID": os.environ["EBAY_SHIPPING_PROFILE_ID"],
+        },
+        "SellerReturnProfile": {
+            "ReturnProfileID": os.environ["EBAY_RETURN_PROFILE_ID"],
+        },
+    }
+
 
 def _parse_iso_ts(value: object) -> str | None:
     """Coerce ebaysdk timestamp (may be datetime / str) to ISO-8601 Z string.
@@ -413,7 +449,6 @@ def build_revise_payload(
     title: str | None = None,
     description_html: str | None = None,
     price: float | None = None,
-    shipping_details: dict | None = None,
     condition_id: int | None = None,
     condition_description: str | None = None,
     item_specifics: dict[str, str | list[str]] | None = None,
@@ -436,10 +471,10 @@ def build_revise_payload(
     without auditing every caller — a stray non-None price here would
     revise the listing's price as a side-effect of a picture-only update.
 
-    shipping_details: optional dict to echo back the listing's current shipping
-    config. eBay requires shipping info on ReviseFixedPriceItem even for
-    description-only updates. If None, a default free UK Royal Mail 2nd Class
-    config is used (all our listings are free domestic shipping).
+    Shipping/payment/returns are emitted via SellerProfiles (Business Policies,
+    issue #29). The previous ``shipping_details`` parameter and inline
+    ShippingDetails default were removed when the account enrolled — eBay
+    rejects mixed-mode payloads.
 
     condition_id: eBay condition ID (1000=New, 1500=Opened-never used,
     3000=Used, 7000=For parts or not working).
@@ -515,19 +550,9 @@ def build_revise_payload(
                 "@attrs": {"currencyID": currency},
             }
 
-    # eBay requires ShippingDetails on every ReviseFixedPriceItem call
-    if shipping_details is not None:
-        item["ShippingDetails"] = shipping_details
-    else:
-        item["ShippingDetails"] = {
-            "ShippingType": "Flat",
-            "ShippingServiceOptions": {
-                "ShippingServicePriority": "1",
-                "ShippingService": "UK_RoyalMailSecondClassStandard",
-                "ShippingServiceCost": "0.00",
-                "FreeShipping": "true",
-            },
-        }
+    # Business Policies (issue #29): SellerProfiles supplies shipping + payment
+    # + returns via account-level Profile IDs. Inline ShippingDetails removed.
+    item["SellerProfiles"] = _build_seller_profiles_block()
 
     payload = {"Item": item}
 
@@ -547,8 +572,6 @@ def build_add_payload(
     item_specifics: dict[str, str | list[str]],
     picture_urls: list[str],
     uuid_hex: str,
-    shipping_details: dict | None = None,
-    return_policy: dict | None = None,
     location_details: dict | None = None,
 ) -> dict:
     """Build the AddFixedPriceItem payload dict.
@@ -560,6 +583,11 @@ def build_add_payload(
     UUID (32-char uppercase hex) is emitted as Item.UUID for idempotent retry —
     eBay returns DuplicateInvocationDetails on replay instead of creating
     a second listing.
+
+    Shipping/payment/returns are emitted via SellerProfiles (Business Policies,
+    issue #29). The previous ``shipping_details`` and ``return_policy``
+    parameters were removed when the account enrolled — eBay rejects
+    mixed-mode payloads on enrolled accounts.
 
     location_details: default reads EBAY_SELLER_LOCATION + EBAY_SELLER_POSTCODE
     from the environment eagerly. auth.py validates these at startup, so an
@@ -607,25 +635,7 @@ def build_add_payload(
             "PostalCode": os.environ["EBAY_SELLER_POSTCODE"],
             "Currency": _EBAY_UK_SITE_CURRENCY,
         }
-    if shipping_details is None:
-        shipping_details = {
-            "ShippingType": "Flat",
-            "GlobalShipping": "true",
-            "ShippingServiceOptions": {
-                "ShippingServicePriority": "1",
-                "ShippingService": "UK_RoyalMailSecondClassStandard",
-                "ShippingServiceCost": {
-                    "#text": "0.00",
-                    "@attrs": {"currencyID": location_details["Currency"]},
-                },
-                "FreeShipping": "true",
-            },
-        }
-    if return_policy is None:
-        return_policy = {
-            "ReturnsAcceptedOption": "ReturnsNotAccepted",
-            "InternationalReturnsAcceptedOption": "ReturnsNotAccepted",
-        }
+    seller_profiles = _build_seller_profiles_block()
 
     nvl = []
     for name, value in item_specifics.items():
@@ -652,12 +662,10 @@ def build_add_payload(
         "PostalCode": location_details["PostalCode"],
         "Site": "UK",
         "DispatchTimeMax": "3",
-        "PaymentMethods": [],
         "UUID": uuid_hex,
         "PictureDetails": {"PictureURL": list(picture_urls)},
         "ItemSpecifics": {"NameValueList": nvl},
-        "ShippingDetails": shipping_details,
-        "ReturnPolicy": return_policy,
+        "SellerProfiles": seller_profiles,
     }
     if condition_description is not None:
         item["ConditionDescription"] = condition_description
