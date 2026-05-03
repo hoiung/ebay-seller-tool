@@ -198,6 +198,29 @@ def test_listing_to_dict_handles_missing_return_policy() -> None:
     assert d["return_policy"] is None
 
 
+def test_listing_to_dict_business_policies_response_buyer_pays() -> None:
+    """Issue #29 — fetch-side parser surfaces post-Business-Policies state.
+
+    When a listing is enrolled via SellerProfiles → 30d-buyer-pays return profile,
+    eBay's GetItem response carries the resolved policy fields (the Profile ID
+    is server-side-resolved before the response is rendered). Asserts the parser
+    correctly reports returns_accepted=True / period_days=30 / buyer_pays=True
+    — the canonical post-#29 store state. This complements the operator's
+    end-to-end verification (22/22 listings in /tmp/ebay-listings-live.json
+    showed exactly this policy after the bulk migration).
+    """
+    rp = SimpleNamespace(
+        ReturnsAcceptedOption="ReturnsAccepted",
+        ReturnsWithinOption="Days_30",
+        ShippingCostPaidByOption="Buyer",
+    )
+    item = _build_item(ReturnPolicy=rp)
+    d = listing_to_dict(item)
+    assert d["return_policy"]["returns_accepted"] is True
+    assert d["return_policy"]["period_days"] == 30
+    assert d["return_policy"]["buyer_pays"] is True
+
+
 def test_days_on_site_reasonable() -> None:
     d = listing_to_dict(_build_item())
     # From 2026-03-15 to "now" (test runs after that date)

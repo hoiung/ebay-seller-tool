@@ -1,8 +1,28 @@
 # Research — `create_listing` + `upload_photos` MCP tools
 
 **Research date**: 2026-04-20
-**Status**: Design complete; implementation pending.
+**Status**: Design complete; implementation shipped.
 **Purpose**: Close the "photo-first listing" gap in the eBay seller workflow — extend the MCP server with two tools so that a listing can be created end-to-end from local drive-label photos + a handful of commercial inputs, without manual copy-paste into eBay's web UI.
+
+> **⚠️ SUPERSEDED in places by issue #29 (Business Policies, 2026-05-03)**
+>
+> Sections that reference `extract_shipping_details(...)`, the inline
+> `ReturnsNotAccepted` default, and `ShippingDetails.GlobalShipping=true`
+> describe the **pre-#29 inline-mode architecture**. After #29:
+>
+> - `extract_shipping_details` was removed from `ebay/listings.py`.
+> - `build_add_payload` and `build_revise_payload` no longer accept
+>   `shipping_details` / `return_policy` parameters.
+> - Shipping / payment / returns are supplied via `Item.SellerProfiles`
+>   referencing the three Business Policy IDs from
+>   `EBAY_PAYMENT_PROFILE_ID` / `EBAY_SHIPPING_PROFILE_ID` / `EBAY_RETURN_PROFILE_ID`.
+> - eBay rejects mixed-mode payloads on enrolled accounts — there is no
+>   inline fallback.
+>
+> Treat this document as **historical context** for the create_listing
+> design, not as the canonical payload contract. Read `ebay/listings.py`
+> (the module docstring + `_build_seller_profiles_block`) for the live
+> architecture.
 
 ---
 
