@@ -16,9 +16,9 @@ oldest non-index-0 URLs first — the operator's just-uploaded photos always
 survive. Replace-mode honours caller-supplied order via head-slice. The caller
 is informed via response `truncated` / `truncated_count` / `photos_lost` fields.
 
-ShippingDetails is echoed back via extract_shipping_details() — eBay otherwise
-overwrites with default config on every Revise call. The Revise-path Quantity
-invariant is preserved (build_revise_payload._assert_no_quantity).
+Shipping/payment/returns come from SellerProfiles (Business Policies, issue #29) —
+no inline echo needed on enrolled accounts. The Revise-path Quantity invariant
+is preserved (build_revise_payload._assert_no_quantity).
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from ebay.listings import (
     MAX_PICTURE_URLS,
     audit_log_write,
     build_revise_payload,
-    extract_shipping_details,
     listing_to_dict,
 )
 from ebay.photos import preprocess_for_ebay, upload_one
@@ -142,11 +141,10 @@ async def revise_pictures(
             f"dropped={truncated_count} preserve_index_0={mode == 'append'}"
         )
 
-    # 5. Build payload — echo current ShippingDetails so eBay doesn't overwrite.
-    shipping = extract_shipping_details(current.reply.Item)
+    # 5. Build payload — Business Policies (#29) supplies shipping/payment/returns
+    # via SellerProfiles, no inline echo needed.
     payload = build_revise_payload(
         item_id=item_id,
-        shipping_details=shipping,
         picture_urls=composed,
     )
 
