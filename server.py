@@ -1832,6 +1832,7 @@ async def analyse_listing(
             best_offer_thresholds = compute_best_offer_thresholds(
                 floor_gbp=floor_gbp,
                 live_price_gbp=current_price_gbp,
+                quantity=int(listing.get("quantity") or 1),
             )
         except (ValueError, TypeError) as exc:
             log_debug(
@@ -2214,6 +2215,7 @@ async def revise_pictures(
 @with_error_handling
 async def recommend_best_offer_thresholds(
     item_id: str,
+    quantity: int = 1,
     auto_accept_pct: float | None = None,
     auto_decline_pct: float | None = None,
 ) -> str:
@@ -2230,26 +2232,32 @@ async def recommend_best_offer_thresholds(
 
     Issue #16: defaults shifted from 0.88/0.72 hardcoded to None so the MCP
     tool surface agrees with the autonomous responder by default — both
-    inherit `config/fees.yaml best_offer:` (operator-locked 0.925/0.75).
-    Operator can still override per-call by passing explicit floats. Two
-    surfaces (this MCP tool + respond_best_offers.py) now return the SAME
-    numbers for the SAME live price unless explicitly overridden.
+    inherit `config/fees.yaml best_offer:` block.
+    Issue #30: added `quantity` parameter so callers can preview the threshold
+    for a specific qty tier (qty=1 → 95%, qty=2 → 92.5%, qty>=3 → default 90%).
+    Return shape unchanged — `rationale` text now names the qty tier used. To
+    preview the full ladder, call this tool 3× (quantity=1 / 2 / 3).
 
     Args:
         item_id: eBay item ID.
+        quantity: qty tier to preview (default 1 — single-qty offer). Any
+            qty not explicitly listed in `config/fees.yaml best_offer.qty_tiers`
+            falls to the `default` tier.
         auto_accept_pct: Fraction of live price for auto-accept. None (default)
-            inherits from config/fees.yaml best_offer.auto_accept_pct.
+            inherits from config/fees.yaml `best_offer.qty_tiers[quantity]`.
+            Explicit kwargs win over the qty-tier ladder.
         auto_decline_pct: Fraction of live price for auto-decline. None (default)
-            inherits from config/fees.yaml best_offer.auto_decline_pct.
+            inherits from config/fees.yaml best_offer.auto_decline_pct (uniform
+            across all qty tiers).
 
     Returns:
         JSON with item_id, live_price_gbp, floor_gbp, auto_accept_gbp,
-        auto_decline_gbp, return_rate_source, rationale.
+        auto_decline_gbp, return_rate_source, rationale (rationale names tier).
     """
     if not item_id or not item_id.strip():
         return json.dumps({"error": "item_id required"})
 
-    log_debug(f"recommend_best_offer_thresholds item_id={item_id}")
+    log_debug(f"recommend_best_offer_thresholds item_id={item_id} quantity={quantity}")
 
     response = await asyncio.to_thread(
         execute_with_retry,
@@ -2276,6 +2284,7 @@ async def recommend_best_offer_thresholds(
     thresholds = compute_best_offer_thresholds(
         floor_gbp=floor_gbp,
         live_price_gbp=live_price_gbp,
+        quantity=quantity,
         auto_accept_pct=auto_accept_pct,
         auto_decline_pct=auto_decline_pct,
     )
@@ -2284,6 +2293,7 @@ async def recommend_best_offer_thresholds(
         {
             "item_id": item_id,
             "live_price_gbp": live_price_gbp,
+            "quantity": quantity,
             "return_rate_source": rate_source,
             **thresholds,
         },
