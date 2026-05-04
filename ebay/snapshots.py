@@ -1,20 +1,68 @@
 """
-Pricing-elasticity persistence (Issue #13 Phase 5).
+Pricing-elasticity persistence (Issue #13 Phase 5; #21 Phase 2 adds weekly_snapshot).
 
 Append-only JSONL at ~/.local/share/ebay-seller-tool/price_snapshots.jsonl.
 
-Schema (per round-2 F-G template):
+Base event row (every event_type carries these — per round-2 F-G template):
     {
         "timestamp": "<ISO 8601 UTC>",
         "item_id": "<eBay item id>",
-        "event": "analysis_baseline | price_change | post_change_check",
+        "event": "<event_type literal — see _VALID_EVENT_TYPES>",
         "price_gbp": <float | null>,
         "quantity": <int | null>,
         "watch_count": <int | null>,
         "view_count": <int | null>,
         "traffic_30d": <dict | null>,   # parse_traffic_report_response output if available
-        "source": "<analyse_listing | update_listing | manual>"
+        "source": "<analyse_listing | update_listing | manual | weekly_orchestrator_v1>"
     }
+
+Event types (`_VALID_EVENT_TYPES`):
+    - ``analysis_baseline`` — captured on every analyse_listing call (#13)
+    - ``price_change`` — written atomically with each successful update_listing (#13)
+    - ``post_change_check`` — captured 7 days after a price_change for elasticity
+    - ``weekly_snapshot`` — written by the ebay-ops weekly pricing orchestrator
+      (#21 Phase 2). One row per active listing per weekly run. Adds the
+      classifier-input + decision-record fields enumerated below; keeps the
+      base-row fields populated where applicable (price_gbp = current price;
+      watch_count / view_count nullable; source = "weekly_orchestrator_v1").
+
+`weekly_snapshot` extra fields — ★ = consumed by v1 classifier or markdown
+report; unstarred = v2-deferred (write-only in v1, reserved so v2 cluster
+classifier doesn't need a JSONL backfill):
+
+    v1-consumed (★):
+      ★ week_id              # ISO week identifier "YYYY-Www" (e.g. "2026-W18")
+      ★ previous_price       # last apply price before this snapshot, or null
+      ★ delta_pct            # signed % delta vs previous_price, or null
+      ★ floor_price_gbp      # computed floor from fees.yaml
+      ★ imp_30d              # impressions, last 30d (Sell Analytics)
+      ★ views_30d            # views, last 30d (Sell Analytics)
+      ★ ctr_pct              # click-through rate %, last 30d
+      ★ conv_pct             # sales conversion %, last 30d
+      ★ tx_30d               # transactions, last 30d
+      ★ days_on_site         # days since listing first went live
+      ★ decision             # 7-enum: HOLD | DROP_5 | DROP_10 | DROP_15 |
+                             #          RAISE_5 | ESCALATE_NON_PRICE | INSUFFICIENT_DATA
+      ★ decision_rationale   # short string citing F4/F5/F6/F8 audit doc
+      ★ consecutive_drops    # death-spiral guard counter
+      ★ previous_decision    # decision from prior weekly_snapshot, or null
+      ★ manual_hold_flag     # bool — pricing_overrides.json manual_hold lookup
+      ★ data_quality_caveat  # string or null — e.g. "post-#29-toggle-window"
+      ★ applied_at           # null at snapshot-write; populated when
+                             #   apply_proposals writes the matching price_change
+
+    v2-deferred (write-only in v1; populated when available):
+      mpn                              # part number for v2 cluster classifier
+      drive_type                       # "HDD" / "SSD" / "NIC" / etc.
+      product_line                     # "Enterprise Capacity" / "Exos" / ...
+      condition_id                     # eBay condition ID (1000/1500/3000/...)
+      cond_name                        # short name ("New" / "Used" / ...)
+      watchers                         # eBay watcher count (sparse in v1)
+      sold_lifetime                    # cumulative sold across all-time
+      rank_health_status               # qualitative health flag for cluster cls
+      audit_doc_cite                   # link/anchor in 14_SALES_IMPROVEMENT
+      elasticity_classification_at_snapshot   # output of Phase 7 elasticity loop
+      authorized_by                    # operator literal that approved the apply
 
 Issue #14 Phase 4 cleanup: ``weekly_sweep`` was removed from the enum
 (F-DEADENUM). The literal had no producer in v1; the cadence-driven
@@ -36,7 +84,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_VALID_EVENT_TYPES = frozenset({"analysis_baseline", "price_change", "post_change_check"})
+_VALID_EVENT_TYPES = frozenset({
+    "analysis_baseline",
+    "price_change",
+    "post_change_check",
+    # #21 Phase 2 — written by the ebay-ops weekly pricing orchestrator.
+    # Field set enumerated in module docstring above (v1-consumed ★ +
+    # v2-deferred). One row per active listing per weekly run.
+    "weekly_snapshot",
+})
 
 # Default snapshot path. Overridable via EBAY_SNAPSHOT_PATH env var (used by
 # tests via monkeypatch).
