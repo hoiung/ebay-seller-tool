@@ -261,6 +261,22 @@ uv run mcp dev server.py
 - **REST Inventory API**: Used for quantity management and bulk price updates.
 - **Credentials**: NEVER commit .env. Use .env.example as reference.
 
+## API Quota Tracking (Trading + Sell Analytics)
+
+`ebay/call_accountant.py` is the daily call accountant for both Trading API
+verbs (5000/day flat cap) and REST Sell Analytics (`sell_analytics` namespace,
+9600/day ≈ 400/hr standard-seller tier — added in #21 Phase 1).
+
+- Trading verbs go through `record_call(verb)` automatically via
+  `execute_with_retry` in `client.py`.
+- Sell Analytics (currently `fetch_traffic_report` only) goes through
+  `account_call(api_namespace="sell_analytics")` — pre-flight quota gate +
+  record. Raises `RateLimitError` before any network round-trip if quota
+  would be exceeded; the error names `api_namespace + remaining + cap` so
+  the operator sees exactly which surface tripped.
+- Counters are namespace-isolated: a Trading-API spike does NOT eat into
+  Sell Analytics quota and vice versa.
+
 ## Skill Integration
 
 **Skill command**: `/ebay-seller-tool` (private, at `~/.claude/skills/ebay-seller-tool/SKILL.md`)
