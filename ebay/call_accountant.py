@@ -33,6 +33,11 @@ from pathlib import Path
 CALL_CAPS: dict[str, int] = {
     "_default": 5000,
     "AddMemberMessageRTQ": 5000,
+    # REST Analytics — Sell Analytics API daily cap (~400/hr ≈ 9600/day per
+    # eBay standard-seller tier). Tracked alongside Trading verbs so a single
+    # accountant covers both API surfaces. Wired by ebay.rest.fetch_traffic_report
+    # via account_call(api_namespace='sell_analytics'). #21 Phase 1.
+    "sell_analytics": 9600,
 }
 
 # Stage 5 fix L1.G M16 — load-bearing safety margin between "send" and
@@ -58,6 +63,26 @@ _PRUNE_MARKER = "_pruned"  # field on today's file marking the prune ran
 
 class CallAccountantError(RuntimeError):
     """Raised on lock-acquire timeout or unrecoverable IO error."""
+
+
+class RateLimitError(CallAccountantError):
+    """Raised when a call would exceed the daily quota for its api namespace.
+
+    Carries the namespace + remaining + cap so callers can surface a precise
+    operator-visible error rather than an opaque "rate limit" message. #21
+    Phase 1.
+    """
+
+    def __init__(self, *, api_namespace: str, remaining: int, cap: int,
+                 expected_calls: int = 1) -> None:
+        self.api_namespace = api_namespace
+        self.remaining = remaining
+        self.cap = cap
+        self.expected_calls = expected_calls
+        super().__init__(
+            f"call_accountant: {api_namespace} quota would be exceeded "
+            f"(expected_calls={expected_calls}, remaining={remaining}, cap={cap})"
+        )
 
 
 def _today_yyyymmdd() -> str:
@@ -182,11 +207,15 @@ def record_call(call_name: str) -> None:
     # Verb table follows.
     import re  # noqa: PLC0415
 
-    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", call_name):
+    # Allow snake_case API namespaces (e.g. 'sell_analytics' from #21 Phase 1)
+    # in addition to CamelCase Trading verbs. Leading underscore stays
+    # forbidden so reserved internal markers like _pruned / _meta are safe.
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", call_name):
         raise ValueError(
-            f"call_name must match [A-Za-z][A-Za-z0-9]* (CamelCase verb), "
-            f"got {call_name!r} — reserved underscore-prefixed keys conflict "
-            f"with internal markers like _pruned"
+            f"call_name must match [A-Za-z][A-Za-z0-9_]* (CamelCase verb or "
+            f"snake_case namespace; no leading underscore), got {call_name!r} — "
+            f"reserved underscore-prefixed keys conflict with internal markers "
+            f"like _pruned"
         )
     _ensure_state_dir()
     today = _today_yyyymmdd()
@@ -232,3 +261,32 @@ def daily_budget_remaining(call_name: str, daily_cap: int | None = None) -> int:
     """
     cap = daily_cap if daily_cap is not None else CALL_CAPS.get(call_name, CALL_CAPS["_default"])
     return cap - today_count(call_name)
+
+
+def account_call(*, api_namespace: str, expected_calls: int = 1) -> None:
+    """Pre-flight quota check + record one call for an API namespace. #21 Phase 1.
+
+    Single entrypoint for non-Trading API surfaces (e.g. REST Sell Analytics).
+    Trading verbs continue to use ``record_call`` directly via
+    ``execute_with_retry`` in ``client.py``; this function adds the pre-flight
+    quota gate that the orchestrator needs before issuing batch REST calls.
+
+    Raises ``RateLimitError`` (a ``CallAccountantError`` subclass) if remaining
+    quota is below ``expected_calls``. The error names the namespace + remaining
+    + cap so the operator can see exactly which API surface tripped the gate.
+
+    On success, increments today's counter for ``api_namespace`` by 1
+    (regardless of ``expected_calls`` — one ``account_call`` invocation =
+    one logical API call recorded). The counter is independent from any
+    Trading verb counter even when caller_name happens to coincide.
+    """
+    remaining = daily_budget_remaining(api_namespace)
+    cap = CALL_CAPS.get(api_namespace, CALL_CAPS["_default"])
+    if remaining < expected_calls:
+        raise RateLimitError(
+            api_namespace=api_namespace,
+            remaining=remaining,
+            cap=cap,
+            expected_calls=expected_calls,
+        )
+    record_call(api_namespace)
