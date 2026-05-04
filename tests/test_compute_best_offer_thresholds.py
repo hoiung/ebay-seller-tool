@@ -170,23 +170,23 @@ def isolated_fees_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_fees_cache()
 
 
+_QTY_TIER_CONFIG: dict[str, Any] = {
+    "best_offer": {
+        "qty_tiers": {1: 0.95, 2: 0.925, "default": 0.90},
+        "auto_decline_pct": 0.75,
+        "round_down_to_pound": True,
+    }
+}
+
+
 def test_compute_best_offer_thresholds_reads_config_when_args_omitted(
     isolated_fees_config,
 ) -> None:
-    """Config block populated + caller omits pcts → returns 0.925/0.75 round-down."""
-    isolated_fees_config(
-        {
-            "best_offer": {
-                "auto_accept_pct": 0.925,
-                "auto_decline_pct": 0.75,
-                "counter_offer_pct": 0.95,
-                "round_down_to_pound": True,
-            }
-        }
-    )
+    """Config block populated + caller omits pcts → reads qty_tiers[1] (95%)."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
     r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0)
-    # 0.925 * 50 = 46.25 → floor → 46; 0.75 * 50 = 37.5 → floor → 37
-    assert r["auto_accept_gbp"] == 46
+    # qty=1 → 0.95 * 50 = 47.5 → floor → 47; 0.75 * 50 = 37.5 → floor → 37
+    assert r["auto_accept_gbp"] == 47
     assert r["auto_decline_gbp"] == 37
     assert isinstance(r["auto_accept_gbp"], int)
     assert "round_down_to_pound applied" in r["rationale"]
@@ -195,21 +195,13 @@ def test_compute_best_offer_thresholds_reads_config_when_args_omitted(
 def test_compute_best_offer_thresholds_kwargs_override_config(
     isolated_fees_config,
 ) -> None:
-    """Config has 0.925/0.75 + caller passes 0.88 → kwargs win.
+    """Config has qty_tiers + caller passes 0.88 → kwargs win.
 
-    Validates server.py:2268 + enable_best_offer_all.py:101 unchanged behaviour:
-    those callers pass explicit `auto_accept_pct=...` and must keep that value.
+    Pins the kwarg-override path: callers that pin a specific pct (tests,
+    enable_best_offer_all.py) keep their explicit value regardless of the
+    operator's qty-tier ladder.
     """
-    isolated_fees_config(
-        {
-            "best_offer": {
-                "auto_accept_pct": 0.925,
-                "auto_decline_pct": 0.75,
-                "counter_offer_pct": 0.95,
-                "round_down_to_pound": True,
-            }
-        }
-    )
+    isolated_fees_config(_QTY_TIER_CONFIG)
     r = compute_best_offer_thresholds(
         floor_gbp=18.0, live_price_gbp=50.0, auto_accept_pct=0.88, auto_decline_pct=0.72
     )
@@ -245,100 +237,139 @@ def test_compute_best_offer_thresholds_returns_rationale_field_unchanged(
     """Schema regression test: 4-key return dict including `rationale` (string).
 
     Pins the contract for `enable_best_offer_all.py:134` (`plan.get('rationale', '')`)
-    and `server.py:2268` (`**thresholds` spread). Stage 3 L1.5 finding:
-    early Stage 2 §2 AFTER block dropped this field via ellipsis; #16 AC1.3
-    explicitly preserves it.
+    and `server.py:2268` (`**thresholds` spread). Issue #30 keeps the return-shape
+    contract — only the rationale TEXT changes to name the qty tier used.
     """
-    isolated_fees_config(
-        {
-            "best_offer": {
-                "auto_accept_pct": 0.925,
-                "auto_decline_pct": 0.75,
-                "counter_offer_pct": 0.95,
-                "round_down_to_pound": True,
-            }
-        }
-    )
+    isolated_fees_config(_QTY_TIER_CONFIG)
     r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0)
     assert set(r.keys()) == {"auto_accept_gbp", "auto_decline_gbp", "floor_gbp", "rationale"}
     assert isinstance(r["rationale"], str)
     assert len(r["rationale"]) > 0
 
 
-def test_analyse_listing_caller_shifts_to_config_driven_intentional(
+def test_analyse_listing_caller_shifts_to_qty_tier_intentional(
     isolated_fees_config,
 ) -> None:
-    """server.py:1832 calls with ONLY floor_gbp + live_price_gbp (no pcts).
+    """server.py:1832 calls with ONLY floor_gbp + live_price_gbp (qty defaulted).
 
-    Pre-#16 this hit default literals 0.88/0.72; post-#16 it picks up
-    config-driven 0.925/0.75 (round-down). This test PINS that intentional
-    behaviour shift so an accidental future revert (e.g. someone reverting
-    the signature defaults) breaks the test loudly. Documents the alignment
-    between analyse_listing's recommendations and the operator-locked thresholds.
+    Pre-#16 this hit default literals 0.88/0.72; post-#16 it picked up flat
+    0.925/0.75; post-#30 the default-qty=1 path picks up qty_tiers[1]=0.95.
+    Pins this intentional behaviour shift so an accidental future revert
+    breaks the test loudly.
     """
-    isolated_fees_config(
-        {
-            "best_offer": {
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    # Mimics server.py:1832 call shape (qty defaulted to 1)
+    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0)
+    assert r["auto_accept_gbp"] == 47  # 0.95 * 50 = 47.5 → floor → 47
+    assert r["auto_decline_gbp"] == 37  # 0.75 * 50 = 37.5 → floor → 37
+
+
+# ---------------------------------------------------------------------------
+# Issue #30 AC1.5 — schema validator (Fail Fast on old + malformed schemas)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_best_offer_config_rejects_old_schema_keys() -> None:
+    """Old auto_accept_pct / counter_offer_pct keys → ValueError naming Issue #30
+    migration. Fail Fast on stale config, never silent fallback to old defaults.
+    """
+    with pytest.raises(ValueError, match="old schema") as ei:
+        _validate_best_offer_config(
+            {
                 "auto_accept_pct": 0.925,
                 "auto_decline_pct": 0.75,
                 "counter_offer_pct": 0.95,
                 "round_down_to_pound": True,
             }
-        }
-    )
-    # Mimics server.py:1832 call shape
-    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0)
-    assert r["auto_accept_gbp"] == 46  # 0.925 * 50 = 46.25 → floor → 46
-    assert r["auto_decline_gbp"] == 37  # 0.75 * 50 = 37.5 → floor → 37
+        )
+    assert "Issue #30" in str(ei.value)
 
 
-# ---------------------------------------------------------------------------
-# Issue #16 AC1.5 — schema validator (Fail Fast)
-# ---------------------------------------------------------------------------
-
-
-def test_compute_best_offer_thresholds_rejects_typo_config_key(
-    isolated_fees_config,
-) -> None:
-    """Typo `auto_acceptpct` (missing underscore) must raise ValueError, NOT silently
-    use the 0.88 default. Fail Fast — Engineering Requirements line 23.
-    """
-    isolated_fees_config(
-        {
-            "best_offer": {
-                "auto_acceptpct": 0.925,  # TYPO — missing underscore
-                "auto_decline_pct": 0.75,
-                "counter_offer_pct": 0.95,
-                "round_down_to_pound": True,
-            }
-        }
-    )
-    with pytest.raises(ValueError, match="missing keys"):
-        compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0)
-
-
-def test_validate_best_offer_config_rejects_out_of_range_pct() -> None:
-    """auto_accept_pct = 1.5 is out of range → ValueError."""
-    with pytest.raises(ValueError, match="must be float in"):
+def test_validate_best_offer_config_rejects_missing_default_tier() -> None:
+    """qty_tiers MUST contain 'default' key (catch-all for qty values not listed)."""
+    with pytest.raises(ValueError, match="must contain 'default'"):
         _validate_best_offer_config(
             {
-                "auto_accept_pct": 1.5,
+                "qty_tiers": {1: 0.95, 2: 0.925},  # no 'default' key
                 "auto_decline_pct": 0.75,
-                "counter_offer_pct": 0.95,
                 "round_down_to_pound": True,
             }
         )
 
 
-def test_validate_best_offer_config_rejects_invariant_violation() -> None:
-    """auto_decline_pct >= auto_accept_pct violates the d < a < 1.0 invariant."""
-    with pytest.raises(ValueError, match="invariant violated"):
+def test_validate_best_offer_config_rejects_str_numeric_qty_key() -> None:
+    """Numeric qty_tiers keys must be int (YAML deserialises plain ints as int).
+    A str-typed numeric like '1' would silently fail to match `quantity == 1`
+    dispatch lookup, so reject loudly.
+    """
+    with pytest.raises(ValueError, match="numeric keys must be int"):
         _validate_best_offer_config(
             {
-                "auto_accept_pct": 0.75,
-                "auto_decline_pct": 0.80,  # higher than accept — invariant violation
-                "counter_offer_pct": 0.95,
+                "qty_tiers": {"1": 0.95, "default": 0.90},  # str numeric key
+                "auto_decline_pct": 0.75,
                 "round_down_to_pound": True,
+            }
+        )
+
+
+def test_validate_best_offer_config_rejects_pct_below_decline_floor() -> None:
+    """qty_tier values must be in [auto_decline_pct, 1.0]. A tier that's
+    BELOW the decline floor would silently invert accept/decline semantics.
+    """
+    with pytest.raises(ValueError, match=r"must be in \[auto_decline_pct"):
+        _validate_best_offer_config(
+            {
+                "qty_tiers": {1: 0.95, "default": 0.50},  # 0.50 < decline 0.75
+                "auto_decline_pct": 0.75,
+                "round_down_to_pound": True,
+            }
+        )
+
+
+def test_validate_best_offer_config_rejects_out_of_range_decline_pct() -> None:
+    """auto_decline_pct = 1.5 is out of range → ValueError."""
+    with pytest.raises(ValueError, match="auto_decline_pct"):
+        _validate_best_offer_config(
+            {
+                "qty_tiers": {1: 0.95, "default": 0.90},
+                "auto_decline_pct": 1.5,
+                "round_down_to_pound": True,
+            }
+        )
+
+
+def test_validate_best_offer_config_rejects_non_dict_qty_tiers() -> None:
+    """qty_tiers MUST be a dict; reject lists / strs / scalars."""
+    with pytest.raises(ValueError, match="must be dict"):
+        _validate_best_offer_config(
+            {
+                "qty_tiers": [0.95, 0.925, 0.90],
+                "auto_decline_pct": 0.75,
+                "round_down_to_pound": True,
+            }
+        )
+
+
+def test_validate_best_offer_config_rejects_zero_qty_key() -> None:
+    """Numeric qty keys must be >= 1 (zero qty is meaningless on a Best Offer)."""
+    with pytest.raises(ValueError, match="must be int"):
+        _validate_best_offer_config(
+            {
+                "qty_tiers": {0: 0.95, "default": 0.90},
+                "auto_decline_pct": 0.75,
+                "round_down_to_pound": True,
+            }
+        )
+
+
+def test_validate_best_offer_config_rejects_non_bool_round_down() -> None:
+    """round_down_to_pound must be bool; reject str 'true', int 1, etc."""
+    with pytest.raises(ValueError, match="round_down_to_pound"):
+        _validate_best_offer_config(
+            {
+                "qty_tiers": {1: 0.95, "default": 0.90},
+                "auto_decline_pct": 0.75,
+                "round_down_to_pound": "true",
             }
         )
 
@@ -346,6 +377,17 @@ def test_validate_best_offer_config_rejects_invariant_violation() -> None:
 def test_validate_best_offer_config_accepts_absent_block() -> None:
     """Empty dict (absent block) is the fallback path — must NOT raise."""
     _validate_best_offer_config({})  # no exception
+
+
+def test_validate_best_offer_config_accepts_well_formed_qty_tiers() -> None:
+    """Canonical good config (Issue #30 default) — must NOT raise."""
+    _validate_best_offer_config(
+        {
+            "qty_tiers": {1: 0.95, 2: 0.925, "default": 0.90},
+            "auto_decline_pct": 0.75,
+            "round_down_to_pound": True,
+        }
+    )
 
 
 def test_floor_buffer_pct_negative_raises() -> None:
@@ -359,3 +401,94 @@ def test_floor_buffer_pct_negative_raises() -> None:
             auto_decline_pct=0.72,
             floor_buffer_pct=-0.5,
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #30 AC2.4 — qty-tier dispatch + defensive entry validation
+# ---------------------------------------------------------------------------
+
+
+def test_qty_tier_dispatch_qty1_uses_95pct(isolated_fees_config) -> None:
+    """qty=1 → qty_tiers[1] = 0.95 → floor(0.95 * 100) = 95."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=100.0, quantity=1)
+    assert r["auto_accept_gbp"] == 95  # 0.95 * 100 = 95
+    assert "qty=1" in r["rationale"]
+
+
+def test_qty_tier_dispatch_qty2_uses_925pct(isolated_fees_config) -> None:
+    """qty=2 → qty_tiers[2] = 0.925 → floor(0.925 * 100) = 92."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=100.0, quantity=2)
+    assert r["auto_accept_gbp"] == 92  # 0.925 * 100 = 92.5 → floor → 92
+    assert "qty=2" in r["rationale"]
+
+
+def test_qty_tier_dispatch_qty3_uses_default_90pct(isolated_fees_config) -> None:
+    """qty=3 → not in qty_tiers as int key → 'default' = 0.90 → floor(0.90 * 100) = 90."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=100.0, quantity=3)
+    assert r["auto_accept_gbp"] == 90
+    assert "default" in r["rationale"]
+
+
+def test_qty_tier_dispatch_qty10_falls_to_default(isolated_fees_config) -> None:
+    """qty=10 (large bulk) → 'default' tier (0.90) — no special-case for qty>=4."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=100.0, quantity=10)
+    assert r["auto_accept_gbp"] == 90
+    assert "default" in r["rationale"]
+
+
+def test_compute_best_offer_thresholds_rejects_zero_quantity(isolated_fees_config) -> None:
+    """quantity=0 violates 'qty must be a positive listing count'."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    with pytest.raises(ValueError, match="quantity"):
+        compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0, quantity=0)
+
+
+def test_compute_best_offer_thresholds_rejects_negative_quantity(isolated_fees_config) -> None:
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    with pytest.raises(ValueError, match="quantity"):
+        compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0, quantity=-1)
+
+
+def test_compute_best_offer_thresholds_default_quantity_is_qty1_tier(
+    isolated_fees_config,
+) -> None:
+    """Caller omits `quantity` kwarg → defaults to 1 → qty_tiers[1] tier."""
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    r = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0)
+    # Same answer as explicit quantity=1
+    explicit = compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=50.0, quantity=1)
+    assert r["auto_accept_gbp"] == explicit["auto_accept_gbp"]
+
+
+def test_compute_best_offer_thresholds_rejects_zero_or_negative_live_price(
+    isolated_fees_config,
+) -> None:
+    """live_price_gbp <= 0 → ValueError. Catastrophic-accept bypass guard:
+    without this, 0.95 * 0 = 0 floor = 0 silently auto-accepts every offer.
+    """
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    with pytest.raises(ValueError, match="live_price_gbp"):
+        compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=0.0, quantity=1)
+    with pytest.raises(ValueError, match="live_price_gbp"):
+        compute_best_offer_thresholds(floor_gbp=8.0, live_price_gbp=-5.0, quantity=1)
+
+
+def test_compute_best_offer_thresholds_rejects_sub_2_quid_listing(
+    isolated_fees_config,
+) -> None:
+    """live_price_gbp < £2 → ValueError. floor(0.90 * 0.50) = £0 would push
+    a £0 counter that eBay rejects with `price out of range`. Surface the
+    operator's misconfigured listing instead of silently failing live.
+    """
+    isolated_fees_config(_QTY_TIER_CONFIG)
+    with pytest.raises(ValueError, match="too low"):
+        compute_best_offer_thresholds(floor_gbp=0.0, live_price_gbp=0.50, quantity=3)
+    with pytest.raises(ValueError, match="too low"):
+        compute_best_offer_thresholds(floor_gbp=0.0, live_price_gbp=1.99, quantity=1)
+    # £2 is the minimum supported (boundary)
+    r = compute_best_offer_thresholds(floor_gbp=0.0, live_price_gbp=2.0, quantity=1)
+    assert r["auto_accept_gbp"] == 1  # floor(0.95 * 2) = 1
