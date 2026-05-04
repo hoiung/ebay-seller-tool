@@ -145,22 +145,54 @@ async def get_pending_best_offers(
         return offers
 
     # Per-item iteration mode — one GetBestOffers call per listing ID.
+    from ebay.client import log_warn  # noqa: PLC0415
+
     log_debug(
         f"get_pending_best_offers: polling per-item GetBestOffers ({len(item_ids)} listing(s))"
     )
     offers: list[dict[str, Any]] = []
+    skipped_no_offers = 0
+    skipped_errors = 0
     for item_id in item_ids:
         if not item_id:
             continue
-        response = await asyncio.to_thread(
-            execute_with_retry,
-            "GetBestOffers",
-            {
-                "ItemID": str(item_id),
-                "BestOfferStatus": _ACTIVE_FILTER,
-                "DetailLevel": "ReturnAll",
-            },
-        )
+        try:
+            response = await asyncio.to_thread(
+                execute_with_retry,
+                "GetBestOffers",
+                {
+                    "ItemID": str(item_id),
+                    "BestOfferStatus": _ACTIVE_FILTER,
+                    "DetailLevel": "ReturnAll",
+                },
+            )
+        except Exception as e:  # noqa: BLE001 — defensive: eBay raises ebaysdk.ConnectionError
+            # eBay error code 20140 ("Best Offers Not Found / No best offers
+            # found for your criteria") fires for every listing with zero
+            # active offers — i.e. the common case across most of the 22
+            # listings on any given poll. ebaysdk surfaces it as a raised
+            # ConnectionError, not a clean empty response. Treat it as the
+            # empty-set signal it actually is and continue the sweep.
+            #
+            # Stage 5 finding A9 (issue #30 Layer-1 audit): without this
+            # try/except, the FIRST listing with zero offers crashes the
+            # whole sweep — operator silently loses visibility on the
+            # remaining N-1 listings until the bug is noticed.
+            err_text = str(e)
+            if "20140" in err_text or "Best Offers Not Found" in err_text:
+                skipped_no_offers += 1
+                continue
+            # Other errors (transport, auth, unexpected): log + skip this
+            # item; the next 30-min cron cycle re-polls from eBay's truth.
+            # Burning the whole sweep on one transient 5xx would punish 21
+            # listings for one item's hiccup.
+            log_warn(
+                f"get_pending_best_offers: per-item poll failed for ItemID={item_id} "
+                f"({type(e).__name__}: {err_text[:200]}); skipping this listing"
+            )
+            skipped_errors += 1
+            continue
+
         # Per-item shape: <BestOfferArray><BestOffer>… directly under reply.
         # ebaysdk may also nest under <ItemArray><Item><BestOfferArray>… on
         # some endpoints — handle both shapes defensively.
@@ -179,6 +211,13 @@ async def get_pending_best_offers(
                 continue
             for offer_node in _as_list(getattr(inner_bo, "BestOffer", None)):
                 offers.append(_parse_offer_node(offer_node, str(item_id)))
+
+    if skipped_no_offers or skipped_errors:
+        log_debug(
+            f"get_pending_best_offers: per-item sweep stats — "
+            f"polled={len(item_ids)} no_offers={skipped_no_offers} "
+            f"errors={skipped_errors} offers_found={len(offers)}"
+        )
 
     log_debug(
         f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-item mode)"

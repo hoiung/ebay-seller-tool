@@ -206,6 +206,77 @@ def test_get_pending_best_offers_filters_pending_status() -> None:
     assert payload["DetailLevel"] == "ReturnAll"
 
 
+# Stage 5 follow-up — eBay returns RequestError code 20140 ("Best Offers Not
+# Found") for every listing with zero active offers. Without per-item
+# try/except, the FIRST listing without offers crashes the whole sweep.
+# Surfaced live 2026-05-04 against 22-listing inventory: 21/22 listings
+# have zero offers on a typical poll, so the bug bricks the responder
+# from the first call.
+
+
+def test_per_item_sweep_continues_past_code_20140_no_offers() -> None:
+    """Code 20140 on first item → keep sweeping; surface offers from later items."""
+
+    fake_offer = SimpleNamespace(
+        BestOfferID="off_late",
+        Buyer=SimpleNamespace(UserID="buyer"),
+        Price=SimpleNamespace(value=45.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T14:00:00Z",
+        ExpirationTime="2026-05-06T14:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity=1,
+    )
+    fake_reply_with_offer = SimpleNamespace(
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer)
+    )
+
+    side_effects = [
+        ConnectionError(
+            "GetBestOffers: Class: RequestError, Severity: Error, Code: 20140, "
+            "Best Offers Not Found. No best offers found for your criteria."
+        ),
+        ConnectionError("Code: 20140 Best Offers Not Found"),
+        _make_response(fake_reply_with_offer),
+    ]
+    with patch("ebay.client.execute_with_retry", side_effect=side_effects) as mock_call:
+        result = _run(get_pending_best_offers(item_ids=["i1", "i2", "i3"]))
+
+    assert mock_call.call_count == 3, "all 3 listings must be polled — no SPoF"
+    assert len(result) == 1
+    assert result[0]["item_id"] == "i3"
+    assert result[0]["offer_id"] == "off_late"
+
+
+def test_per_item_sweep_continues_past_unexpected_error() -> None:
+    """Non-20140 error → log_warn + continue; later items still poll."""
+    fake_offer = SimpleNamespace(
+        BestOfferID="off_ok",
+        Buyer=SimpleNamespace(UserID="buyer"),
+        Price=SimpleNamespace(value=50.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T14:00:00Z",
+        ExpirationTime="2026-05-06T14:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity=2,
+    )
+    fake_reply_with_offer = SimpleNamespace(
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer)
+    )
+
+    side_effects = [
+        TimeoutError("network read timeout"),
+        _make_response(fake_reply_with_offer),
+    ]
+    with patch("ebay.client.execute_with_retry", side_effect=side_effects) as mock_call:
+        result = _run(get_pending_best_offers(item_ids=["i_bad", "i_good"]))
+
+    assert mock_call.call_count == 2
+    assert len(result) == 1
+    assert result[0]["item_id"] == "i_good"
+    assert result[0]["quantity"] == 2
+
+
 # ---------------------------------------------------------------------------
 # respond_to_best_offer
 # ---------------------------------------------------------------------------
