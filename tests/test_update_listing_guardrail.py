@@ -559,11 +559,15 @@ def test_update_listing_dry_run_surfaces_wrong_direction_warning_field() -> None
 
 
 def test_update_listing_revise_payload_emits_seller_profiles() -> None:
-    """Issue #29 — update_listing's ReviseFixedPriceItem payload uses Profile IDs.
+    """Issue #29 + #21 Phase 0 — update_listing's ReviseFixedPriceItem payload
+    uses Profile IDs for payment + return; SellerShippingProfile is intentionally
+    NOT attached (default-shipping policy was poisoned post-#29 fallout, see
+    feedback_ebay_default_shipping_poisoned.md).
 
     Captures the second execute_with_retry call (the ReviseFixedPriceItem dispatch)
-    and asserts the payload's Item.SellerProfiles block carries the three Profile
-    IDs from conftest env, with no inline ShippingDetails / ReturnPolicy / PaymentMethods.
+    and asserts the payload's Item.SellerProfiles block carries the two Profile
+    IDs from conftest env, with no inline ShippingDetails / ReturnPolicy / PaymentMethods
+    AND no SellerShippingProfile ref.
     """
     from server import update_listing
 
@@ -597,5 +601,7 @@ def test_update_listing_revise_payload_emits_seller_profiles() -> None:
     assert "PaymentMethods" not in item
     sp = item["SellerProfiles"]
     assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert sp["SellerShippingProfile"]["ShippingProfileID"] == "100000000002"
+    assert "SellerShippingProfile" not in sp, (
+        "Phase 0 contract — no shipping policy ref on revise"
+    )
     assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"

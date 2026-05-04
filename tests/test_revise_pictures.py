@@ -332,7 +332,11 @@ def test_revise_pictures_l13_truncate_to_cap_helper_unit() -> None:
 
 
 def test_revise_pictures_emits_seller_profiles() -> None:
-    """Issue #29: Business Policies — payload uses SellerProfiles, no inline Shipping."""
+    """Issue #29 + #21 Phase 0: Business Policies — payload uses SellerProfiles
+    for payment + return; SellerShippingProfile is intentionally NOT attached
+    (default-shipping policy was poisoned post-#29 fallout, see
+    feedback_ebay_default_shipping_poisoned.md).
+    """
     captured = {}
 
     def _exec_side_effect(verb, payload, *args, **kwargs):
@@ -349,12 +353,16 @@ def test_revise_pictures_emits_seller_profiles() -> None:
     ):
         _run(revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="append"))
 
-    # Built payload references the three Business Policy IDs and omits inline shipping.
+    # Built payload references the two Business Policy IDs (payment + return)
+    # and omits inline shipping. Shipping policy is intentionally NOT attached
+    # post-#21 Phase 0 — preserves listing-level seller-pays toggle.
     item = captured["payload"]["Item"]
     assert "ShippingDetails" not in item
     sp = item["SellerProfiles"]
     assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert sp["SellerShippingProfile"]["ShippingProfileID"] == "100000000002"
+    assert "SellerShippingProfile" not in sp, (
+        "Phase 0 contract — no shipping policy ref on revise"
+    )
     assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
 
 
