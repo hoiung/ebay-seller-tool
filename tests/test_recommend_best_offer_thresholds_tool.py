@@ -87,9 +87,9 @@ def test_item_not_found_refused() -> None:
 
 
 def test_returns_canonical_shape_with_default_pcts() -> None:
-    """Issue #16: defaults inherit config/fees.yaml best_offer block (0.925 / 0.75
-    round-down). Pre-#16 hardcoded 0.88/0.72 → 44.0/36.0; post-#16 config-driven
-    → 46/37 (int from math.floor under round_down_to_pound=true).
+    """Issue #30: default quantity=1 inherits qty_tiers[1] = 0.95.
+    Pre-#16 hardcoded 0.88/0.72 → 44.0/36.0; #16 config-driven 0.925/0.75 → 46/37;
+    #30 qty-tiered (qty=1 default) → 47/37 (floor(0.95 * 50) = 47).
     """
     with (
         patch("server.execute_with_retry", side_effect=[_fake_item("50.00")]),
@@ -108,11 +108,121 @@ def test_returns_canonical_shape_with_default_pcts() -> None:
     assert body["item_id"] == "999"
     assert body["live_price_gbp"] == 50.0
     assert body["floor_gbp"] == 18.0
-    # Post-#16 config-driven: floor(0.925 * 50) = 46, floor(0.75 * 50) = 37
-    assert body["auto_accept_gbp"] == 46
+    assert body["quantity"] == 1  # default qty echo
+    # Post-#30 qty=1 tier: floor(0.95 * 50) = 47, floor(0.75 * 50) = 37
+    assert body["auto_accept_gbp"] == 47
     assert body["auto_decline_gbp"] == 37
     assert body["return_rate_source"] == "default"
-    assert "auto_accept" in body["rationale"]
+    assert "qty=1" in body["rationale"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #30 AC2.5 — quantity parameter dispatch (4+ tests)
+# ---------------------------------------------------------------------------
+
+
+def test_quantity_1_returns_95pct_threshold() -> None:
+    """quantity=1 → qty_tiers[1] = 0.95 → floor(0.95 * 50) = 47."""
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_item("50.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
+             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            "default",
+        )
+        raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=1))
+    body = json.loads(raw)
+    assert body["quantity"] == 1
+    assert body["auto_accept_gbp"] == 47
+    assert body["auto_decline_gbp"] == 37  # decline floor uniform across tiers
+    assert "qty=1" in body["rationale"]
+
+
+def test_quantity_2_returns_925pct_threshold() -> None:
+    """quantity=2 → qty_tiers[2] = 0.925 → floor(0.925 * 50) = 46."""
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_item("50.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
+             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            "default",
+        )
+        raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=2))
+    body = json.loads(raw)
+    assert body["quantity"] == 2
+    assert body["auto_accept_gbp"] == 46  # floor(0.925 * 50) = 46
+    assert "qty=2" in body["rationale"]
+
+
+def test_quantity_3_returns_default_90pct_threshold() -> None:
+    """quantity=3 → not explicit key → 'default' = 0.90 → floor(0.90 * 50) = 45."""
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_item("50.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
+             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            "default",
+        )
+        raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=3))
+    body = json.loads(raw)
+    assert body["quantity"] == 3
+    assert body["auto_accept_gbp"] == 45  # floor(0.90 * 50) = 45
+    assert "default" in body["rationale"]
+
+
+def test_quantity_omitted_defaults_to_qty1_tier() -> None:
+    """Backward-compat: caller omits `quantity` → defaults to 1 → qty_tiers[1] tier.
+    Same numbers as explicit quantity=1 (preserves existing-caller contract).
+    """
+    with (
+        # Two GetItem calls (one per recommend invocation) → provide two fake items
+        patch(
+            "server.execute_with_retry",
+            side_effect=[_fake_item("50.00"), _fake_item("50.00")],
+        ),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
+             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            "default",
+        )
+        raw_default = _run(server.recommend_best_offer_thresholds(item_id="999"))
+        raw_explicit = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=1))
+
+    body_default = json.loads(raw_default)
+    body_explicit = json.loads(raw_explicit)
+    # Issue #30 worked example — multi-qty=3 cross-border-buyer at £105 listing:
+    # Phase 5 sample invocation pins the qty=3 case; here we test qty=1 default.
+    for key in ("auto_accept_gbp", "auto_decline_gbp", "floor_gbp", "rationale"):
+        assert body_default[key] == body_explicit[key]
+    assert body_default["quantity"] == 1
+
+
+def test_response_has_full_canonical_keys() -> None:
+    """Schema regression — return shape preserved across #30 (rationale text only changed)."""
+    with (
+        patch("server.execute_with_retry", side_effect=[_fake_item("50.00")]),
+        patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
+    ):
+        mock_floor.return_value = (
+            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
+             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            "default",
+        )
+        raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=2))
+    body = json.loads(raw)
+    expected_keys = {
+        "item_id", "live_price_gbp", "quantity", "return_rate_source",
+        "auto_accept_gbp", "auto_decline_gbp", "floor_gbp", "rationale",
+    }
+    assert set(body.keys()) == expected_keys
 
 
 def test_returns_canonical_shape_with_legacy_88_72_pcts() -> None:
