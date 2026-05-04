@@ -89,50 +89,100 @@ def _parse_offer_node(offer_node: Any, item_id: str) -> dict[str, Any]:
     }
 
 
-async def get_pending_best_offers() -> list[dict[str, Any]]:
-    """Fetch all `BestOfferStatus=Pending` offers across the seller's listings.
+async def get_pending_best_offers(
+    item_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch all `BestOfferStatus=Active` offers for the seller's listings.
 
-    Single API call (no `ItemID` → per-seller scope). Returns a flat list of
-    offer dicts. Empty list (NOT None) when no pending offers — keeps the
-    caller's iteration simple.
+    Two modes (Issue #30 AC3.1):
+        - **Per-seller mode** (`item_ids=None`, default): single
+          `GetBestOffers(BestOfferStatus=Active)` call (no ItemID filter).
+          Backward-compat for existing unit tests; documented quirks under
+          this mode silently drop some offers (cross-border buyer poll
+          divergence — Issue #30 root cause).
+        - **Per-item mode** (`item_ids=[...]`, production path post-#30): one
+          `GetBestOffers(ItemID=..., BestOfferStatus=Active)` call per listing.
+          Has full documented BestOfferStatus semantics + verified lived
+          behaviour against real cross-border offers.
 
-    eBay Trading API behaviour:
-        - Per-seller mode (no ItemID) returns up to 10,000 offer IDs in one
-          response — well above our 22-listing × 3-buyer-rounds × ~1 ceiling.
-        - Each <BestOffer> element appears nested under <Item><BestOfferArray>
-          when ItemID specified, OR in a flat array at the top of the
-          response in per-seller mode.
-        - We iterate <Item> nodes (per-seller mode) and collect their
-          <BestOfferArray><BestOffer> children, tagging each with the item_id
-          for the responder + audit ledger.
+    Per-seller response shape: <ItemArray><Item><ItemID>…<BestOfferArray><BestOffer>…
+    Per-item response shape:   <BestOfferArray><BestOffer>… directly under root
+                               (no <ItemArray> wrapper; AC5.1 live-probe
+                               verified).
 
     Returns:
-        list[dict]: each dict has 8 fields per `_parse_offer_node`.
+        list[dict]: each dict has 9 fields per `_parse_offer_node` (8 +
+        quantity). Empty list (NOT None) when no pending offers — keeps the
+        caller's iteration simple.
     """
     from ebay.client import execute_with_retry, log_debug  # noqa: PLC0415
 
-    log_debug("get_pending_best_offers: polling per-seller GetBestOffers")
-    response = await asyncio.to_thread(
-        execute_with_retry,
-        "GetBestOffers",
-        {"BestOfferStatus": _ACTIVE_FILTER, "DetailLevel": "ReturnAll"},
+    if item_ids is None:
+        # Backward-compat per-seller mode — single API call.
+        log_debug("get_pending_best_offers: polling per-seller GetBestOffers")
+        response = await asyncio.to_thread(
+            execute_with_retry,
+            "GetBestOffers",
+            {"BestOfferStatus": _ACTIVE_FILTER, "DetailLevel": "ReturnAll"},
+        )
+
+        item_array = getattr(response.reply, "ItemArray", None)
+        if item_array is None:
+            return []
+
+        offers: list[dict[str, Any]] = []
+        for item_node in _as_list(getattr(item_array, "Item", None)):
+            item_id = str(getattr(item_node, "ItemID", "") or "")
+            bo_array = getattr(item_node, "BestOfferArray", None)
+            if bo_array is None:
+                continue
+            for offer_node in _as_list(getattr(bo_array, "BestOffer", None)):
+                offers.append(_parse_offer_node(offer_node, item_id))
+
+        log_debug(
+            f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-seller mode)"
+        )
+        return offers
+
+    # Per-item iteration mode — one GetBestOffers call per listing ID.
+    log_debug(
+        f"get_pending_best_offers: polling per-item GetBestOffers ({len(item_ids)} listing(s))"
     )
-
-    # Per-seller response shape: <ItemArray><Item><ItemID>...<BestOfferArray><BestOffer>...
-    item_array = getattr(response.reply, "ItemArray", None)
-    if item_array is None:
-        return []
-
     offers: list[dict[str, Any]] = []
-    for item_node in _as_list(getattr(item_array, "Item", None)):
-        item_id = str(getattr(item_node, "ItemID", "") or "")
-        bo_array = getattr(item_node, "BestOfferArray", None)
-        if bo_array is None:
+    for item_id in item_ids:
+        if not item_id:
             continue
-        for offer_node in _as_list(getattr(bo_array, "BestOffer", None)):
-            offers.append(_parse_offer_node(offer_node, item_id))
+        response = await asyncio.to_thread(
+            execute_with_retry,
+            "GetBestOffers",
+            {
+                "ItemID": str(item_id),
+                "BestOfferStatus": _ACTIVE_FILTER,
+                "DetailLevel": "ReturnAll",
+            },
+        )
+        # Per-item shape: <BestOfferArray><BestOffer>… directly under reply.
+        # ebaysdk may also nest under <ItemArray><Item><BestOfferArray>… on
+        # some endpoints — handle both shapes defensively.
+        bo_array = getattr(response.reply, "BestOfferArray", None)
+        if bo_array is not None:
+            for offer_node in _as_list(getattr(bo_array, "BestOffer", None)):
+                offers.append(_parse_offer_node(offer_node, str(item_id)))
+            continue
 
-    log_debug(f"get_pending_best_offers: returned {len(offers)} pending offer(s)")
+        item_array = getattr(response.reply, "ItemArray", None)
+        if item_array is None:
+            continue
+        for item_node in _as_list(getattr(item_array, "Item", None)):
+            inner_bo = getattr(item_node, "BestOfferArray", None)
+            if inner_bo is None:
+                continue
+            for offer_node in _as_list(getattr(inner_bo, "BestOffer", None)):
+                offers.append(_parse_offer_node(offer_node, str(item_id)))
+
+    log_debug(
+        f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-item mode)"
+    )
     return offers
 
 
