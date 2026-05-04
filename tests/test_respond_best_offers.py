@@ -1,16 +1,18 @@
-"""Integration tests for respond_best_offers.py poller (Issue #16 AC3.7).
+"""Integration tests for respond_best_offers.py poller (Issue #16 + Issue #30 AC3.5).
 
 The script lives in the sibling ebay-ops repo at
 ~/DevProjects/ebay-ops/.claude/skills/ebay-seller-tool/scripts/respond_best_offers.py
-— same sys.path bootstrap pattern as enable_best_offer_all.py (which has
-no test today; #16 Phase 3 sets the precedent).
+— same sys.path bootstrap pattern as enable_best_offer_all.py.
 
-9 tests covering:
+Tests covering (Issue #30 — qty-tier extension):
+- per-item poll mode (get_pending_best_offers called with item_ids list)
+- qty-tier dispatch (qty=1 / qty=2 / qty=3 default tier)
+- decline-uniform across all qty tiers
+- JSONL row has quantity field
 - 3-tier decision dispatch (accept / counter / decline)
 - idempotency skip
 - disable-flag blocks all
-- per-offer error isolation (3 sub-cases: transport error, eBay validation
-  error 21916 BestOffer-disabled, live_price=0 catastrophic-accept guard)
+- per-offer error isolation
 - partial JSONL last-line tolerance
 """
 
@@ -89,9 +91,8 @@ def isolated_fees_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             "per_condition": False,
         },
         "best_offer": {
-            "auto_accept_pct": 0.925,
+            "qty_tiers": {1: 0.95, 2: 0.925, "default": 0.90},
             "auto_decline_pct": 0.75,
-            "counter_offer_pct": 0.95,
             "round_down_to_pound": True,
         },
     }
@@ -129,6 +130,7 @@ def _build_offer(
     buyer_offer_gbp: float = 45.0,
     buyer_user_id: str = "buyer_uk",
     offer_timestamp_iso: str = "2026-05-02T14:30:00Z",
+    quantity: int = 1,
 ) -> dict:
     return {
         "offer_id": offer_id,
@@ -139,6 +141,7 @@ def _build_offer(
         "offer_timestamp_iso": offer_timestamp_iso,
         "expiration_iso": "2026-05-04T14:30:00Z",
         "best_offer_code_type": "ManualBestOffer",
+        "quantity": quantity,
     }
 
 
@@ -150,8 +153,8 @@ def _build_offer(
 def test_responder_accepts_offer_above_auto_accept_threshold(
     isolated_fees_config, isolated_ledger
 ) -> None:
-    """Live £50, offer £47 → 47 ≥ floor(0.925*50)=46 → Accept dispatched."""
-    pending = [_build_offer(buyer_offer_gbp=47.0)]
+    """Live £50, offer £47, qty=1 → threshold floor(0.95*50)=47 → 47 ≥ 47 → Accept."""
+    pending = [_build_offer(buyer_offer_gbp=47.0, quantity=1)]
 
     accept_mock = AsyncMock(
         return_value={
@@ -179,9 +182,9 @@ def test_responder_accepts_offer_above_auto_accept_threshold(
 
 
 def test_responder_counters_offer_in_band(isolated_fees_config, isolated_ledger) -> None:
-    """Live £50, offer £40 → 40 in [floor(0.75*50)=37, floor(0.925*50)=46)
-    → Counter at floor(0.95*50)=47."""
-    pending = [_build_offer(buyer_offer_gbp=40.0)]
+    """Live £50, offer £40, qty=1 → 40 in [floor(0.75*50)=37, floor(0.95*50)=47)
+    → Counter at threshold=47 (qty=1 tier value)."""
+    pending = [_build_offer(buyer_offer_gbp=40.0, quantity=1)]
 
     counter_mock = AsyncMock(
         return_value={
@@ -449,24 +452,27 @@ def test_responder_apply_without_yes_refuses_live_mode() -> None:
     assert main_async_mock.await_count == 0
 
 
+_QTY_CFG_BO: dict = {
+    "qty_tiers": {1: 0.95, 2: 0.925, "default": 0.90},
+    "auto_decline_pct": 0.75,
+    "round_down_to_pound": True,
+}
+
+
 def test_compute_decision_declines_when_counter_would_exceed_live_price() -> None:
-    """Stage 5 fix: when `floor_gbp >= live_price` (high-postage / small-margin
-    listings — e.g. £10 listing with computed £11 floor), countering at
-    `max(floor, floor(0.95*live))` would set counter ≥ BuyItNowPrice and eBay
-    would reject the call. Decline with explicit `unprofitable_floor_decline_*`
-    reason instead of burning API quota on a guaranteed validation error."""
-    cfg_bo = {"auto_accept_pct": 0.925, "auto_decline_pct": 0.75, "counter_offer_pct": 0.95}
-    # live=£10, floor=£11
-    #   auto_accept_gbp  = floor(0.925*10) = 9
-    #   auto_decline_gbp = floor(0.75 *10) = 7
-    #   counter_gbp      = max(11, floor(0.95*10)) = max(11, 9) = 11 ≥ live → unprofitable
-    # buyer_offer=£8 sits in the in-band range (8 ≥ 7 and 8 < 9), normally would
-    # trigger Counter; with unprofitable-floor guard it falls to decline.
+    """Stage 5 fix preserved under #30 qty-tier rewrite: when floor_gbp >=
+    live_price the listing cannot be countered profitably; eBay would reject
+    counter ≥ BuyItNowPrice. Decline with explicit unprofitable_floor reason."""
+    # live=£10, floor=£11, qty=1 (95% tier)
+    #   threshold_gbp    = floor(0.95*10) = 9
+    #   auto_decline_gbp = floor(0.75*10) = 7
+    #   counter_gbp      = max(11, 9) = 11 ≥ live → unprofitable
+    # buyer_offer=£8 in-band (8 ≥ 7 and 8 < 9), but unprofitable-floor guard kicks in.
     offer = {"buyer_offer_gbp": 8.0, "live_price_gbp": 10.0}
-    decision = rbo.compute_decision(offer, cfg_bo, floor_gbp=11.0)
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=11.0, quantity=1)
     assert decision["cron_action"] == "decline"
     assert decision["counter_price_gbp"] is None
-    assert decision["reason"].startswith("unprofitable_floor_decline_")
+    assert "unprofitable_floor_decline_" in decision["reason"]
     assert "floor_11" in decision["reason"]
     assert "live_10" in decision["reason"]
 
@@ -474,12 +480,160 @@ def test_compute_decision_declines_when_counter_would_exceed_live_price() -> Non
 def test_compute_decision_normal_band_still_counters_when_floor_below_live() -> None:
     """Regression guard for the unprofitable-floor fix: normal listings where
     floor < live MUST still hit the counter branch."""
-    cfg_bo = {"auto_accept_pct": 0.925, "auto_decline_pct": 0.75, "counter_offer_pct": 0.95}
-    # live=£50, floor=£20 → counter_gbp = max(20, floor(0.95*50)) = 47 < 50
+    # live=£50, floor=£20, qty=1 → threshold = floor(0.95*50) = 47;
+    # counter_gbp = max(20, 47) = 47 < 50 — counterable.
     offer = {"buyer_offer_gbp": 40.0, "live_price_gbp": 50.0}
-    decision = rbo.compute_decision(offer, cfg_bo, floor_gbp=20.0)
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=20.0, quantity=1)
     assert decision["cron_action"] == "counter"
     assert decision["counter_price_gbp"] == 47
+
+
+# ---------------------------------------------------------------------------
+# Issue #30 AC3.5 — qty-tier dispatch + per-item poll wiring tests
+# ---------------------------------------------------------------------------
+
+
+def test_compute_decision_qty1_accepts_at_95pct_tier() -> None:
+    """qty=1 → threshold floor(0.95*100) = 95. Offer £100 ≥ 95 → Accept."""
+    offer = {"buyer_offer_gbp": 100.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=10.0, quantity=1)
+    assert decision["cron_action"] == "accept"
+    assert "qty1" in decision["reason"]
+    assert "95.0pct_auto_accept" in decision["reason"]
+
+
+def test_compute_decision_qty2_counters_at_925pct_tier() -> None:
+    """qty=2 → threshold floor(0.925*100) = 92. Offer £85 in [75, 92) → Counter at 92."""
+    offer = {"buyer_offer_gbp": 85.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=10.0, quantity=2)
+    assert decision["cron_action"] == "counter"
+    assert decision["counter_price_gbp"] == 92  # floor(0.925 * 100) = 92
+    assert "qty2" in decision["reason"]
+    assert "92.5pct" in decision["reason"]
+
+
+def test_compute_decision_qty3_dispatches_to_default_tier_90pct() -> None:
+    """Issue #30 cross-border-buyer worked example — qty=3 falls to 'default'
+    tier (90%). Live=£105, offer=£90 → in [78, 94) → Counter at 94."""
+    offer = {"buyer_offer_gbp": 90.0, "live_price_gbp": 105.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=10.0, quantity=3)
+    assert decision["cron_action"] == "counter"
+    # threshold = floor(0.90 * 105) = 94; counter = max(10, 94) = 94
+    assert decision["counter_price_gbp"] == 94
+    assert "qtydefault" in decision["reason"]
+    assert "90.0pct" in decision["reason"]
+
+
+def test_compute_decision_qty10_falls_to_default_tier() -> None:
+    """qty=10 (large bulk) → 'default' tier — no special-case for high qty."""
+    offer = {"buyer_offer_gbp": 100.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=10.0, quantity=10)
+    # threshold = floor(0.90 * 100) = 90, offer 100 ≥ 90 → Accept
+    assert decision["cron_action"] == "accept"
+    assert "qtydefault" in decision["reason"]
+
+
+def test_compute_decision_decline_floor_uniform_across_qty_tiers() -> None:
+    """Decline floor is 75% uniform across all qty tiers — qty doesn't lower it."""
+    # offer=£60 < floor(0.75*100)=75 → DECLINE regardless of qty
+    offer = {"buyer_offer_gbp": 60.0, "live_price_gbp": 100.0}
+    for qty in (1, 2, 3, 5, 10):
+        decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=10.0, quantity=qty)
+        assert decision["cron_action"] == "decline", f"qty={qty} should decline"
+        assert "auto_decline" in decision["reason"]
+        assert "75.0pct" in decision["reason"]
+
+
+def test_responder_passes_item_ids_to_get_pending_best_offers(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """AC3.2 wiring: respond_best_offers.main_async builds item_ids list from
+    live_price_lookup.keys() and passes it to get_pending_best_offers().
+    AP #18 explicit kwarg assertion."""
+    pending: list = []  # empty pending — we only care about the poll args
+    poll_mock = AsyncMock(return_value=pending)
+    with (
+        patch.object(rbo, "get_pending_best_offers", poll_mock),
+        patch.object(
+            rbo,
+            "fetch_live_price_lookup",
+            return_value={"item-A": 50.0, "item-B": 105.0, "item-C": 25.0},
+        ),
+        patch.object(rbo, "respond_to_best_offer", AsyncMock()),
+    ):
+        exit_code = rbo.main([])  # dry-run — still polls
+
+    assert exit_code == 0
+    assert poll_mock.await_count == 1
+    # AP #18 — assert explicit kwarg propagation, no **kwargs swallowing
+    item_ids = poll_mock.await_args.kwargs["item_ids"]
+    assert isinstance(item_ids, list)
+    assert set(item_ids) == {"item-A", "item-B", "item-C"}
+
+
+def test_responder_qty3_offer_dispatches_default_tier_counter(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """End-to-end Issue #30 worked example: cross-border-buyer style multi-qty
+    offer flows through main_async + compute_decision + respond_to_best_offer
+    with the 'default' tier counter price (£94 for £105 listing).
+    """
+    pending = [_build_offer(buyer_offer_gbp=90.0, quantity=3, item_id="multi-qty-listing")]
+    counter_mock = AsyncMock(
+        return_value={"success": True, "ebay_response_status": "Success",
+                      "ebay_response_code": None, "error_message": None},
+    )
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"multi-qty-listing": 105.0}),
+        patch.object(rbo, "respond_to_best_offer", counter_mock),
+    ):
+        exit_code = rbo.main(["--apply", "--yes"])
+
+    assert exit_code == 0
+    assert counter_mock.await_args.kwargs["action"] == "Counter"
+    # AP #18 — assert the actual counter price (worked example: £94)
+    assert counter_mock.await_args.kwargs["counter_price_gbp"] == 94.0
+    rows = _read_ledger(isolated_ledger)
+    assert rows[0]["cron_action"] == "counter"
+    assert rows[0]["counter_price_gbp"] == 94
+    assert rows[0]["quantity"] == 3
+    assert "qtydefault" in rows[0]["reason"]
+
+
+def test_responder_jsonl_row_includes_quantity_field(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """AC3.4 — every JSONL row gains the 'quantity' field. Verify across
+    accept / counter / decline / skip-idempotency paths.
+    """
+    o_accept = _build_offer(offer_id="o_accept", buyer_offer_gbp=50.0, quantity=1)
+    o_counter = _build_offer(offer_id="o_counter", buyer_offer_gbp=85.0, quantity=2)
+    o_decline = _build_offer(offer_id="o_decline", buyer_offer_gbp=30.0, quantity=3)
+    pending = [o_accept, o_counter, o_decline]
+
+    respond_mock = AsyncMock(
+        return_value={"success": True, "ebay_response_status": "Success",
+                      "ebay_response_code": None, "error_message": None},
+    )
+    with (
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"287260458724": 100.0}),
+        patch.object(rbo, "respond_to_best_offer", respond_mock),
+    ):
+        rbo.main(["--apply", "--yes"])
+
+    rows = _read_ledger(isolated_ledger)
+    assert len(rows) == 3
+    # Every row has the quantity field (12 fields total per row)
+    for row in rows:
+        assert "quantity" in row
+        assert isinstance(row["quantity"], int)
+    # Each row's quantity matches the offer it derived from
+    by_id = {r["offer_id"]: r for r in rows}
+    assert by_id["o_accept"]["quantity"] == 1
+    assert by_id["o_counter"]["quantity"] == 2
+    assert by_id["o_decline"]["quantity"] == 3
 
 
 def test_responder_auth_token_expired_detected_by_ebay_error_code(
