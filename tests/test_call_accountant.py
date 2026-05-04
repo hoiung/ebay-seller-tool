@@ -139,3 +139,94 @@ def test_negative_count_when_overshot(isolated_state) -> None:
     for _ in range(3):
         ca.record_call("AddMemberMessageRTQ")
     assert ca.daily_budget_remaining("AddMemberMessageRTQ", daily_cap=2) == -1
+
+
+# ---- #21 Phase 1: account_call + sell_analytics namespace + RateLimitError ----
+
+
+def test_call_caps_includes_sell_analytics() -> None:
+    """#21 Phase 1 — sell_analytics quota tracked alongside Trading verbs."""
+    assert ca.CALL_CAPS["sell_analytics"] == 9600
+
+
+def test_account_call_records_namespace(isolated_state) -> None:
+    """account_call increments the namespace counter independent of Trading verbs."""
+    ca.account_call(api_namespace="sell_analytics")
+    ca.account_call(api_namespace="sell_analytics")
+    assert ca.today_count("sell_analytics") == 2
+
+
+def test_account_call_namespace_isolation_from_trading_verbs(isolated_state) -> None:
+    """#21 Phase 1 contract — Trading-API counters and Sell Analytics counters
+    must increment independently. Mixing should NOT contaminate either bucket."""
+    ca.record_call("AddMemberMessageRTQ")
+    ca.record_call("AddMemberMessageRTQ")
+    ca.account_call(api_namespace="sell_analytics")
+    ca.account_call(api_namespace="sell_analytics")
+    ca.account_call(api_namespace="sell_analytics")
+    ca.record_call("GetMyeBaySelling")
+    assert ca.today_count("AddMemberMessageRTQ") == 2
+    assert ca.today_count("sell_analytics") == 3
+    assert ca.today_count("GetMyeBaySelling") == 1
+
+
+def test_account_call_raises_rate_limit_when_quota_exceeded(isolated_state) -> None:
+    """#21 Phase 1 — RateLimitError fires BEFORE record_call when remaining
+    quota is below expected_calls. Error names the namespace + remaining + cap."""
+    # Push the counter to within 1 of a tiny synthetic cap by overriding
+    # CALL_CAPS via monkeypatching the attribute (clean revert via the
+    # isolated_state fixture's tmp_path scoping).
+    original = dict(ca.CALL_CAPS)
+    try:
+        ca.CALL_CAPS["test_ns"] = 2
+        ca.account_call(api_namespace="test_ns")
+        ca.account_call(api_namespace="test_ns")
+        # Counter is now at 2; cap is 2; remaining = 0; expected = 1 → raise
+        with pytest.raises(ca.RateLimitError) as exc_info:
+            ca.account_call(api_namespace="test_ns")
+        err = exc_info.value
+        assert err.api_namespace == "test_ns"
+        assert err.remaining == 0
+        assert err.cap == 2
+        assert err.expected_calls == 1
+        assert "test_ns" in str(err)
+        assert "remaining=0" in str(err)
+        assert "cap=2" in str(err)
+        # Counter must NOT have advanced past the cap (record_call is gated).
+        assert ca.today_count("test_ns") == 2
+    finally:
+        ca.CALL_CAPS.clear()
+        ca.CALL_CAPS.update(original)
+
+
+def test_account_call_rate_limit_is_call_accountant_subclass() -> None:
+    """RateLimitError is-a CallAccountantError — callers can catch the parent
+    class to handle either lock failures OR quota exhaustion uniformly."""
+    assert issubclass(ca.RateLimitError, ca.CallAccountantError)
+    assert issubclass(ca.CallAccountantError, RuntimeError)
+
+
+def test_account_call_expected_calls_param(isolated_state) -> None:
+    """expected_calls=N gate fires when remaining < N (batched-call check)."""
+    original = dict(ca.CALL_CAPS)
+    try:
+        ca.CALL_CAPS["test_ns"] = 5
+        # No prior calls; remaining = 5. expected_calls=10 must trip the gate.
+        with pytest.raises(ca.RateLimitError) as exc_info:
+            ca.account_call(api_namespace="test_ns", expected_calls=10)
+        assert exc_info.value.expected_calls == 10
+        assert exc_info.value.remaining == 5
+        # Counter unchanged — gate fired before record_call.
+        assert ca.today_count("test_ns") == 0
+    finally:
+        ca.CALL_CAPS.clear()
+        ca.CALL_CAPS.update(original)
+
+
+def test_record_call_accepts_snake_case_namespace(isolated_state) -> None:
+    """#21 Phase 1 — record_call regex now allows snake_case namespaces in
+    addition to CamelCase Trading verbs. Leading underscore still rejected."""
+    ca.record_call("sell_analytics")  # must not raise
+    ca.record_call("some_other_namespace")  # must not raise
+    with pytest.raises(ValueError, match="CamelCase"):
+        ca.record_call("_sell_analytics")  # leading underscore still forbidden
