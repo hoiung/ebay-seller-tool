@@ -220,7 +220,16 @@ async def fetch_traffic_report(
     days: int = 30,
     marketplace_id: str | None = None,
 ) -> dict[str, Any]:
-    """REST Analytics traffic_report. marketplace_id defaults to config/fees.yaml value."""
+    """REST Analytics traffic_report. marketplace_id defaults to config/fees.yaml value.
+
+    Quota: each invocation accounts for one logical Sell Analytics call via
+    call_accountant.account_call(api_namespace='sell_analytics'). Raises
+    RateLimitError before contacting eBay if today's quota would be exceeded
+    (#21 Phase 1).
+    """
+    # Quota gate first — fail loud BEFORE any network round-trip.
+    from ebay.call_accountant import account_call  # noqa: PLC0415 — avoid import cycle
+    account_call(api_namespace="sell_analytics")
     if marketplace_id is None:
         marketplace_id = str(_load_fees_config()["ebay_uk"]["marketplace_id"])
     return await asyncio.to_thread(_sync_get_traffic_report, listing_ids, days, marketplace_id)
