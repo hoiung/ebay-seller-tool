@@ -45,7 +45,6 @@ from ebay.listings import (  # noqa: E402
     listing_to_dict,
 )
 
-
 _AUDIT_LOG = Path.home() / ".local/share/ebay-seller-tool/seller_profiles_migration.jsonl"
 
 
@@ -240,7 +239,9 @@ async def main(apply: bool) -> int:
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Issue #29 — apply SellerProfiles to all active listings.")
+    p = argparse.ArgumentParser(
+        description="Issue #29 — apply SellerProfiles to all active listings.",
+    )
     p.add_argument(
         "--apply",
         action="store_true",
