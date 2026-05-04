@@ -62,10 +62,127 @@ def test_get_pending_best_offers_returns_parsed_list() -> None:
     assert result[0]["offer_timestamp_iso"] == "2026-05-02T14:30:00Z"
     assert result[0]["expiration_iso"] == "2026-05-04T14:30:00Z"
     assert result[0]["best_offer_code_type"] == "ManualBestOffer"
+    # Issue #30 AC1.3 — Quantity absent on the fixture → default 1.
+    assert result[0]["quantity"] == 1
 
     # AP #18 — assert eBay payload explicitly
     assert mock_call.call_args[0][0] == "GetBestOffers"
     assert mock_call.call_args[0][1]["BestOfferStatus"] == "Active"
+
+
+# ---------------------------------------------------------------------------
+# Issue #30 AC1.4 — quantity-field extraction tests on _parse_offer_node
+# ---------------------------------------------------------------------------
+
+
+def test_get_pending_best_offers_extracts_explicit_quantity() -> None:
+    """`<Quantity>3</Quantity>` on a multi-qty offer → result["quantity"] == 3."""
+    fake_offer = SimpleNamespace(
+        BestOfferID="qty3",
+        Buyer=SimpleNamespace(UserID="bulk_buyer"),
+        Price=SimpleNamespace(value=270.00),
+        BuyerMessage="3 units please",
+        ReceivedTime="2026-05-04T11:34:00Z",
+        ExpirationTime="2026-05-06T11:34:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity=3,
+    )
+    fake_item = SimpleNamespace(
+        ItemID="000000000001",
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer),
+    )
+    fake_reply = SimpleNamespace(ItemArray=SimpleNamespace(Item=fake_item))
+
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
+        result = _run(get_pending_best_offers())
+
+    assert len(result) == 1
+    assert result[0]["quantity"] == 3
+    assert isinstance(result[0]["quantity"], int)
+
+
+def test_get_pending_best_offers_defaults_quantity_when_absent() -> None:
+    """ebaysdk omits `<Quantity>` for single-qty offers → result["quantity"] == 1."""
+    fake_offer = SimpleNamespace(
+        BestOfferID="qty_omitted",
+        Buyer=SimpleNamespace(UserID="solo_buyer"),
+        Price=SimpleNamespace(value=45.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T09:00:00Z",
+        ExpirationTime="2026-05-06T09:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        # Quantity attr deliberately absent
+    )
+    fake_item = SimpleNamespace(
+        ItemID="000000000002",
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer),
+    )
+    fake_reply = SimpleNamespace(ItemArray=SimpleNamespace(Item=fake_item))
+
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
+        result = _run(get_pending_best_offers())
+
+    assert result[0]["quantity"] == 1
+    assert isinstance(result[0]["quantity"], int)
+
+
+def test_get_pending_best_offers_coerces_string_quantity_to_int() -> None:
+    """ebaysdk sometimes decodes XML scalars as str — defensive int-coerce.
+
+    Mirrors the existing `buyer_offer_gbp = float(...)` defensive pattern in
+    `_parse_offer_node`. Confirmed by AC5.1 read-only live probe (see
+    docs/research/ebay/11_EBAY_API_AND_MCP_SERVER.md).
+    """
+    fake_offer = SimpleNamespace(
+        BestOfferID="qty_str",
+        Buyer=SimpleNamespace(UserID="any_buyer"),
+        Price=SimpleNamespace(value=180.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T10:00:00Z",
+        ExpirationTime="2026-05-06T10:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity="2",  # str-typed scalar from ebaysdk on some response paths
+    )
+    fake_item = SimpleNamespace(
+        ItemID="000000000003",
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer),
+    )
+    fake_reply = SimpleNamespace(ItemArray=SimpleNamespace(Item=fake_item))
+
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
+        result = _run(get_pending_best_offers())
+
+    assert result[0]["quantity"] == 2
+    assert isinstance(result[0]["quantity"], int)
+
+
+def test_get_pending_best_offers_handles_unparseable_quantity_safely() -> None:
+    """Garbage `<Quantity>` value (non-numeric str / negative / 0) → default 1.
+
+    Belt-and-braces — fail-soft on garbage input rather than raising mid-poll
+    and dropping the rest of the items in the iteration. The responder script
+    still treats `quantity == 1` as the qty-1 tier.
+    """
+    fake_offer = SimpleNamespace(
+        BestOfferID="qty_garbage",
+        Buyer=SimpleNamespace(UserID="any_buyer"),
+        Price=SimpleNamespace(value=50.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T10:00:00Z",
+        ExpirationTime="2026-05-06T10:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity="not-a-number",
+    )
+    fake_item = SimpleNamespace(
+        ItemID="000000000004",
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer),
+    )
+    fake_reply = SimpleNamespace(ItemArray=SimpleNamespace(Item=fake_item))
+
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
+        result = _run(get_pending_best_offers())
+
+    assert result[0]["quantity"] == 1
 
 
 def test_get_pending_best_offers_empty_when_no_offers() -> None:
