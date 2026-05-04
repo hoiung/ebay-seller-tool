@@ -64,7 +64,9 @@ def _sample_specifics() -> dict[str, str | list[str]]:
 async def main() -> int:
     payload = build_add_payload(
         title='Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD ST2000NX0253',
-        description_html="<html><body><h1>Sample listing — issue #29 verification</h1></body></html>",
+        description_html=(
+            "<html><body><h1>Sample listing — issue #29 verification</h1></body></html>"
+        ),
         price=49.99,
         quantity=1,
         condition_id=3000,
@@ -96,7 +98,7 @@ async def main() -> int:
     print("=== Payload ===")
     print(f"  PaymentProfileID = {sp['SellerPaymentProfile']['PaymentProfileID']}")
     print(f"  ReturnProfileID  = {sp['SellerReturnProfile']['ReturnProfileID']}")
-    print(f"  Inline shipping: FreeShipping=true, UK Royal Mail 2nd Class, £0.00")
+    print("  Inline shipping: FreeShipping=true, UK Royal Mail 2nd Class, £0.00")
     print()
     print("Submitting to VerifyAddFixedPriceItem (no listing created)...")
 
