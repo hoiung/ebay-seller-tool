@@ -775,76 +775,130 @@ def _round_down_to_pound(pct: float, live_price: float) -> int:
     return math.floor(pct * live_price)
 
 
+_BEST_OFFER_OLD_KEYS = ("auto_accept_pct", "counter_offer_pct")
+
+
 def _validate_best_offer_config(cfg_bo: dict[str, Any]) -> None:
-    """Fail Fast on malformed best_offer config — typo'd key names silently
-    fall back to defaults otherwise (violates Engineering Requirements
+    """Fail Fast on malformed best_offer config — typo'd or stale-schema keys
+    silently fall back to defaults otherwise (violates Engineering Requirements
     Fail Fast). Caller catches ValueError + surfaces via log_warn.
 
-    Invariants:
-      - All 4 keys present (auto_accept_pct, auto_decline_pct, counter_offer_pct,
-        round_down_to_pound)
-      - 3 pct values in [0.0, 1.0]
-      - round_down_to_pound is bool
-      - auto_decline_pct < auto_accept_pct < 1.0
-      - counter_offer_pct >= auto_decline_pct
+    Invariants (post Issue #30 qty_tiers migration):
+      - Required keys: {qty_tiers, auto_decline_pct, round_down_to_pound}
+      - HARD-FAIL on old keys (auto_accept_pct, counter_offer_pct) with explicit
+        migration error referencing Issue #30.
+      - qty_tiers MUST be a dict containing the "default" key.
+      - Every qty_tiers numeric key MUST be int >= 1 (str numerics rejected;
+        only "default" is a str key).
+      - Every qty_tiers value MUST be float in [auto_decline_pct, 1.0].
+      - auto_decline_pct in [0.0, 1.0].
+      - round_down_to_pound is bool.
     """
     if not cfg_bo:
         return  # absent block — caller handles via fallback path
-    required = {"auto_accept_pct", "auto_decline_pct", "counter_offer_pct", "round_down_to_pound"}
+
+    # HARD-FAIL on old schema with explicit migration message
+    stale = [k for k in _BEST_OFFER_OLD_KEYS if k in cfg_bo]
+    if stale:
+        raise ValueError(
+            "config/fees.yaml best_offer block uses old schema "
+            f"({', '.join(stale)} found). Migrate to qty_tiers format per "
+            "Issue #30. See AC1.1 in issue body for the new schema example."
+        )
+
+    required = {"qty_tiers", "auto_decline_pct", "round_down_to_pound"}
     missing = required - set(cfg_bo.keys())
     if missing:
         raise ValueError(
             f"config/fees.yaml best_offer block invalid: missing keys {sorted(missing)} — "
-            f"check for typos (e.g. auto_acceptpct vs auto_accept_pct)"
+            "expected {qty_tiers, auto_decline_pct, round_down_to_pound} per Issue #30."
         )
-    pct_keys = ("auto_accept_pct", "auto_decline_pct", "counter_offer_pct")
-    for key in pct_keys:
-        val = cfg_bo[key]
-        if not isinstance(val, (int, float)) or not (0.0 <= float(val) <= 1.0):
-            raise ValueError(
-                f"config/fees.yaml best_offer.{key}={val!r} invalid — must be float in [0.0, 1.0]"
-            )
+
+    decline = cfg_bo["auto_decline_pct"]
+    if not isinstance(decline, (int, float)) or not (0.0 <= float(decline) <= 1.0):
+        raise ValueError(
+            f"config/fees.yaml best_offer.auto_decline_pct={decline!r} invalid — "
+            "must be float in [0.0, 1.0]"
+        )
+
     if not isinstance(cfg_bo["round_down_to_pound"], bool):
         raise ValueError(
             f"config/fees.yaml best_offer.round_down_to_pound={cfg_bo['round_down_to_pound']!r} "
-            f"invalid — must be bool"
+            "invalid — must be bool"
         )
-    a, d, c = cfg_bo["auto_accept_pct"], cfg_bo["auto_decline_pct"], cfg_bo["counter_offer_pct"]
-    if not (d < a < 1.0):
+
+    qty_tiers = cfg_bo["qty_tiers"]
+    if not isinstance(qty_tiers, dict):
         raise ValueError(
-            f"config/fees.yaml best_offer invariant violated: "
-            f"auto_decline_pct ({d}) < auto_accept_pct ({a}) < 1.0 must hold"
+            f"config/fees.yaml best_offer.qty_tiers={qty_tiers!r} invalid — must be dict"
         )
-    if c < d:
+    if "default" not in qty_tiers:
         raise ValueError(
-            f"config/fees.yaml best_offer invariant violated: "
-            f"counter_offer_pct ({c}) >= auto_decline_pct ({d}) must hold"
+            "config/fees.yaml best_offer.qty_tiers must contain 'default' key "
+            "(catch-all tier for qty values not explicitly listed)."
         )
+
+    for key, val in qty_tiers.items():
+        if key != "default":
+            # Numeric keys must be int >= 1 (YAML deserialises plain integers as int)
+            if not isinstance(key, int) or isinstance(key, bool) or key < 1:
+                raise ValueError(
+                    f"config/fees.yaml best_offer.qty_tiers key {key!r} invalid — "
+                    "numeric keys must be int >= 1 (only 'default' may be a str key)."
+                )
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            raise ValueError(
+                f"config/fees.yaml best_offer.qty_tiers[{key!r}]={val!r} invalid — "
+                "must be float."
+            )
+        fval = float(val)
+        if not (float(decline) <= fval <= 1.0):
+            raise ValueError(
+                f"config/fees.yaml best_offer.qty_tiers[{key!r}]={fval} invalid — "
+                f"must be in [auto_decline_pct={decline}, 1.0]."
+            )
+
+
+def _resolve_qty_tier_pct(
+    qty_tiers: dict[Any, Any], quantity: int
+) -> tuple[float, str]:
+    """Look up the tier percentage for `quantity`. Returns (pct, tier_label).
+
+    qty_tiers maps int-or-"default" → float in [decline_pct, 1.0]. Numeric
+    keys take precedence (qty=2 → key 2). Anything else falls to 'default'.
+    """
+    if quantity in qty_tiers:
+        return float(qty_tiers[quantity]), str(quantity)
+    return float(qty_tiers["default"]), "default"
 
 
 def compute_best_offer_thresholds(
     floor_gbp: float,
     live_price_gbp: float,
+    quantity: int = 1,
     auto_accept_pct: float | None = None,
     auto_decline_pct: float | None = None,
     floor_buffer_pct: float = 0.05,
 ) -> dict[str, Any]:
-    """G-NEW-1 (Issue #4) + Issue #16 — recommend Best Offer thresholds.
+    """G-NEW-1 (Issue #4) + Issue #16 + Issue #30 — recommend Best Offer thresholds.
 
-    Pure-function helper. Two consumer modes:
+    Pure-function helper. Three consumer modes:
 
-    1) **Diagnostic** (server.py recommend_best_offer_thresholds, analyse_listing
-       best_offer suggestion, enable_best_offer_all.py Phase 6 dry-run): caller
-       supplies floor + live price. When pcts are None (default), reads
-       config/fees.yaml `best_offer:` block; when explicit, kwargs win. This is
-       the path Issue #16 makes config-driven so analyse_listing and the storewide
-       enable script align with the operator-locked 0.925/0.75 thresholds.
+    1) **Qty-tiered config-driven (Issue #30 default path)**: caller passes
+       `quantity` (default 1); when `auto_accept_pct` is None, the function
+       resolves `qty_tiers[quantity]` from `config/fees.yaml best_offer:` block
+       (falling to `qty_tiers["default"]` for qty values not explicitly listed).
+       This is the path autonomous responder + analyse_listing + storewide
+       enable script all share post-#30.
 
-    2) **Backward-compat fallback**: when neither config nor kwargs supply pcts
-       (fresh install with no `best_offer:` block), falls back to the historical
-       0.88/0.72 pair so pre-#16 callers don't crash. Schema validator (Fail
-       Fast) raises ValueError on a partially-populated/typo'd block — silent
-       fallback only on TOTALLY ABSENT block.
+    2) **Kwarg override**: explicit `auto_accept_pct` kwarg wins over config.
+       Preserves direct-caller contract for tests + tools that pin a specific
+       pct regardless of operator's qty-tier ladder.
+
+    3) **Backward-compat fallback**: no `best_offer:` block AND no kwarg →
+       historical 0.88/0.72 pair so pre-#16 callers don't crash. Schema
+       validator (Fail Fast) raises ValueError on a partially-populated/old-
+       schema block — silent fallback only on TOTALLY ABSENT block.
 
     Composition rule:
         auto_accept = max(floor * (1 + buffer), pct * live_price)
@@ -855,25 +909,55 @@ def compute_best_offer_thresholds(
     AT floor accepts every offer that just clears break-even. Buffer ensures a
     minimum profit slice on auto-accepts.
 
+    Defensive entry validation (Issue #30 AC2.1):
+        - quantity < 1 → ValueError (qty must be a positive listing count).
+        - live_price_gbp <= 0.0 → ValueError (corrupt/missing live price).
+        - live_price_gbp < 2.0 → ValueError (sub-£2 listings cannot compute a
+          positive integer threshold under any qty tier; surfaces operator
+          misconfig instead of silently pushing £0/£1 counters that eBay
+          rejects with `price out of range`).
+
     NOTE (Issue #16 AC3.2): The autonomous responder
     (`scripts/respond_best_offers.py`) does NOT call this function — it reads
     config directly and applies a pure formula without floor_buffer_pct. Reason:
     the responder is the contract AUTHOR for offers (it WRITES the threshold),
     not a diagnostic SUGGESTOR. Buffer-pct over-recommends accept thresholds
-    relative to the operator-locked 92.5% rule on low-priced listings.
+    relative to the operator-locked tier rules on low-priced listings.
     """
     if floor_buffer_pct < 0:
         raise ValueError(
             f"floor_buffer_pct={floor_buffer_pct} invalid — must be >= 0 (programming error)"
         )
+    if not isinstance(quantity, int) or quantity < 1:
+        raise ValueError(
+            f"quantity={quantity!r} invalid — must be int >= 1"
+        )
+    if live_price_gbp <= 0.0:
+        raise ValueError(
+            f"live_price_gbp={live_price_gbp} invalid — must be > 0"
+        )
+    if live_price_gbp < 2.0:
+        raise ValueError(
+            f"live_price_gbp={live_price_gbp} too low — minimum supported is £2 "
+            "(sub-£2 listings cannot compute a positive integer threshold above £1)."
+        )
 
     cfg_bo = _load_fees_config().get("best_offer", {}) or {}
-    _validate_best_offer_config(cfg_bo)  # Fail Fast on partial/typo'd block
+    _validate_best_offer_config(cfg_bo)  # Fail Fast on old/typo'd schema
 
+    qty_tiers = cfg_bo.get("qty_tiers")
     if auto_accept_pct is None:
-        auto_accept_pct = cfg_bo.get("auto_accept_pct", 0.88)
+        if qty_tiers:
+            auto_accept_pct, tier_label = _resolve_qty_tier_pct(qty_tiers, quantity)
+        else:
+            # Historical fallback for fresh installs with no best_offer block
+            auto_accept_pct = 0.88
+            tier_label = "fallback-0.88"
+    else:
+        tier_label = "kwarg-override"
+
     if auto_decline_pct is None:
-        auto_decline_pct = cfg_bo.get("auto_decline_pct", 0.72)
+        auto_decline_pct = float(cfg_bo.get("auto_decline_pct", 0.72))
     round_down = bool(cfg_bo.get("round_down_to_pound", False))
 
     floor_with_buffer = floor_gbp * (1.0 + floor_buffer_pct)
@@ -888,6 +972,7 @@ def compute_best_offer_thresholds(
         auto_decline = math.floor(auto_decline)
 
     rationale = (
+        f"qty={quantity} tier ({tier_label}, {auto_accept_pct:.1%}); "
         f"auto_accept = max(floor*{1.0 + floor_buffer_pct:.2f}={floor_with_buffer:.2f}, "
         f"{auto_accept_pct:.0%}*live={auto_accept_raw:.2f}); "
         f"auto_decline = max(floor={floor_gbp:.2f}, "
