@@ -80,21 +80,36 @@ return_rates_bulk:
   # need a per-SKU floor-price review.
   high_return_rate_threshold_pct: 15.0
 
-# Issue #16 — Best Offer auto-counter thresholds (operator-tunable post-merge).
+# Issue #16 + Issue #30 — Best Offer auto-counter thresholds (qty-tiered, operator-tunable).
 # Read by:
 #   - ebay/analytics.py compute_best_offer_thresholds (config-driven path
-#     when caller omits kwargs; explicit kwargs override config — preserves
-#     #14 Phase 6 enable_best_offer_all.py + recommend_best_offer_thresholds
-#     behaviour for callers that pass DEFAULT_AUTO_ACCEPT_PCT explicitly).
+#     when caller omits kwargs; explicit kwargs override config).
 #   - .claude/skills/ebay-seller-tool/scripts/respond_best_offers.py (direct
 #     read for the autonomous responder; bypasses the analytics floor-buffer
 #     since the responder is the contract author for offers, not a
 #     diagnostic suggestion).
-# Locked design — operator decision 2026-05-02; do NOT relitigate values
-# without operator sign-off. Round-down-to-pound creates psychological
+# Locked design — operator decision 2026-05-04 (Issue #30); do NOT relitigate
+# values without operator sign-off. Round-down-to-pound creates psychological
 # discount (£23 vs £23.13 on a £25 listing).
+#
+# Schema migrated from flat auto_accept_pct/counter_offer_pct (#16) to
+# qty_tiers (#30). Per tier, threshold = accept_floor = counter_price (single
+# value): offer ≥ tier → AUTO-ACCEPT at buyer's price; offer in
+# [decline_floor, tier) → AUTO-COUNTER at the tier value; offer < decline_floor
+# → AUTO-DECLINE (decline floor is uniform across tiers). Threshold rounded
+# down via math.floor().
+#
+# Sub-£2 listings cannot compute a positive integer threshold under any tier;
+# compute_best_offer_thresholds raises ValueError to surface the misconfig
+# (Fail Fast — see AC2.4 in Issue #30 body).
 best_offer:
-  auto_accept_pct:  0.925   # offers ≥ floor(0.925 × live, £) → auto-accept at buyer's offer
-  auto_decline_pct: 0.75    # offers < floor(0.75  × live, £) → auto-decline (wild lowballs)
-  counter_offer_pct: 0.95   # auto-counter at floor(0.95 × live, £) for offers in [0.75, 0.925) band
-  round_down_to_pound: true # apply math.floor() to GBP thresholds (psychological discount)
+  qty_tiers:
+    1: 0.95               # qty == 1 → accept ≥95%, counter at 95%
+    2: 0.925              # qty == 2 → accept ≥92.5%, counter at 92.5%
+    default: 0.90         # qty >= 3 → accept ≥90%, counter at 90%
+  auto_decline_pct: 0.75  # uniform across all tiers
+  round_down_to_pound: true
+  # Note: floor_buffer_pct stays in Python default (analytics.py
+  # compute_best_offer_thresholds signature, used only in diagnostic path)
+  # — NOT moved to YAML. Preserves AC3.2 separation of responder (contract
+  # author) vs diagnostic suggester.
