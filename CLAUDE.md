@@ -311,6 +311,7 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - Business memory (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/user_ebay_business.md`
 - Pricing review state (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/pricing_review.md`
 - Pricing elasticity log (out-of-repo): `~/.local/share/ebay-seller-tool/price_snapshots.jsonl`
+- **Default-shipping policy POISONED (durable rule)**: `~/.claude/projects/-home-hoiung-DevProjects/memory/feedback_ebay_default_shipping_poisoned.md` — `_build_seller_profiles_block(include_shipping=False)` for both Add (since #29 revert at `6072a81`) and Revise (since hoiung/ebay-ops#21 Phase 0). Only `scripts/apply_returns_policy.py` uses the default `include_shipping=True` (one-shot Business Policies enrolment migration).
 
 ### Comp-filter quality config (Issue #14 + #444 Part B)
 - `config/pricing_and_content.yaml` `comp_filter:` block — Layer-1 binary thresholds + Layer-2 deductions + 4 hard-reject regex categories (broken/external/wrong_category/bundle) + caddy_mismatch_patterns + condition_equivalence (numeric Phase 2.3 classes) + series_names (Seagate HARD CONTRACT et al)
