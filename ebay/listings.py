@@ -29,12 +29,17 @@ MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
 # Business Policies (issue #29) — eBay account is enrolled.
 # Payment + Return profiles attach via SellerProfiles for ALL operations.
-# Shipping is treated differently:
+# Shipping is NOT attached on Add or Revise — the post-#29 default-shipping
+# policy was poisoned (Tracked 48 buyer-pays config overrode UK Simple Delivery's
+# free-collection); see feedback_ebay_default_shipping_poisoned.md durable rule.
 #   - AddItem (new listings): NO shipping policy attached — inline ShippingDetails
 #     with FreeShipping=true preserves Simple Delivery's "Who pays?" defaulting
 #     to seller-pays.
-#   - ReviseFixedPriceItem (existing listings): shipping policy ref preserved
-#     so revises don't accidentally detach existing listings from default-shipping.
+#   - ReviseFixedPriceItem (existing listings): NO shipping policy attached —
+#     preserves the listing-level seller-pays toggle the operator manually set
+#     post-#29 fallout (issue #21 Phase 0).
+#   - Legacy scripts/apply_returns_policy.py: still uses the default
+#     include_shipping=True for the one-shot Business Policies enrolment migration.
 _REQUIRED_SELLER_PROFILE_ENV_VARS = (
     "EBAY_PAYMENT_PROFILE_ID",
     "EBAY_SHIPPING_PROFILE_ID",
@@ -45,13 +50,15 @@ _REQUIRED_SELLER_PROFILE_ENV_VARS = (
 def _build_seller_profiles_block(include_shipping: bool = True) -> dict:
     """Return the SellerProfiles dict for AddItem/ReviseFixedPriceItem payloads.
 
-    include_shipping: True for revise (preserves shipping policy ref on existing
-        listings); False for add (new listings use inline ShippingDetails so
-        Simple Delivery's "Who pays?" default stays seller-pays).
+    include_shipping: False for both Add and Revise paths — the default-shipping
+        policy was poisoned post-#29 enrolment (see
+        feedback_ebay_default_shipping_poisoned.md). Only the legacy
+        scripts/apply_returns_policy.py migration script uses the default True
+        to drive one-shot Business Policies enrolment across listings.
 
     Reads Profile IDs from env. Fails fast (RuntimeError) if any required
     var is missing. EBAY_SHIPPING_PROFILE_ID is required even when not used
-    in AddItem so the env contract stays consistent across deployments.
+    in AddItem/Revise so the env contract stays consistent across deployments.
     """
     missing = [k for k in _REQUIRED_SELLER_PROFILE_ENV_VARS if not os.environ.get(k)]
     if missing:
@@ -495,9 +502,12 @@ def build_revise_payload(
                 "@attrs": {"currencyID": currency},
             }
 
-    # Business Policies (issue #29): SellerProfiles supplies shipping + payment
-    # + returns via account-level Profile IDs. Inline ShippingDetails removed.
-    item["SellerProfiles"] = _build_seller_profiles_block()
+    # Business Policies (issue #29 + #21 Phase 0): SellerProfiles supplies
+    # payment + returns via account-level Profile IDs. Shipping is intentionally
+    # NOT attached — preserves the listing-level seller-pays toggle the operator
+    # set manually post-#29 default-shipping fallout
+    # (see feedback_ebay_default_shipping_poisoned.md).
+    item["SellerProfiles"] = _build_seller_profiles_block(include_shipping=False)
 
     payload = {"Item": item}
 
