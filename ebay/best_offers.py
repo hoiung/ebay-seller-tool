@@ -46,12 +46,33 @@ def _as_list(node: Any) -> list:
     return [node]
 
 
+def _coerce_quantity(raw: Any) -> int:
+    """Coerce eBay's <Quantity> XML field to a positive int, defaulting to 1.
+
+    eBay's `<Quantity>` field on `<BestOffer>` nodes is documented as int,
+    but ebaysdk decodes XML scalars as strings on some response paths; mirror
+    the defensive `buyer_offer_gbp` pattern at line ~62 (str → float coerce).
+    None / missing / empty / unparseable → default to 1 (single-qty offer).
+    Field name verified by Issue #30 AC5.1 read-only live probe.
+    """
+    if raw is None or raw == "":
+        return 1
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return val if val >= 1 else 1
+
+
 def _parse_offer_node(offer_node: Any, item_id: str) -> dict[str, Any]:
     """Extract the structured offer fields from an ebaysdk BestOffer node.
 
-    Returns a dict with the 8 fields the responder + JSONL ledger need.
+    Returns a dict with the 9 fields the responder + JSONL ledger need.
     Tolerant to missing fields (defaults to safe sentinels) since eBay
-    responses can omit optional fields.
+    responses can omit optional fields. Issue #30 AC1.3 added `quantity`
+    so the responder can dispatch to the matching qty_tier; field name
+    `Quantity` verified by AC5.1 live probe — see
+    docs/research/ebay/11_EBAY_API_AND_MCP_SERVER.md.
     """
     buyer_node = getattr(offer_node, "Buyer", None)
     price_node = getattr(offer_node, "Price", None)
@@ -64,6 +85,7 @@ def _parse_offer_node(offer_node: Any, item_id: str) -> dict[str, Any]:
         "offer_timestamp_iso": str(getattr(offer_node, "ReceivedTime", "") or ""),
         "expiration_iso": str(getattr(offer_node, "ExpirationTime", "") or ""),
         "best_offer_code_type": str(getattr(offer_node, "BestOfferCodeType", "") or ""),
+        "quantity": _coerce_quantity(getattr(offer_node, "Quantity", None)),
     }
 
 
