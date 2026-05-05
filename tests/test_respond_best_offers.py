@@ -1015,3 +1015,62 @@ def test_read_systemd_cadence_minutes_floor_at_1(tmp_path) -> None:
     with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
         result = rbo._read_systemd_cadence_minutes()
     assert result == 1
+
+
+def test_per_fire_env_stats_emits_4_keys_exactly_once(
+    isolated_fees_config, isolated_ledger, tmp_path, capsys
+) -> None:
+    """AC5.1 — per-fire environment stats line emits ALL 4 keys exactly ONCE:
+    processed / ledger_rows / ledger_bytes / cadence_min.
+
+    Issue #32 Stage 5 Fix-Everything: Opus Ralph review flagged sample
+    invocation as sufficient end-to-end evidence (16+ live `fire complete`
+    lines) but no dedicated unit test pinned the 4-key shape. This test
+    closes that gap, mirroring the AC3.4 capsys pattern from
+    test_best_offers.py::test_per_item_sweep_stats_emits_8_keys_exactly_once.
+    """
+    timer_file = tmp_path / "issue32.timer"
+    timer_file.write_text("[Timer]\nOnUnitActiveSec=1800\n")
+
+    with (
+        patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file),
+        patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=[])),
+        patch.object(rbo, "fetch_live_price_lookup", return_value={"item-A": 50.0}),
+        patch.object(rbo, "respond_to_best_offer", AsyncMock()),
+    ):
+        exit_code = rbo.main([])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    fire_lines = [
+        m for m in captured.err.splitlines() if "best-offer responder: fire complete" in m
+    ]
+    assert len(fire_lines) == 1, (
+        f"expected exactly one fire-complete log line; got {len(fire_lines)}\n"
+        f"stderr:\n{captured.err}"
+    )
+    line = fire_lines[0]
+
+    expected_keys = (
+        "processed=",
+        "ledger_rows=",
+        "ledger_bytes=",
+        "cadence_min=",
+    )
+    for key in expected_keys:
+        assert line.count(key) == 1, (
+            f"key {key!r} should appear EXACTLY once in fire-complete line; got {line.count(key)}\n"
+            f"line: {line}"
+        )
+
+    # cadence_min must read from our patched timer fixture (1800s → 30 min);
+    # any value other than 30 means the systemd reader was bypassed.
+    assert "cadence_min=30" in line, (
+        f"cadence_min should reflect patched timer (OnUnitActiveSec=1800 → 30); line: {line}"
+    )
+
+    # processed=0 because pending was mocked empty; pins the counter
+    # initialisation contract (no off-by-one from a missing reset).
+    assert "processed=0" in line, (
+        f"processed should be 0 when pending is empty; line: {line}"
+    )
