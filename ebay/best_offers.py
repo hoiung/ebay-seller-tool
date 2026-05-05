@@ -77,6 +77,22 @@ def _coerce_quantity(raw: Any) -> int:
     return val if val >= 1 else 1
 
 
+def _is_buyer_actionable(parsed: dict[str, Any]) -> bool:
+    """Allowlist filter — only `BuyerBestOffer` rows are actionable by the seller.
+
+    eBay's `BestOfferCodeType` enum is documented {`BuyerBestOffer`,
+    `SellerCounterOffer`, `AdminCounterOffer`} per
+    developer.ebay.com/devzone/xml/docs/reference/ebay/GetBestOffers.html.
+    Only `BuyerBestOffer` is buyer-initiated and seller-actionable;
+    `RespondToBestOffer` against `SellerCounterOffer` / `AdminCounterOffer`
+    fires eBay error 21940 ("Cannot respond to your own counter offer").
+    Allowlist (==) is forward-safe — any future enum value defaults to
+    "drop", erring on the side of "don't act" rather than "act with
+    unknown contract". See Issue #32 D7 root-cause fix.
+    """
+    return parsed.get("best_offer_code_type") == "BuyerBestOffer"
+
+
 def _parse_offer_node(offer_node: Any, item_id: str) -> dict[str, Any]:
     """Extract the structured offer fields from an ebaysdk BestOffer node.
 
@@ -150,7 +166,10 @@ async def get_pending_best_offers(
             if bo_array is None:
                 continue
             for offer_node in _as_list(getattr(bo_array, "BestOffer", None)):
-                offers.append(_parse_offer_node(offer_node, item_id))
+                parsed = _parse_offer_node(offer_node, item_id)
+                if not _is_buyer_actionable(parsed):
+                    continue
+                offers.append(parsed)
 
         log_debug(
             f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-seller mode)"
@@ -230,7 +249,10 @@ async def get_pending_best_offers(
         bo_array = getattr(response.reply, "BestOfferArray", None)
         if bo_array is not None:
             for offer_node in _as_list(getattr(bo_array, "BestOffer", None)):
-                offers.append(_parse_offer_node(offer_node, str(item_id)))
+                parsed = _parse_offer_node(offer_node, str(item_id))
+                if not _is_buyer_actionable(parsed):
+                    continue
+                offers.append(parsed)
             continue
 
         item_array = getattr(response.reply, "ItemArray", None)
@@ -241,7 +263,10 @@ async def get_pending_best_offers(
             if inner_bo is None:
                 continue
             for offer_node in _as_list(getattr(inner_bo, "BestOffer", None)):
-                offers.append(_parse_offer_node(offer_node, str(item_id)))
+                parsed = _parse_offer_node(offer_node, str(item_id))
+                if not _is_buyer_actionable(parsed):
+                    continue
+                offers.append(parsed)
 
     # Mini-Stage-5 GAP-D fix: emit per-sweep stats unconditionally for
     # audit symmetry. The healthy-sweep case (polled=22 no_offers=0
