@@ -40,7 +40,7 @@ def test_get_pending_best_offers_returns_parsed_list() -> None:
         BuyerMessage="any flexibility on price?",
         ReceivedTime="2026-05-02T14:30:00Z",
         ExpirationTime="2026-05-04T14:30:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
     )
     fake_item = SimpleNamespace(
         ItemID="287260458724",
@@ -61,7 +61,7 @@ def test_get_pending_best_offers_returns_parsed_list() -> None:
     assert result[0]["buyer_message"] == "any flexibility on price?"
     assert result[0]["offer_timestamp_iso"] == "2026-05-02T14:30:00Z"
     assert result[0]["expiration_iso"] == "2026-05-04T14:30:00Z"
-    assert result[0]["best_offer_code_type"] == "ManualBestOffer"
+    assert result[0]["best_offer_code_type"] == "BuyerBestOffer"
     # Issue #30 AC1.3 — Quantity absent on the fixture → default 1.
     assert result[0]["quantity"] == 1
 
@@ -84,7 +84,7 @@ def test_get_pending_best_offers_extracts_explicit_quantity() -> None:
         BuyerMessage="3 units please",
         ReceivedTime="2026-05-04T11:34:00Z",
         ExpirationTime="2026-05-06T11:34:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity=3,
     )
     fake_item = SimpleNamespace(
@@ -110,7 +110,7 @@ def test_get_pending_best_offers_defaults_quantity_when_absent() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T09:00:00Z",
         ExpirationTime="2026-05-06T09:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         # Quantity attr deliberately absent
     )
     fake_item = SimpleNamespace(
@@ -140,7 +140,7 @@ def test_get_pending_best_offers_coerces_string_quantity_to_int() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T10:00:00Z",
         ExpirationTime="2026-05-06T10:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity="2",  # str-typed scalar from ebaysdk on some response paths
     )
     fake_item = SimpleNamespace(
@@ -170,7 +170,7 @@ def test_get_pending_best_offers_handles_unparseable_quantity_safely() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T10:00:00Z",
         ExpirationTime="2026-05-06T10:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity="not-a-number",
     )
     fake_item = SimpleNamespace(
@@ -224,7 +224,7 @@ def test_per_item_sweep_continues_past_code_20140_no_offers() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T14:00:00Z",
         ExpirationTime="2026-05-06T14:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity=1,
     )
     fake_reply_with_offer = SimpleNamespace(
@@ -257,7 +257,7 @@ def test_per_item_sweep_continues_past_unexpected_error() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T14:00:00Z",
         ExpirationTime="2026-05-06T14:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity=2,
     )
     fake_reply_with_offer = SimpleNamespace(
@@ -331,13 +331,15 @@ def test_per_item_sweep_aborts_on_auth_error_code_932() -> None:
 
 
 def test_per_item_sweep_handles_minimal_offer_node_gracefully() -> None:
-    """Mini-Stage-5 L1-C TEST-GAP follow-up: investigated the 'parse-side
-    raise' concern from the swarm. `_parse_offer_node` is fully defensive:
-    every `getattr(node, ATTR, None)` falls back to a safe sentinel,
-    so a malformed BestOffer node degrades to an empty-string dict
-    rather than raising. This test pins that defence so a future refactor
-    that reintroduces strict-mode parsing must update the per-item
-    try/except scope deliberately."""
+    """Mini-Stage-5 L1-C + Issue #32 D7 contract: `_parse_offer_node` is
+    fully defensive — every `getattr(node, ATTR, None)` falls back to a
+    safe sentinel so a malformed BestOffer node degrades to an empty-string
+    dict rather than raising. Issue #32 layered the BuyerBestOffer
+    allowlist on top: a node with missing/None `BestOfferCodeType` is
+    PARSED without raise (defensive parser intact) and then FILTERED
+    (forward-safe drop). The combined contract: no raise + result drops
+    the unknown row. Future refactors reintroducing strict-mode parsing
+    must still preserve no-raise on malformed nodes."""
     minimal_offer = SimpleNamespace(
         BestOfferID="bare",
         Buyer=None,
@@ -351,14 +353,9 @@ def test_per_item_sweep_handles_minimal_offer_node_gracefully() -> None:
     minimal_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=minimal_offer))
     with patch("ebay.client.execute_with_retry", return_value=_make_response(minimal_reply)):
         result = _run(get_pending_best_offers(item_ids=["i_bare"]))
-    # No raise — defensive parser yields one row with empty / default fields
-    assert len(result) == 1
-    row = result[0]
-    assert row["offer_id"] == "bare"
-    assert row["item_id"] == "i_bare"
-    assert row["buyer_offer_gbp"] == 0.0  # Price=None → defaults to 0.0
-    assert row["quantity"] == 1  # Quantity=None → defaults to 1 via _coerce_quantity
-    assert row["buyer_user_id"] == ""
+    # No raise (defensive parser) + node dropped by Issue #32 BuyerBestOffer
+    # allowlist (BestOfferCodeType=None → "" → not in allowlist → drop).
+    assert result == []
 
 
 def test_per_item_sweep_realistic_22_listings_with_mid_failure() -> None:
@@ -375,7 +372,7 @@ def test_per_item_sweep_realistic_22_listings_with_mid_failure() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T14:00:00Z",
         ExpirationTime="2026-05-06T14:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity=2,
     )
     real_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
@@ -420,7 +417,7 @@ def test_per_item_sweep_does_not_misclassify_other_error_as_no_offers() -> None:
         BuyerMessage="",
         ReceivedTime="2026-05-04T14:00:00Z",
         ExpirationTime="2026-05-06T14:00:00Z",
-        BestOfferCodeType="ManualBestOffer",
+        BestOfferCodeType="BuyerBestOffer",
         Quantity=1,
     )
     fake_reply_with_offer = SimpleNamespace(
@@ -436,6 +433,82 @@ def test_per_item_sweep_does_not_misclassify_other_error_as_no_offers() -> None:
     assert mock_call.call_count == 2
     assert len(result) == 1
     assert result[0]["item_id"] == "i_good"
+
+
+# ---------------------------------------------------------------------------
+# Issue #32 AC1.2 / AC1.3 — BuyerBestOffer allowlist (D7 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_get_pending_best_offers_drops_non_buyer_code_types() -> None:
+    """AC1.2 — fixture has 3 offers from one item: BuyerBestOffer / SellerCounterOffer
+    / hypothetical AdminCounterOffer. Only the BuyerBestOffer survives the allowlist;
+    the others are silently dropped (RespondToBestOffer against SellerCounterOffer
+    fires eBay error 21940 — never reach that path)."""
+    buyer_offer = SimpleNamespace(
+        BestOfferID="buyer_initiated",
+        Buyer=SimpleNamespace(UserID="buyer_uk"),
+        Price=SimpleNamespace(value=45.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T11:00:00Z",
+        ExpirationTime="2026-05-06T11:00:00Z",
+        BestOfferCodeType="BuyerBestOffer",
+        Quantity=1,
+    )
+    seller_counter = SimpleNamespace(
+        BestOfferID="seller_counter_pending",
+        Buyer=SimpleNamespace(UserID="buyer_uk"),
+        Price=SimpleNamespace(value=42.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T11:30:00Z",
+        ExpirationTime="2026-05-06T11:30:00Z",
+        BestOfferCodeType="SellerCounterOffer",
+        Quantity=1,
+    )
+    admin_counter = SimpleNamespace(
+        BestOfferID="admin_hypothetical",
+        Buyer=SimpleNamespace(UserID="buyer_uk"),
+        Price=SimpleNamespace(value=43.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T12:00:00Z",
+        ExpirationTime="2026-05-06T12:00:00Z",
+        BestOfferCodeType="AdminCounterOffer",
+        Quantity=1,
+    )
+    fake_reply = SimpleNamespace(
+        BestOfferArray=SimpleNamespace(BestOffer=[buyer_offer, seller_counter, admin_counter])
+    )
+
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
+        result = _run(get_pending_best_offers(item_ids=["287193037693"]))
+
+    assert len(result) == 1
+    assert result[0]["offer_id"] == "buyer_initiated"
+    assert result[0]["best_offer_code_type"] == "BuyerBestOffer"
+
+
+def test_get_pending_best_offers_only_seller_counter_returns_empty() -> None:
+    """AC1.3 — the m.k_1978 stuck-state: item has ONLY a SellerCounterOffer.
+    Returns []; the per-item sweep continues (no exception, no error counted).
+    This is the path that stops the cron 21940 loop."""
+    seller_only = SimpleNamespace(
+        BestOfferID="m_k_1978_stuck",
+        Buyer=SimpleNamespace(UserID="m.k_1978"),
+        Price=SimpleNamespace(value=85.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-03T08:00:00Z",
+        ExpirationTime="2026-05-08T08:00:00Z",
+        BestOfferCodeType="SellerCounterOffer",
+        Quantity=1,
+    )
+    fake_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=seller_only))
+
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)) as mock_call:
+        result = _run(get_pending_best_offers(item_ids=["264666106"]))
+
+    assert result == []
+    # Sweep continued cleanly — exactly one GetBestOffers call, no raise.
+    assert mock_call.call_count == 1
 
 
 # ---------------------------------------------------------------------------
