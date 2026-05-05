@@ -227,9 +227,7 @@ def test_per_item_sweep_continues_past_code_20140_no_offers() -> None:
         BestOfferCodeType="BuyerBestOffer",
         Quantity=1,
     )
-    fake_reply_with_offer = SimpleNamespace(
-        BestOfferArray=SimpleNamespace(BestOffer=fake_offer)
-    )
+    fake_reply_with_offer = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
 
     side_effects = [
         ConnectionError(
@@ -260,9 +258,7 @@ def test_per_item_sweep_continues_past_unexpected_error() -> None:
         BestOfferCodeType="BuyerBestOffer",
         Quantity=2,
     )
-    fake_reply_with_offer = SimpleNamespace(
-        BestOfferArray=SimpleNamespace(BestOffer=fake_offer)
-    )
+    fake_reply_with_offer = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
 
     side_effects = [
         TimeoutError("network read timeout"),
@@ -387,8 +383,8 @@ def test_per_item_sweep_realistic_22_listings_with_mid_failure() -> None:
     # - all 22 items polled (mock.call_count == 22)
     side_effects = (
         [no_offers_err] * 10  # items 1-10
-        + [transient_err]      # item 11
-        + [no_offers_err] * 10 # items 12-21
+        + [transient_err]  # item 11
+        + [no_offers_err] * 10  # items 12-21
         + [_make_response(real_reply)]  # item 22
     )
     item_ids = [f"i{n}" for n in range(1, 23)]
@@ -420,9 +416,7 @@ def test_per_item_sweep_does_not_misclassify_other_error_as_no_offers() -> None:
         BestOfferCodeType="BuyerBestOffer",
         Quantity=1,
     )
-    fake_reply_with_offer = SimpleNamespace(
-        BestOfferArray=SimpleNamespace(BestOffer=fake_offer)
-    )
+    fake_reply_with_offer = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
 
     side_effects = [other_err, _make_response(fake_reply_with_offer)]
     with patch("ebay.client.execute_with_retry", side_effect=side_effects) as mock_call:
@@ -461,9 +455,7 @@ def test_per_item_sweep_stats_emits_8_keys_exactly_once(capsys) -> None:
     )
     fake_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
 
-    with patch(
-        "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
-    ):
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)):
         _run(get_pending_best_offers(item_ids=["i_only"]))
 
     captured = capsys.readouterr()

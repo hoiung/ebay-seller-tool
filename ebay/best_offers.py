@@ -37,6 +37,7 @@ BestOfferAction = Literal["Accept", "Counter", "Decline"]
 # expired" which is what we want.
 _ACTIVE_FILTER = "Active"
 
+
 def _as_list(node: Any) -> list:
     """Coerce a single ebaysdk node OR a list to a list. Mirrors selling.py."""
     if node is None:
@@ -308,9 +309,7 @@ async def get_pending_best_offers(
         f"offers_found={len(offers)} wall_clock_ms={wall_clock_ms}"
     )
 
-    log_debug(
-        f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-item mode)"
-    )
+    log_debug(f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-item mode)")
     return offers
 
 
