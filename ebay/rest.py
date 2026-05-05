@@ -103,6 +103,20 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
                  that read the search-vs-paid framing rather than the funnel),
             "records_count": int,
             "per_listing": [{"listing_id": str | None, "metrics": {key: value, ...}}, ...],
+
+            # Issue #31 Phase 3 — abbreviated demo-style aliases for the
+            # ebay-ops Fetchers Protocol contract ({imp, views, ctr_pct,
+            # conv_pct, tx_count}). One-way: server-side parse is canonical.
+            "imp": int (alias of impressions),
+            "tx_count": int (alias of transactions),
+            "conv_pct": float | None (alias of sales_conversion_rate_pct),
+            "per_listing_summary": {
+                listing_id: {
+                    "imp": int, "views": int, "tx_count": int,
+                    "ctr_pct": float | None, "conv_pct": float | None,
+                }
+            } — pre-aggregated across days per listing, abbreviated keys.
+            Records with listing_id=None are omitted from this dict.
         }
 
     Note on CLICK_THROUGH_RATE: the API-provided CTR field is unreliable
@@ -203,7 +217,50 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
     # framing (organic = unpaid search-results-page exposure).
     organic_search_exposure_pct = search_impression_share_pct
 
+    # Issue #31 Phase 3 — per-listing aggregate in demo-style abbreviated keys.
+    # The eBay query dimension is LISTING,DAY so the parser sees one record
+    # per (listing × day); this rolls them up per listing_id so the consumer
+    # (orchestrator Fetchers Protocol) does not redo the math. Records with
+    # listing_id=None are omitted — a None key in the summary dict would let
+    # an unrelated record overwrite a real listing's totals if id-coercion
+    # logic upstream changed.
+    per_listing_summary: dict[str, dict[str, Any]] = {}
+    for rec in per_listing:
+        lid = rec.get("listing_id")
+        if not lid:
+            continue
+        m = rec.get("metrics") or {}
+        agg = per_listing_summary.setdefault(
+            lid,
+            {"imp": 0, "views": 0, "tx_count": 0, "_conv_sum": 0.0, "_conv_n": 0},
+        )
+        try:
+            agg["imp"] += int(m.get("LISTING_IMPRESSION_TOTAL") or 0)
+            agg["views"] += int(m.get("LISTING_VIEWS_TOTAL") or 0)
+            agg["tx_count"] += int(m.get("TRANSACTION") or 0)
+        except (TypeError, ValueError):
+            pass
+        scr_v = m.get("SALES_CONVERSION_RATE")
+        if scr_v is not None:
+            try:
+                agg["_conv_sum"] += float(scr_v) * 100.0
+                agg["_conv_n"] += 1
+            except (ValueError, TypeError):
+                pass
+    for lid, agg in per_listing_summary.items():
+        # CTR computed from impressions+views (the API-provided CTR is
+        # unreliable per the parse docstring); SCR averaged across days.
+        agg["ctr_pct"] = (
+            round(100.0 * agg["views"] / agg["imp"], 2) if agg["imp"] > 0 else None
+        )
+        agg["conv_pct"] = (
+            round(agg["_conv_sum"] / agg["_conv_n"], 2) if agg["_conv_n"] > 0 else None
+        )
+        del agg["_conv_sum"]
+        del agg["_conv_n"]
+
     return {
+        # Canonical descriptive names.
         "impressions": impressions,
         "views": views_total,
         "transactions": transactions,
@@ -215,6 +272,13 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
         "organic_search_exposure_pct": organic_search_exposure_pct,
         "records_count": len(records),
         "per_listing": per_listing,
+        # Issue #31 Phase 3 — abbreviated demo-style aliases for the
+        # ebay-ops Fetchers Protocol. One-way: server-side parse is the
+        # canonical emitter; consumers no longer hand-translate.
+        "imp": impressions,
+        "tx_count": transactions,
+        "conv_pct": sales_conversion_rate_pct,
+        "per_listing_summary": per_listing_summary,
     }
 
 

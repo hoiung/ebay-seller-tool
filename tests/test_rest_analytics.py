@@ -199,6 +199,157 @@ def test_parse_traffic_report_missing_dimension_value() -> None:
     assert summary["per_listing"][0]["listing_id"] != "None"
 
 
+def test_parse_traffic_report_emits_abbreviated_aliases() -> None:
+    """Issue #31 Phase 3 — parse output emits {imp, tx_count, conv_pct}
+    aliases of the canonical descriptive keys, so the ebay-ops Fetchers
+    Protocol consumer no longer hand-translates."""
+    payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "TRANSACTION"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            {
+                "dimensionValues": [{"value": "111", "applicable": True}],
+                "metricValues": [
+                    {"value": 500, "applicable": True},
+                    {"value": 20, "applicable": True},
+                    {"value": 2, "applicable": True},
+                    {"value": 0.1, "applicable": True},
+                ],
+            }
+        ],
+    }
+    summary = rest.parse_traffic_report_response(payload)
+    # Aliases are byte-equal to their canonical counterparts — one-way
+    # contract, no separate code path inside parse.
+    assert summary["imp"] == summary["impressions"] == 500
+    assert summary["tx_count"] == summary["transactions"] == 2
+    assert summary["conv_pct"] == summary["sales_conversion_rate_pct"] == 10.0
+    # `views` and `ctr_pct` were already aligned across both naming
+    # conventions; just confirm they're the same single keys (no spurious
+    # duplicate emission).
+    assert summary["views"] == 20
+    assert summary["ctr_pct"] == 4.0
+
+
+def test_parse_traffic_report_per_listing_summary_aggregates_across_days() -> None:
+    """Issue #31 Phase 3 — per_listing_summary rolls up per-(listing × day)
+    records into a per-listing dict in abbreviated demo-style keys. Eliminates
+    the manual aggregation block in ebay-ops/scripts/run_weekly_tune_live.py."""
+    payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "TRANSACTION"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            # Listing A — two days, sums to imp=300 views=15 tx=1, conv mean=8%
+            {
+                "dimensionValues": [{"value": "A"}],
+                "metricValues": [
+                    {"value": 100, "applicable": True},
+                    {"value": 5, "applicable": True},
+                    {"value": 0, "applicable": True},
+                    {"value": 0.06, "applicable": True},
+                ],
+            },
+            {
+                "dimensionValues": [{"value": "A"}],
+                "metricValues": [
+                    {"value": 200, "applicable": True},
+                    {"value": 10, "applicable": True},
+                    {"value": 1, "applicable": True},
+                    {"value": 0.10, "applicable": True},
+                ],
+            },
+            # Listing B — single day, no conversion data
+            {
+                "dimensionValues": [{"value": "B"}],
+                "metricValues": [
+                    {"value": 50, "applicable": True},
+                    {"value": 2, "applicable": True},
+                    {"value": 0, "applicable": True},
+                    {"value": 0.0, "applicable": False},
+                ],
+            },
+            # Listing with missing id — must NOT pollute the summary dict.
+            {
+                "dimensionValues": [{}],
+                "metricValues": [
+                    {"value": 999, "applicable": True},
+                    {"value": 999, "applicable": True},
+                    {"value": 999, "applicable": True},
+                    {"value": 0.0, "applicable": True},
+                ],
+            },
+        ],
+    }
+    summary = rest.parse_traffic_report_response(payload)
+    pls = summary["per_listing_summary"]
+    assert "A" in pls and "B" in pls
+    assert None not in pls and "" not in pls
+
+    a = pls["A"]
+    assert a["imp"] == 300
+    assert a["views"] == 15
+    assert a["tx_count"] == 1
+    # CTR computed from rolled-up imp/views: 100*15/300 = 5.0
+    assert a["ctr_pct"] == 5.0
+    # Conversion mean across the two days: (6.0 + 10.0)/2 = 8.0
+    assert a["conv_pct"] == 8.0
+
+    b = pls["B"]
+    assert b["imp"] == 50
+    assert b["views"] == 2
+    assert b["tx_count"] == 0
+    assert b["ctr_pct"] == 4.0  # 100*2/50
+    # SCR not applicable for listing B → conv_pct is None, NOT 0.0
+    assert b["conv_pct"] is None
+
+
+def test_parse_traffic_report_alias_round_trip_matches_demo_protocol() -> None:
+    """Issue #31 Phase 3 — round-trip check: the abbreviated keys emitted
+    by parse satisfy the ebay-ops Fetchers Protocol shape exactly
+    ({imp, views, ctr_pct, conv_pct, tx_count}). No translator required."""
+    payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "TRANSACTION"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            {
+                "dimensionValues": [{"value": "999"}],
+                "metricValues": [
+                    {"value": 1000, "applicable": True},
+                    {"value": 50, "applicable": True},
+                    {"value": 3, "applicable": True},
+                    {"value": 0.06, "applicable": True},
+                ],
+            }
+        ],
+    }
+    summary = rest.parse_traffic_report_response(payload)
+    PROTOCOL_KEYS = {"imp", "views", "ctr_pct", "conv_pct", "tx_count"}
+    # All five keys present at top level (overall aggregate).
+    assert PROTOCOL_KEYS.issubset(summary.keys())
+    # And on each per-listing summary entry.
+    for lid, agg in summary["per_listing_summary"].items():
+        missing = PROTOCOL_KEYS - set(agg.keys())
+        assert not missing, f"per_listing_summary[{lid}] missing keys: {missing}"
+
+
 def test_parse_traffic_report_non_applicable_filtered() -> None:
     """applicable=False metric values are coerced to None and excluded from sums."""
     payload = {
