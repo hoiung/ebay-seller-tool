@@ -423,9 +423,7 @@ def test_responder_load_jsonl_tail_skips_partial_last_line(
     assert len(seen) == 1  # truncated row not parsed
 
 
-def test_load_recent_signatures_filters_dry_run_rows(
-    isolated_fees_config, isolated_ledger
-) -> None:
+def test_load_recent_signatures_filters_dry_run_rows(isolated_fees_config, isolated_ledger) -> None:
     """Stage 5 follow-up — dry-run rows MUST NOT poison the live cron's
     idempotency window. A `dry_run_accept` row in the ledger should leave
     the (offer_id, state_hash) tuple absent from `seen`, so the next live
@@ -745,8 +743,12 @@ def test_responder_qty3_offer_dispatches_default_tier_counter(
     """
     pending = [_build_offer(buyer_offer_gbp=90.0, quantity=3, item_id="multi-qty-listing")]
     counter_mock = AsyncMock(
-        return_value={"success": True, "ebay_response_status": "Success",
-                      "ebay_response_code": None, "error_message": None},
+        return_value={
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
+        },
     )
     with (
         patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
@@ -766,9 +768,7 @@ def test_responder_qty3_offer_dispatches_default_tier_counter(
     assert "qtydefault" in rows[0]["reason"]
 
 
-def test_responder_jsonl_row_includes_quantity_field(
-    isolated_fees_config, isolated_ledger
-) -> None:
+def test_responder_jsonl_row_includes_quantity_field(isolated_fees_config, isolated_ledger) -> None:
     """AC3.4 — every JSONL row gains the 'quantity' field. Verify across
     accept / counter / decline / skip-idempotency paths.
     """
@@ -778,8 +778,12 @@ def test_responder_jsonl_row_includes_quantity_field(
     pending = [o_accept, o_counter, o_decline]
 
     respond_mock = AsyncMock(
-        return_value={"success": True, "ebay_response_status": "Success",
-                      "ebay_response_code": None, "error_message": None},
+        return_value={
+            "success": True,
+            "ebay_response_status": "Success",
+            "ebay_response_code": None,
+            "error_message": None,
+        },
     )
     with (
         patch.object(rbo, "get_pending_best_offers", AsyncMock(return_value=pending)),
@@ -891,8 +895,10 @@ def test_read_systemd_cadence_minutes_returns_30_when_value_not_integer(tmp_path
     timer_file.write_text("[Timer]\nOnUnitActiveSec=ohno\n")
     permissive_re = _re.compile(r"^OnUnitActiveSec\s*=\s*(\S+)\s*$", _re.MULTILINE)
 
-    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file), \
-         patch.object(rbo, "_ON_UNIT_ACTIVE_SEC_RE", permissive_re):
+    with (
+        patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file),
+        patch.object(rbo, "_ON_UNIT_ACTIVE_SEC_RE", permissive_re),
+    ):
         result = rbo._read_systemd_cadence_minutes()
     assert result == 30
 

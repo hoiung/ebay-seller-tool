@@ -51,7 +51,7 @@ _LISTING_ALREADY_ENDED_CODES = frozenset(
 # https://developer.ebay.com/devzone/xml/docs/Reference/eBay/Errors/ErrorMessages.htm
 _AUTH_ERROR_CODES = frozenset(
     {
-        "932",    # Auth token is invalid
+        "932",  # Auth token is invalid
         "16110",  # Auth token expired (soft)
         "17470",  # Auth token expired
         "21917",  # Token validation failed
@@ -266,9 +266,8 @@ def _classify_ebay_error_codes(codes: set[str], message: str = "") -> str:
     if codes:
         return "transport"
     lower = message.lower()
-    if (
-        ("auth" in lower or "token" in lower or "expir" in lower)
-        and not ("rate" in lower or "throttl" in lower)
+    if ("auth" in lower or "token" in lower or "expir" in lower) and not (
+        "rate" in lower or "throttl" in lower
     ):
         return "auth"
     return "unknown"
