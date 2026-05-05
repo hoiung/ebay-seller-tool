@@ -861,6 +861,100 @@ def test_responder_substring_fallback_when_no_ebay_response_attached(
 
 
 # ---------------------------------------------------------------------------
+# Issue #32 D3 (Sonnet review Check 8) — compute_state_hash composition pin
+# ---------------------------------------------------------------------------
+
+
+def test_compute_state_hash_pins_known_input_to_known_output() -> None:
+    """Issue #32 D3 — pin the state_hash composition contract.
+
+    The 3 hash components (buyer_offer_gbp / buyer_user_id /
+    offer_timestamp_iso) are sourced from `_parse_offer_node`. Without a
+    pinning test, an accidental field rename in the parser would silently
+    re-fire all idempotency-skipped offers on the next sweep (every state_hash
+    would change). This test catches such drift loud-and-fast.
+    """
+    import hashlib
+
+    offer = {
+        "buyer_offer_gbp": 47.0,
+        "buyer_user_id": "buyer_uk",
+        "offer_timestamp_iso": "2026-05-02T14:30:00Z",
+        # Other fields must NOT contribute to the hash
+        "offer_id": "abc123",
+        "item_id": "287260458724",
+        "buyer_message": "any flexibility?",
+        "expiration_iso": "2026-05-04T14:30:00Z",
+        "best_offer_code_type": "BuyerBestOffer",
+        "quantity": 1,
+        "live_price_gbp": 50.0,
+    }
+    expected_payload = "47.0|buyer_uk|2026-05-02T14:30:00Z"
+    expected_hash = hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()[:16]
+    assert rbo.compute_state_hash(offer) == expected_hash
+
+
+def test_compute_state_hash_changes_when_buyer_offer_changes() -> None:
+    """Issue #32 D3 — different buyer_offer_gbp → different hash (mutation
+    detection for multi-round offer threads). Pins one of the 3 contributing
+    fields; the other two are pinned by the symmetric _user_id / _timestamp
+    tests below."""
+    base = {
+        "buyer_offer_gbp": 47.0,
+        "buyer_user_id": "buyer_uk",
+        "offer_timestamp_iso": "2026-05-02T14:30:00Z",
+    }
+    bumped = {**base, "buyer_offer_gbp": 50.0}
+    assert rbo.compute_state_hash(base) != rbo.compute_state_hash(bumped)
+
+
+def test_compute_state_hash_changes_when_user_or_timestamp_changes() -> None:
+    """Issue #32 D3 — different buyer_user_id OR offer_timestamp_iso → different
+    hash. Symmetric pins for the remaining 2 contributing fields."""
+    base = {
+        "buyer_offer_gbp": 47.0,
+        "buyer_user_id": "buyer_uk",
+        "offer_timestamp_iso": "2026-05-02T14:30:00Z",
+    }
+    user_swap = {**base, "buyer_user_id": "buyer_de"}
+    ts_swap = {**base, "offer_timestamp_iso": "2026-05-03T14:30:00Z"}
+    assert rbo.compute_state_hash(base) != rbo.compute_state_hash(user_swap)
+    assert rbo.compute_state_hash(base) != rbo.compute_state_hash(ts_swap)
+    assert rbo.compute_state_hash(user_swap) != rbo.compute_state_hash(ts_swap)
+
+
+def test_compute_state_hash_stable_across_irrelevant_field_changes() -> None:
+    """Issue #32 D3 — changing fields OUTSIDE the 3 contributors must NOT
+    change the hash. Pins the contract that buyer_message / expiration_iso /
+    quantity / live_price_gbp / item_id / offer_id / best_offer_code_type
+    do not contribute (intentional — qty-tier price changes would otherwise
+    invalidate dedup; per the existing module-top docstring)."""
+    base = {
+        "buyer_offer_gbp": 47.0,
+        "buyer_user_id": "buyer_uk",
+        "offer_timestamp_iso": "2026-05-02T14:30:00Z",
+        "buyer_message": "v1",
+        "expiration_iso": "2026-05-04T14:30:00Z",
+        "quantity": 1,
+        "live_price_gbp": 50.0,
+        "item_id": "ITEM_A",
+        "offer_id": "OFF_A",
+        "best_offer_code_type": "BuyerBestOffer",
+    }
+    perturbed = {
+        **base,
+        "buyer_message": "TOTALLY DIFFERENT TEXT",
+        "expiration_iso": "2027-01-01T00:00:00Z",
+        "quantity": 99,
+        "live_price_gbp": 999.99,
+        "item_id": "ITEM_Z",
+        "offer_id": "OFF_Z",
+        "best_offer_code_type": "AdminCounterOffer",
+    }
+    assert rbo.compute_state_hash(base) == rbo.compute_state_hash(perturbed)
+
+
+# ---------------------------------------------------------------------------
 # Issue #32 Phase 5 — _read_systemd_cadence_minutes WARN-fallback paths (AC5.3)
 # ---------------------------------------------------------------------------
 
