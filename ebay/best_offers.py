@@ -36,20 +36,6 @@ BestOfferAction = Literal["Accept", "Counter", "Decline"]
 # expired" which is what we want.
 _ACTIVE_FILTER = "Active"
 
-# Mini-Stage-5 GAP-C — eBay Trading API auth-token error codes, mirrored from
-# `respond_best_offers.py:_AUTH_ERROR_CODES`. Per-item sweep MUST raise on
-# auth-error (rather than log+continue) so an expired token aborts the sweep
-# loud-and-fast instead of silently producing a "polled=22 errors=22
-# offers_found=0" log line that looks like a quiet day. Same canonical
-# reference: developer.ebay.com/devzone/xml/docs/Reference/eBay/Errors/ErrorMessages.htm
-_AUTH_ERROR_CODES = frozenset({
-    "932",    # Auth token is invalid
-    "16110",  # Auth token expired (soft)
-    "17470",  # Auth token expired
-    "21917",  # Token validation failed
-})
-
-
 def _as_list(node: Any) -> list:
     """Coerce a single ebaysdk node OR a list to a list. Mirrors selling.py."""
     if node is None:
@@ -178,7 +164,16 @@ async def get_pending_best_offers(
 
     # Per-item iteration mode — one GetBestOffers call per listing ID.
     from ebay.client import log_warn  # noqa: PLC0415
-    from ebay.end_listing import _extract_ebay_error_codes  # noqa: PLC0415
+    # Issue #32 Phase 2 — _AUTH_ERROR_CODES sourced from end_listing.py
+    # (canonical single location across both consumers). Mini-Stage-5 GAP-C
+    # behaviour preserved: per-item sweep MUST raise on auth-error rather
+    # than log+continue, so expired tokens abort loud-and-fast instead of
+    # silently producing a "polled=22 errors=22 offers_found=0" log line
+    # that looks like a quiet day.
+    from ebay.end_listing import (  # noqa: PLC0415
+        _AUTH_ERROR_CODES,
+        _extract_ebay_error_codes,
+    )
 
     log_debug(
         f"get_pending_best_offers: polling per-item GetBestOffers ({len(item_ids)} listing(s))"
