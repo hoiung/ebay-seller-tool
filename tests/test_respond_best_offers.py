@@ -854,3 +854,64 @@ def test_responder_substring_fallback_when_no_ebay_response_attached(
     assert exit_code == 1
     rows = _read_ledger(isolated_ledger)
     assert rows[0]["reason"] == "auth_expired"
+
+
+# ---------------------------------------------------------------------------
+# Issue #32 Phase 5 — _read_systemd_cadence_minutes WARN-fallback paths (AC5.3)
+# ---------------------------------------------------------------------------
+
+
+def test_read_systemd_cadence_minutes_returns_30_when_file_missing(tmp_path) -> None:
+    """AC5.3 (a) — timer file missing → returns 30 with log_warn."""
+    missing = tmp_path / "does_not_exist.timer"
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", missing):
+        result = rbo._read_systemd_cadence_minutes()
+    assert result == 30
+
+
+def test_read_systemd_cadence_minutes_returns_30_when_regex_no_match(tmp_path) -> None:
+    """AC5.3 (b) — timer file present but no OnUnitActiveSec line → 30."""
+    timer_file = tmp_path / "no_match.timer"
+    timer_file.write_text("[Unit]\nDescription=test\n[Timer]\nOnCalendar=*-*-* 00:00\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        result = rbo._read_systemd_cadence_minutes()
+    assert result == 30
+
+
+def test_read_systemd_cadence_minutes_returns_30_when_value_not_integer(tmp_path) -> None:
+    """AC5.3 (c) — non-integer OnUnitActiveSec value → 30 with log_warn.
+
+    The production regex captures `\\d+` so int() can never fail on a
+    real match — the int() fallback is defence-in-depth. To exercise it,
+    swap the module-level regex for a permissive one that captures any
+    non-whitespace, then feed a non-integer payload."""
+    import re as _re
+
+    timer_file = tmp_path / "non_int.timer"
+    timer_file.write_text("[Timer]\nOnUnitActiveSec=ohno\n")
+    permissive_re = _re.compile(r"^OnUnitActiveSec\s*=\s*(\S+)\s*$", _re.MULTILINE)
+
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file), \
+         patch.object(rbo, "_ON_UNIT_ACTIVE_SEC_RE", permissive_re):
+        result = rbo._read_systemd_cadence_minutes()
+    assert result == 30
+
+
+def test_read_systemd_cadence_minutes_parses_real_value(tmp_path) -> None:
+    """Happy path — OnUnitActiveSec=1800 → 30 (1800/60). Pin the contract."""
+    timer_file = tmp_path / "live.timer"
+    timer_file.write_text(
+        "[Unit]\nDescription=test\n[Timer]\nOnUnitActiveSec=1800\nUnit=foo.service\n"
+    )
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        result = rbo._read_systemd_cadence_minutes()
+    assert result == 30
+
+
+def test_read_systemd_cadence_minutes_floor_at_1(tmp_path) -> None:
+    """Edge — OnUnitActiveSec=30 (sub-minute) → max(1, 30//60)=1."""
+    timer_file = tmp_path / "subminute.timer"
+    timer_file.write_text("[Timer]\nOnUnitActiveSec=30\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        result = rbo._read_systemd_cadence_minutes()
+    assert result == 1
