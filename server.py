@@ -65,7 +65,6 @@ from ebay.rest import compute_return_rate as rest_compute_return_rate  # noqa: E
 from ebay.rest import (  # noqa: E402
     fetch_listing_returns,
     fetch_traffic_report,
-    parse_traffic_report_response,
 )
 from ebay.selling import (  # noqa: E402
     fetch_listing_cases,
@@ -1702,8 +1701,9 @@ async def analyse_listing(
     rate_source = "default"
     phase2_available = False
     try:
-        traffic = await fetch_traffic_report([str(item_id)], days=min(window_days, 90))
-        summary = parse_traffic_report_response(traffic)
+        # Issue #31 Phase 2 — fetch_traffic_report is parsed-by-default;
+        # use fetch_traffic_report_raw if the eBay wire shape is needed.
+        summary = await fetch_traffic_report([str(item_id)], days=min(window_days, 90))
         if summary["records_count"] > 0:
             funnel["impressions"] = summary["impressions"]
             # Phase 2 backfill — HitCount is deprecated so Phase 1 gave us
@@ -1969,8 +1969,8 @@ async def get_traffic_report(listing_ids: list[str], days: int = 30) -> str:
     parser as analyse_listing so values are consistent between the two tools.
     """
     log_debug(f"get_traffic_report ids={len(listing_ids)} days={days}")
-    raw = await fetch_traffic_report(listing_ids=listing_ids, days=days)
-    summary = parse_traffic_report_response(raw)
+    # Issue #31 Phase 2 — fetch_traffic_report is parsed-by-default.
+    summary = await fetch_traffic_report(listing_ids=listing_ids, days=days)
     return json.dumps(summary, indent=2)
 
 
