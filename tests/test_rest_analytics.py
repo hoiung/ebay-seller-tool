@@ -51,10 +51,15 @@ def test_traffic_report_empty_ids() -> None:
         _run(rest.fetch_traffic_report_raw([], days=30))
 
 
-def test_traffic_report_raw_returns_ebay_wire_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_traffic_report_raw_returns_ebay_wire_shape() -> None:
     """Issue #31 Phase 2 — ``fetch_traffic_report_raw`` returns the eBay
     JSON exactly as received. Filter-string construction is the AP #18
-    contract assertion."""
+    contract assertion.
+
+    Stage 5 fix — patches `ebay.call_accountant.account_call` so the test
+    doesn't bump the real daily counter file. Without this patch a CI
+    runner near the 9600/day cap would fail with `RateLimitError`.
+    """
     fake_payload = {
         "header": {
             "metrics": [
@@ -77,7 +82,10 @@ def test_traffic_report_raw_returns_ebay_wire_shape(monkeypatch: pytest.MonkeyPa
         ],
     }
     fake_client = _fake_client_with_response(200, fake_payload)
-    with patch("ebay.rest.get_oauth_session", return_value=fake_client):
+    with (
+        patch("ebay.call_accountant.account_call"),
+        patch("ebay.rest.get_oauth_session", return_value=fake_client),
+    ):
         result = _run(rest.fetch_traffic_report_raw(["111", "222"], days=30))
     assert "records" in result
     assert "header" in result
@@ -91,7 +99,11 @@ def test_traffic_report_raw_returns_ebay_wire_shape(monkeypatch: pytest.MonkeyPa
 def test_traffic_report_parsed_default_returns_decoded_shape() -> None:
     """Issue #31 Phase 2 — ``fetch_traffic_report`` is parsed-by-default.
     Same upstream payload as the raw test; assertion is on the parsed
-    aggregate keys, NOT the raw eBay wire shape."""
+    aggregate keys, NOT the raw eBay wire shape.
+
+    Stage 5 fix — patches `ebay.call_accountant.account_call` for the same
+    test-isolation reason as the raw test above.
+    """
     fake_payload = {
         "header": {
             "metrics": [
@@ -114,7 +126,10 @@ def test_traffic_report_parsed_default_returns_decoded_shape() -> None:
         ],
     }
     fake_client = _fake_client_with_response(200, fake_payload)
-    with patch("ebay.rest.get_oauth_session", return_value=fake_client):
+    with (
+        patch("ebay.call_accountant.account_call"),
+        patch("ebay.rest.get_oauth_session", return_value=fake_client),
+    ):
         result = _run(rest.fetch_traffic_report(["111", "222"], days=30))
     # Parsed-by-default contract: callers receive the decoded aggregate
     # without having to know about parse_traffic_report_response.
@@ -311,8 +326,63 @@ def test_parse_traffic_report_per_listing_summary_aggregates_across_days() -> No
     assert b["views"] == 2
     assert b["tx_count"] == 0
     assert b["ctr_pct"] == 4.0  # 100*2/50
-    # SCR not applicable for listing B → conv_pct is None, NOT 0.0
-    assert b["conv_pct"] is None
+    # Issue #31 Stage 5 fix — Fetchers Protocol contract requires float (not None)
+    # for zero-data cases (ebay_ops/pricing/_demo.py:66 declares ctr_pct: float;
+    # orchestrator.py:178-179 does float(traffic.get("ctr_pct", 0.0))). Emit 0.0.
+    assert b["conv_pct"] == 0.0
+
+
+def test_per_listing_summary_emits_floats_not_none_for_zero_data() -> None:
+    """Issue #31 Stage 5 regression guard — per_listing_summary MUST emit
+    float (0.0) not None for ctr_pct/conv_pct when the listing has no
+    impressions or no SCR records.
+
+    The ebay-ops Fetchers Protocol contract (`ebay_ops/pricing/_demo.py:66`
+    declares `ctr_pct: float`) is consumed at
+    `ebay_ops/pricing/orchestrator.py:178-179, 293-294` via
+    `float(traffic.get("ctr_pct", 0.0))`. dict.get returns None when the
+    key exists with None value; the 0.0 default only fires for absent keys.
+    Emitting None here causes TypeError at the orchestrator's float() call —
+    crashes the entire weekly run on any zero-impression listing.
+    """
+    # Zero-impression listing (eBay returned the record but imp/views/conv all 0)
+    payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "TRANSACTION"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            {
+                "dimensionValues": [{"value": "Z"}],
+                "metricValues": [
+                    {"value": 0, "applicable": True},
+                    {"value": 0, "applicable": True},
+                    {"value": 0, "applicable": True},
+                    {"value": 0.0, "applicable": False},  # SCR not applicable
+                ],
+            }
+        ],
+    }
+    summary = rest.parse_traffic_report_response(payload)
+    z = summary["per_listing_summary"]["Z"]
+    # The five Fetchers Protocol keys must all be float/int — never None.
+    assert isinstance(z["imp"], int)
+    assert isinstance(z["views"], int)
+    assert isinstance(z["tx_count"], int)
+    assert isinstance(z["ctr_pct"], float), f"ctr_pct must be float, got {type(z['ctr_pct'])}"
+    assert isinstance(z["conv_pct"], float), f"conv_pct must be float, got {type(z['conv_pct'])}"
+    # Specifically NOT None — proves the fix against the regression.
+    assert z["ctr_pct"] is not None
+    assert z["conv_pct"] is not None
+    # And the values are 0.0, matching the demo Fetchers Protocol behaviour.
+    assert z["ctr_pct"] == 0.0
+    assert z["conv_pct"] == 0.0
+    # The orchestrator's `float(traffic.get("ctr_pct", 0.0))` would now succeed.
+    assert float(z.get("ctr_pct", 0.0)) == 0.0  # the smoking-gun call site
 
 
 def test_parse_traffic_report_alias_round_trip_matches_demo_protocol() -> None:
