@@ -269,13 +269,53 @@ verbs (5000/day flat cap) and REST Sell Analytics (`sell_analytics` namespace,
 
 - Trading verbs go through `record_call(verb)` automatically via
   `execute_with_retry` in `client.py`.
-- Sell Analytics (currently `fetch_traffic_report` only) goes through
-  `account_call(api_namespace="sell_analytics")` — pre-flight quota gate +
-  record. Raises `RateLimitError` before any network round-trip if quota
-  would be exceeded; the error names `api_namespace + remaining + cap` so
-  the operator sees exactly which surface tripped.
+- Sell Analytics goes through `account_call(api_namespace="sell_analytics")`
+  inside `fetch_traffic_report_raw` (which `fetch_traffic_report` delegates
+  to — see `ebay/rest.py`). Pre-flight quota gate + record. Raises
+  `RateLimitError` before any network round-trip if quota would be exceeded;
+  the error names `api_namespace + remaining + cap` so the operator sees
+  exactly which surface tripped.
 - Counters are namespace-isolated: a Trading-API spike does NOT eat into
   Sell Analytics quota and vice versa.
+
+### Sell Analytics surface (Issue #31)
+
+`ebay/rest.py` exposes two public surfaces for Sell Analytics traffic:
+- `fetch_traffic_report(listing_ids, days=30)` — **parsed-by-default**.
+  Returns the decoded shape (impressions, views, transactions, ctr_pct,
+  sales_conversion_rate_pct) plus abbreviated demo-style aliases (`imp`,
+  `tx_count`, `conv_pct`) plus `per_listing_summary` keyed by listing_id
+  in the ebay-ops Fetchers Protocol shape (`{imp, views, ctr_pct,
+  conv_pct, tx_count}`). Most callers should use this.
+- `fetch_traffic_report_raw(listing_ids, days=30)` — returns the raw eBay
+  JSON wire shape (`header.metrics` + `records[*].metricValues`). For
+  tests and advanced callers that need to assert on eBay's wire format.
+
+`per_listing_summary` is canonical: `parse_traffic_report_response` pre-
+aggregates (listing × day) records into per-listing dicts in abbreviated
+keys, so consumers (e.g. `ebay-ops/scripts/run_weekly_tune_live.py`) read
+the Fetchers Protocol shape directly without hand-translation. Empty values
+are `0.0` (NOT `None`) to match the demo Fetchers contract — `float(None)`
+TypeErrors at the orchestrator's `float(traffic.get("ctr_pct", 0.0))` call
+were the regression that surfaced during Stage 5 audit.
+
+### Sell Analytics burst-rate-limit (Issue #31)
+
+eBay enforces an undocumented per-window burst rate-limit separately from
+the daily quota. `fetch_traffic_report` retries 429s internally with
+exponential backoff (5s → 15s → 60s, 80s wall-clock budget — see
+`_BURST_RETRY_BACKOFF_SECONDS` + `_BURST_RETRY_TOTAL_BUDGET_SECONDS` in
+`rest.py`). After the budget is exhausted it raises
+`TrafficReportRateLimitError(attempts, total_wait_seconds, last_error)`
+so the caller can degrade gracefully or fail loud — distinct from
+`call_accountant.RateLimitError` (daily quota; fires before any network
+round-trip).
+
+In addition to the daily counter, `call_accountant.BURST_WINDOWS["sell_analytics"]
+= (30, 10)` configures an in-process rolling-window tracker that logs a
+warning when 10+ calls fire in 30 seconds — operator-visible only, never
+gates. Window threshold is empirical (#31 first-live-run observation:
+~22 calls in ~22s tripped 429 with a >5min cooldown).
 
 ## Skill Integration
 
