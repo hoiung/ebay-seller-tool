@@ -277,6 +277,93 @@ def test_per_item_sweep_continues_past_unexpected_error() -> None:
     assert result[0]["quantity"] == 2
 
 
+# Mini-Stage-5 GAP-C — auth-token expiry MUST abort the sweep, not silently
+# skip 22 items. Token expiry would otherwise produce a "polled=22 errors=22
+# offers_found=0" log line that looks like a quiet day to a casual operator.
+
+
+def _stub_ebay_error(code: str, message: str = "test"):
+    """Construct an ebaysdk ConnectionError with an attached `.response.dict()`
+    body the canonical `_extract_ebay_error_codes` helper can parse — same
+    pattern as `tests/test_respond_best_offers.py` auth-error test."""
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    class _StubResponse:
+        def __init__(self, code: str, msg: str) -> None:
+            self._code = code
+            self._msg = msg
+
+        def dict(self):  # noqa: D401
+            return {"Errors": {"ErrorCode": self._code, "ShortMessage": self._msg}}
+
+    exc = EbaySdkConnectionError(message)
+    exc.response = _StubResponse(code, message)
+    return exc
+
+
+def test_per_item_sweep_aborts_on_auth_error() -> None:
+    """Mini-Stage-5 GAP-C — eBay auth codes (932 / 16110 / 17470 / 21917)
+    raise out of the per-item loop instead of silently log+continue. Token
+    expiry MUST surface to the responder's outer auth_expired handling
+    rather than producing a 'polled=22 errors=22 offers_found=0' log line
+    that looks like a quiet day."""
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    auth_err = _stub_ebay_error("17470", "Auth token expired")
+    # Second item would never be reached because the first raises.
+    side_effects = [auth_err, auth_err]
+    with patch("ebay.client.execute_with_retry", side_effect=side_effects) as mock_call:
+        with pytest.raises(EbaySdkConnectionError):
+            _run(get_pending_best_offers(item_ids=["i1", "i2"]))
+    # First item raised auth → loop must break (only 1 call made, not 2)
+    assert mock_call.call_count == 1
+
+
+def test_per_item_sweep_aborts_on_auth_error_code_932() -> None:
+    """Symmetric coverage — code 932 (Auth token is invalid) also aborts."""
+    from ebaysdk.exception import ConnectionError as EbaySdkConnectionError
+
+    auth_err = _stub_ebay_error("932", "Auth token is invalid")
+    with patch("ebay.client.execute_with_retry", side_effect=[auth_err]) as mock_call:
+        with pytest.raises(EbaySdkConnectionError):
+            _run(get_pending_best_offers(item_ids=["i_only"]))
+    assert mock_call.call_count == 1
+
+
+def test_per_item_sweep_does_not_misclassify_other_error_as_no_offers() -> None:
+    """Mini-Stage-5 GAP-A — code-set match (not substring) means a different
+    eBay error code does NOT get silently swallowed as 'no offers'. Pre-fix
+    behaviour: substring match on '20140' would false-positive against a
+    hypothetical numerically-related code (e.g. 201400). Post-fix: code-set
+    membership is exact, so unrelated errors fall to the log_warn+continue
+    branch and the sweep stats correctly report as `errors=N`, not silently
+    treat as `no_offers=N`."""
+    other_err = _stub_ebay_error("99999", "Some other error not related to offers")
+    fake_offer = SimpleNamespace(
+        BestOfferID="off_late",
+        Buyer=SimpleNamespace(UserID="buyer"),
+        Price=SimpleNamespace(value=45.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T14:00:00Z",
+        ExpirationTime="2026-05-06T14:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity=1,
+    )
+    fake_reply_with_offer = SimpleNamespace(
+        BestOfferArray=SimpleNamespace(BestOffer=fake_offer)
+    )
+
+    side_effects = [other_err, _make_response(fake_reply_with_offer)]
+    with patch("ebay.client.execute_with_retry", side_effect=side_effects) as mock_call:
+        result = _run(get_pending_best_offers(item_ids=["i_other_err", "i_good"]))
+
+    # First item's 99999 must NOT be classified as no-offers — should fall to
+    # the generic log_warn+continue branch. Second item polls cleanly.
+    assert mock_call.call_count == 2
+    assert len(result) == 1
+    assert result[0]["item_id"] == "i_good"
+
+
 # ---------------------------------------------------------------------------
 # respond_to_best_offer
 # ---------------------------------------------------------------------------

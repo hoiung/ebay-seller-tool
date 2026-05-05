@@ -36,6 +36,19 @@ BestOfferAction = Literal["Accept", "Counter", "Decline"]
 # expired" which is what we want.
 _ACTIVE_FILTER = "Active"
 
+# Mini-Stage-5 GAP-C — eBay Trading API auth-token error codes, mirrored from
+# `respond_best_offers.py:_AUTH_ERROR_CODES`. Per-item sweep MUST raise on
+# auth-error (rather than log+continue) so an expired token aborts the sweep
+# loud-and-fast instead of silently producing a "polled=22 errors=22
+# offers_found=0" log line that looks like a quiet day. Same canonical
+# reference: developer.ebay.com/devzone/xml/docs/Reference/eBay/Errors/ErrorMessages.htm
+_AUTH_ERROR_CODES = frozenset({
+    "932",    # Auth token is invalid
+    "16110",  # Auth token expired (soft)
+    "17470",  # Auth token expired
+    "21917",  # Token validation failed
+})
+
 
 def _as_list(node: Any) -> list:
     """Coerce a single ebaysdk node OR a list to a list. Mirrors selling.py."""
@@ -146,6 +159,7 @@ async def get_pending_best_offers(
 
     # Per-item iteration mode — one GetBestOffers call per listing ID.
     from ebay.client import log_warn  # noqa: PLC0415
+    from ebay.end_listing import _extract_ebay_error_codes  # noqa: PLC0415
 
     log_debug(
         f"get_pending_best_offers: polling per-item GetBestOffers ({len(item_ids)} listing(s))"
@@ -167,25 +181,42 @@ async def get_pending_best_offers(
                 },
             )
         except Exception as e:  # noqa: BLE001 — defensive: eBay raises ebaysdk.ConnectionError
-            # eBay error code 20140 ("Best Offers Not Found / No best offers
-            # found for your criteria") fires for every listing with zero
-            # active offers — i.e. the common case across most of the 22
-            # listings on any given poll. ebaysdk surfaces it as a raised
-            # ConnectionError, not a clean empty response. Treat it as the
-            # empty-set signal it actually is and continue the sweep.
-            #
-            # Stage 5 finding A9 (issue #30 Layer-1 audit): without this
-            # try/except, the FIRST listing with zero offers crashes the
-            # whole sweep — operator silently loses visibility on the
-            # remaining N-1 listings until the bug is noticed.
+            # Mini-Stage-5 GAP-A fix: extract eBay error codes via the canonical
+            # `_extract_ebay_error_codes` helper (matches `respond_best_offers.py`
+            # auth-detection pattern). Substring-on-message was brittle: hypothetical
+            # codes 220140 / 201400 would false-positive against "20140 in err_text",
+            # and the English "Best Offers Not Found" fallback breaks if eBay ever
+            # localises the message text.
+            ebay_codes = _extract_ebay_error_codes(e) if isinstance(e, Exception) else set()
             err_text = str(e)
-            if "20140" in err_text or "Best Offers Not Found" in err_text:
+
+            # Mini-Stage-5 GAP-C fix: auth-token errors must ABORT the sweep,
+            # not silently skip 22 items. Token expiry would otherwise produce
+            # a "polled=22 errors=22 offers_found=0" log line that looks like
+            # a quiet day to a casual operator. Mirror the responder's
+            # `_AUTH_ERROR_CODES` set + propagate via raise so main_async's
+            # outer try/except (respond_best_offers.py:617-623) detects + paged.
+            if ebay_codes & _AUTH_ERROR_CODES:
+                log_warn(
+                    f"get_pending_best_offers: AUTH ERROR on ItemID={item_id} "
+                    f"(eBay codes={sorted(ebay_codes)}); aborting sweep"
+                )
+                raise
+
+            # Code 20140 ("Best Offers Not Found / No best offers found for
+            # your criteria") fires for every listing with zero active offers.
+            # ebaysdk surfaces it as a raised ConnectionError, not a clean
+            # empty response. Treat as the empty-set signal it actually is.
+            #
+            # Stage 5 finding A9 + Mini-Stage-5 GAP-A: code-set match replaces
+            # substring (defence-in-depth + locale-independent).
+            if "20140" in ebay_codes or "Best Offers Not Found" in err_text:
                 skipped_no_offers += 1
                 continue
-            # Other errors (transport, auth, unexpected): log + skip this
-            # item; the next 30-min cron cycle re-polls from eBay's truth.
-            # Burning the whole sweep on one transient 5xx would punish 21
-            # listings for one item's hiccup.
+            # Other errors (non-auth, non-20140 transport / 5xx / unexpected):
+            # log + skip this item; the next 30-min cron cycle re-polls from
+            # eBay's truth. Burning the whole sweep on one transient 5xx would
+            # punish 21 listings for one item's hiccup.
             log_warn(
                 f"get_pending_best_offers: per-item poll failed for ItemID={item_id} "
                 f"({type(e).__name__}: {err_text[:200]}); skipping this listing"
@@ -212,12 +243,15 @@ async def get_pending_best_offers(
             for offer_node in _as_list(getattr(inner_bo, "BestOffer", None)):
                 offers.append(_parse_offer_node(offer_node, str(item_id)))
 
-    if skipped_no_offers or skipped_errors:
-        log_debug(
-            f"get_pending_best_offers: per-item sweep stats — "
-            f"polled={len(item_ids)} no_offers={skipped_no_offers} "
-            f"errors={skipped_errors} offers_found={len(offers)}"
-        )
+    # Mini-Stage-5 GAP-D fix: emit per-sweep stats unconditionally for
+    # audit symmetry. The healthy-sweep case (polled=22 no_offers=0
+    # errors=0 offers_found=N) is exactly when the operator wants to
+    # confirm the sweep ran cleanly. Fixed-cost log line (1 per cron tick).
+    log_debug(
+        f"get_pending_best_offers: per-item sweep stats — "
+        f"polled={len(item_ids)} no_offers={skipped_no_offers} "
+        f"errors={skipped_errors} offers_found={len(offers)}"
+    )
 
     log_debug(
         f"get_pending_best_offers: returned {len(offers)} pending offer(s) (per-item mode)"

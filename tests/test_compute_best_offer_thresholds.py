@@ -102,8 +102,14 @@ def test_rationale_mentions_both_components(isolated_fees_config) -> None:
 
 
 def test_two_dp_rounding_preserved_when_round_down_off(isolated_fees_config) -> None:
-    """When round_down_to_pound is False/absent, return shape stays float at 2 dp."""
-    isolated_fees_config()  # no best_offer block → round_down OFF
+    """When best_offer block is absent (validator bypass branch), round_down
+    defaults to False and return shape stays float at 2 dp.
+
+    Note: explicit `round_down_to_pound: False` is rejected by
+    `_validate_best_offer_config` since commit `7a4ccd0` (Stage 5 follow-up
+    on issue #30) — only the absent-block fallback path reaches this
+    float-shape branch."""
+    isolated_fees_config()  # no best_offer block → validator bypass → round_down OFF
     r = compute_best_offer_thresholds(
         floor_gbp=18.0, live_price_gbp=49.99, auto_accept_pct=0.88, auto_decline_pct=0.72
     )
