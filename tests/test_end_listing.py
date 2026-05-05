@@ -344,6 +344,83 @@ def test_default_ending_reason_is_not_available() -> None:
     assert result["ending_reason"] == "NotAvailable"
 
 
+def test_classify_empty_codes_empty_message_returns_unknown() -> None:
+    """Issue #32 AC4.4 #1 — no codes + no message ⇒ unknown."""
+    from ebay.end_listing import _classify_ebay_error_codes
+
+    assert _classify_ebay_error_codes(set()) == "unknown"
+    assert _classify_ebay_error_codes(set(), "") == "unknown"
+
+
+def test_classify_auth_code_932_returns_auth() -> None:
+    """Issue #32 AC4.4 #2 — code 932 ⇒ auth (Auth token is invalid)."""
+    from ebay.end_listing import _classify_ebay_error_codes
+
+    assert _classify_ebay_error_codes({"932"}) == "auth"
+
+
+def test_classify_non_respondable_code_21940_returns_non_respondable() -> None:
+    """Issue #32 AC4.4 #3 — code 21940 ⇒ non_respondable (own counter)."""
+    from ebay.end_listing import _classify_ebay_error_codes
+
+    assert _classify_ebay_error_codes({"21940"}) == "non_respondable"
+
+
+def test_classify_precedence_auth_wins_over_non_respondable() -> None:
+    """Issue #32 AC4.4 #4 + AC4.2 — codes containing BOTH 21917 AND 21940
+    classify as auth (precedence: auth > non_respondable)."""
+    from ebay.end_listing import _classify_ebay_error_codes
+
+    assert _classify_ebay_error_codes({"21917", "21940"}) == "auth"
+    # Symmetric: 932 + 21940 also resolves to auth.
+    assert _classify_ebay_error_codes({"932", "21940"}) == "auth"
+
+
+def test_classify_substring_fallback_triggers_auth() -> None:
+    """Issue #32 AC4.4 #5 + AC4.3 — empty codes + auth-substring message
+    classifies as auth (transport-layer failure before parseable response)."""
+    from ebay.end_listing import _classify_ebay_error_codes
+
+    assert _classify_ebay_error_codes(set(), "AuthToken expired") == "auth"
+    assert _classify_ebay_error_codes(set(), "token has expired") == "auth"
+    assert _classify_ebay_error_codes(set(), "auth failure") == "auth"
+
+
+def test_classify_rate_limit_excludes_auth_substring() -> None:
+    """Issue #32 AC4.4 #6 + AC4.3 — empty codes + 'Rate limit exceeded for
+    token' classifies as unknown despite the 'token' substring (rate/throttl
+    exclusion overrides). Prevents spurious sweep aborts on throttle errors."""
+    from ebay.end_listing import _classify_ebay_error_codes
+
+    assert _classify_ebay_error_codes(set(), "Rate limit exceeded for token") == "unknown"
+    assert _classify_ebay_error_codes(set(), "throttled auth call") == "unknown"
+
+
+def test_per_item_sweep_aborts_on_substring_auth_with_no_codes() -> None:
+    """Issue #32 AC4.4 #7 — caller-side sweep-abort regression. When the
+    per-item handler in `best_offers.py` receives a transport-layer
+    exception carrying 'AuthToken expired' in its message but no parseable
+    eBay codes, the sweep MUST raise (matches pre-Phase-4 substring detector
+    semantics in the responder)."""
+    import asyncio
+    from unittest.mock import patch
+
+    import pytest
+
+    from ebay.best_offers import get_pending_best_offers
+
+    # Plain Exception (no .response → _extract_ebay_error_codes returns set()).
+    # err_class = "auth" via substring fallback → sweep raises.
+    transport_auth_err = ConnectionError("AuthToken expired (no parseable codes)")
+
+    with patch("ebay.client.execute_with_retry", side_effect=[transport_auth_err]) as mock_call:
+        with pytest.raises(ConnectionError):
+            asyncio.run(get_pending_best_offers(item_ids=["i_only"]))
+
+    # Sweep aborted on first item — never polled subsequent items.
+    assert mock_call.call_count == 1
+
+
 def test_auth_codes_canonical_location() -> None:
     """Issue #32 AC2.5 — _AUTH_ERROR_CODES + _NON_RESPONDABLE_CODES are
     importable from ebay.end_listing with the documented membership.
