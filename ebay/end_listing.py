@@ -45,6 +45,32 @@ _LISTING_ALREADY_ENDED_CODES = frozenset(
     }
 )
 
+# Issue #32 Phase 2 — canonical eBay Trading API auth-token error codes.
+# Single source of truth, imported by best_offers.py + respond_best_offers.py
+# (cross-repo). Replaces three drift-prone copies with one. Stable contract per
+# https://developer.ebay.com/devzone/xml/docs/Reference/eBay/Errors/ErrorMessages.htm
+_AUTH_ERROR_CODES = frozenset(
+    {
+        "932",    # Auth token is invalid
+        "16110",  # Auth token expired (soft)
+        "17470",  # Auth token expired
+        "21917",  # Token validation failed
+    }
+)
+
+# Issue #32 Phase 2 — eBay error codes that indicate an offer is not actionable
+# by the seller. Membership trimmed to evidence-grounded codes only (JBGE):
+#   21940 — "Cannot respond to your own counter offer" (live evidence: cron loop
+#           on m.k_1978 SellerCounterOffer item 264666106, 2026-05-04..05).
+# Future expansion: add new code only when live evidence shows the responder
+# hits it. The Phase 1 BuyerBestOffer allowlist drops most non-respondable
+# states at parse time; this set covers the residual API-side failures.
+_NON_RESPONDABLE_CODES = frozenset(
+    {
+        "21940",  # Cannot respond to your own counter offer
+    }
+)
+
 # eBay's documented EndFixedPriceItem.EndingReason enum (Trading API reference).
 # Source: https://developer.ebay.com/devzone/xml/docs/Reference/eBay/EndFixedPriceItem.html
 ALLOWED_ENDING_REASONS: tuple[str, ...] = (
