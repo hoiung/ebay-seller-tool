@@ -653,6 +653,62 @@ def test_compute_decision_decline_floor_uniform_across_qty_tiers() -> None:
         assert "75.0pct" in decision["reason"]
 
 
+# ---------------------------------------------------------------------------
+# Stage 5 follow-up B2-F3 — floor-guarded accept on tight-margin SKUs
+# ---------------------------------------------------------------------------
+
+
+def test_b2f3_accept_honours_floor_when_threshold_below_floor() -> None:
+    """qty=3 default tier 90% on £100 listing → threshold £90.
+    Per-SKU floor £95 (tight-margin SKU). Buyer offers £92.
+
+    Pre-fix: threshold £90, accept comparison `92 >= 90` → ACCEPT at £92
+    (£3/unit × 3 units = £9 below break-even loss).
+
+    Post-fix: accept_floor = max(threshold £90, floor £95) = £95.
+    Comparison `92 >= 95` → False → falls to counter band → counter at £95.
+    Buyer either accepts £95 (we break even) or rejects (we lose nothing)."""
+    offer = {"buyer_offer_gbp": 92.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=95.0, quantity=3)
+    assert decision["cron_action"] == "counter"
+    assert decision["counter_price_gbp"] == 95
+    assert "floor_guarded" in decision["reason"]
+
+
+def test_b2f3_accept_at_or_above_floor_when_threshold_below_floor() -> None:
+    """Same setup as above but buyer offers £95 (at the floor) → Accept.
+
+    accept_floor = £95; 95 >= 95 → Accept; reason names the floor-guarded
+    path so JSONL grep can spot tight-margin accepts vs common-case."""
+    offer = {"buyer_offer_gbp": 95.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=95.0, quantity=3)
+    assert decision["cron_action"] == "accept"
+    assert "floor_guarded" in decision["reason"]
+    # Buyer offers £96 (above floor) → still Accept under the floor-guarded path.
+    offer96 = {"buyer_offer_gbp": 96.0, "live_price_gbp": 100.0}
+    d96 = rbo.compute_decision(offer96, _QTY_CFG_BO, floor_gbp=95.0, quantity=3)
+    assert d96["cron_action"] == "accept"
+
+
+def test_b2f3_no_behaviour_change_when_threshold_above_floor() -> None:
+    """Common case: threshold (£90) > per-SKU floor (£80). accept_floor =
+    max(90, 80) = 90 = threshold. Behaviour identical to pre-fix:
+    qty=3 buyer £90 → Accept at £90 (no floor_guarded suffix)."""
+    offer = {"buyer_offer_gbp": 90.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=80.0, quantity=3)
+    assert decision["cron_action"] == "accept"
+    assert "floor_guarded" not in decision["reason"]
+    assert "90.0pct" in decision["reason"]
+
+
+def test_b2f3_decline_band_below_floor_still_declines() -> None:
+    """qty=3, live=£100, floor=£95, buyer=£60 (below decline floor £75)
+    → Decline (decline floor is qty-uniform; not affected by B2-F3 fix)."""
+    offer = {"buyer_offer_gbp": 60.0, "live_price_gbp": 100.0}
+    decision = rbo.compute_decision(offer, _QTY_CFG_BO, floor_gbp=95.0, quantity=3)
+    assert decision["cron_action"] == "decline"
+
+
 def test_responder_passes_item_ids_to_get_pending_best_offers(
     isolated_fees_config, isolated_ledger
 ) -> None:
