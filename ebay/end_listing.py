@@ -231,6 +231,49 @@ async def end_listing(
     }
 
 
+def _classify_ebay_error_codes(codes: set[str], message: str = "") -> str:
+    """Classify an eBay API error into one of {auth, non_respondable, transport, unknown}.
+
+    Issue #32 Phase 4 — single classifier for all error-bucketing needs across
+    `best_offers.py` (per-item sweep + Phase 3 stats counters) and
+    `respond_best_offers.py` (per-offer error reason).
+
+    Precedence (auth > non_respondable > transport > unknown) — when a
+    response carries multiple codes (e.g. `21917` AND `21940`), the more
+    severe class wins. Auth dominates because token expiry abort-the-sweep
+    is louder than per-offer non-respondable.
+
+    Substring auth-fallback rule: when `codes` is empty (transport-layer
+    failure before eBay responds with a parseable body), fall back to
+    case-insensitive substring detection on `message`. The
+    `auth/token/expir` triggers fire UNLESS the message ALSO contains
+    `rate/throttl` (eBay throttle-error messages mention "auth-token rate
+    limit"; treating those as auth would trigger spurious sweep aborts).
+
+    Args:
+        codes: numeric eBay error codes from `_extract_ebay_error_codes`
+            (empty set when the exception has no parseable response).
+        message: optional exception message for substring fallback;
+            defaults to "" for code-only callers.
+
+    Returns:
+        One of "auth" / "non_respondable" / "transport" / "unknown".
+    """
+    if codes & _AUTH_ERROR_CODES:
+        return "auth"
+    if codes & _NON_RESPONDABLE_CODES:
+        return "non_respondable"
+    if codes:
+        return "transport"
+    lower = message.lower()
+    if (
+        ("auth" in lower or "token" in lower or "expir" in lower)
+        and not ("rate" in lower or "throttl" in lower)
+    ):
+        return "auth"
+    return "unknown"
+
+
 def _extract_ebay_error_codes(exc: EbaySdkConnectionError) -> set[str]:
     """Pull eBay error codes out of an ebaysdk ConnectionError.
 
