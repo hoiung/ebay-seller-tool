@@ -436,6 +436,71 @@ def test_per_item_sweep_does_not_misclassify_other_error_as_no_offers() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Issue #32 AC3.4 — per-item-loop 8-key stats line emit
+# ---------------------------------------------------------------------------
+
+
+def test_per_item_sweep_stats_emits_8_keys_exactly_once(capsys) -> None:
+    """AC3.4 — per-item sweep stats line emits ALL 8 keys exactly ONCE:
+    polled / no_offers / errors_auth / errors_non_respondable /
+    errors_transport / errors_other / offers_found / wall_clock_ms.
+    AC3.5 — legacy `errors=N` key REMOVED.
+
+    `log_debug` writes a custom "[ebay-seller-tool TS] ..." format to stderr
+    (not Python's logging package), so we capture via capsys.readouterr().err.
+    """
+    fake_offer = SimpleNamespace(
+        BestOfferID="off_only",
+        Buyer=SimpleNamespace(UserID="buyer"),
+        Price=SimpleNamespace(value=45.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T11:00:00Z",
+        ExpirationTime="2026-05-06T11:00:00Z",
+        BestOfferCodeType="BuyerBestOffer",
+        Quantity=1,
+    )
+    fake_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
+
+    with patch(
+        "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
+    ):
+        _run(get_pending_best_offers(item_ids=["i_only"]))
+
+    captured = capsys.readouterr()
+    sweep_lines = [m for m in captured.err.splitlines() if "per-item sweep stats" in m]
+    assert len(sweep_lines) == 1, (
+        f"expected exactly one sweep-stats log line; got {len(sweep_lines)}\n"
+        f"stderr:\n{captured.err}"
+    )
+    line = sweep_lines[0]
+
+    expected_keys = (
+        "polled=",
+        "no_offers=",
+        "errors_auth=",
+        "errors_non_respondable=",
+        "errors_transport=",
+        "errors_other=",
+        "offers_found=",
+        "wall_clock_ms=",
+    )
+    for key in expected_keys:
+        assert line.count(key) == 1, (
+            f"key {key!r} should appear EXACTLY once in stats line; got {line.count(key)}\n"
+            f"line: {line}"
+        )
+
+    # AC3.5 — legacy `errors=N` (without _auth/_transport/etc suffix) removed.
+    # Regex check: word-boundary `errors=` followed by digit must NOT match.
+    import re
+
+    legacy_errors_pattern = re.compile(r"\berrors=\d")
+    assert not legacy_errors_pattern.search(line), (
+        f"legacy `errors=N` standalone key should be REMOVED; line still has it:\n{line}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Issue #32 AC1.2 / AC1.3 — BuyerBestOffer allowlist (D7 fix)
 # ---------------------------------------------------------------------------
 
