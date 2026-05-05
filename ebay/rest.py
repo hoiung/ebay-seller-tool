@@ -113,10 +113,13 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
             "per_listing_summary": {
                 listing_id: {
                     "imp": int, "views": int, "tx_count": int,
-                    "ctr_pct": float | None, "conv_pct": float | None,
+                    "ctr_pct": float, "conv_pct": float,  # 0.0 not None — Issue #31 Stage 5
                 }
             } — pre-aggregated across days per listing, abbreviated keys.
             Records with listing_id=None are omitted from this dict.
+            ctr_pct/conv_pct emit 0.0 (NOT None) when imp==0 / no SCR records,
+            matching the demo Fetchers Protocol contract so the orchestrator's
+            `float(traffic.get("ctr_pct", 0.0))` does not raise on None.
         }
 
     Note on CLICK_THROUGH_RATE: the API-provided CTR field is unreliable
@@ -250,12 +253,19 @@ def parse_traffic_report_response(traffic: dict[str, Any]) -> dict[str, Any]:
     for lid, agg in per_listing_summary.items():
         # CTR computed from impressions+views (the API-provided CTR is
         # unreliable per the parse docstring); SCR averaged across days.
-        agg["ctr_pct"] = (
-            round(100.0 * agg["views"] / agg["imp"], 2) if agg["imp"] > 0 else None
-        )
-        agg["conv_pct"] = (
-            round(agg["_conv_sum"] / agg["_conv_n"], 2) if agg["_conv_n"] > 0 else None
-        )
+        # Issue #31 Stage 5 fix — emit 0.0 (NOT None) for zero-data cases.
+        # The ebay-ops Fetchers Protocol expects floats (`ctr_pct: float`,
+        # `conv_pct: float` — see ebay_ops/pricing/_demo.py:66, 75-79); the
+        # orchestrator at ebay_ops/pricing/orchestrator.py:178-179, 293-294
+        # does `float(traffic.get("ctr_pct", 0.0))` which raises TypeError
+        # on None (dict.get returns None when the key exists with a None
+        # value; the 0.0 default only fires for absent keys). Top-level
+        # descriptive keys (`sales_conversion_rate_pct` etc.) keep their
+        # None semantics — they're consumed by analyse_listing which already
+        # null-handles. Only per_listing_summary's Fetchers Protocol shape
+        # emits 0.0.
+        agg["ctr_pct"] = round(100.0 * agg["views"] / agg["imp"], 2) if agg["imp"] > 0 else 0.0
+        agg["conv_pct"] = round(agg["_conv_sum"] / agg["_conv_n"], 2) if agg["_conv_n"] > 0 else 0.0
         del agg["_conv_sum"]
         del agg["_conv_n"]
 
@@ -445,10 +455,10 @@ async def fetch_traffic_report(
             "search_view_share_pct": float | None,
             "organic_search_exposure_pct": float | None,
             "records_count": int,
-            "per_listing": [{"listing_id", "metrics", "summary"}, ...],
-            "per_listing_summary": {listing_id: {imp, views, tx_count, ...}},
-            # plus abbreviated aliases (imp / tx_count / conv_pct) for the
-            # ebay-ops Fetchers Protocol — see Phase 3 Gap 3.
+            "per_listing": [{"listing_id", "metrics"}, ...],
+            "per_listing_summary": {listing_id: {imp, views, tx_count, ctr_pct, conv_pct}},
+            # plus abbreviated aliases (imp / tx_count / conv_pct) at top level
+            # for the ebay-ops Fetchers Protocol — see Phase 3 Gap 3.
         }
 
     Quota + burst-retry behaviour: identical to ``fetch_traffic_report_raw``
