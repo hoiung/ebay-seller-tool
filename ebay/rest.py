@@ -8,12 +8,50 @@ Post-Order is STRICTLY read-only per never-dispute-customer rule.
 from __future__ import annotations
 
 import asyncio
+import re
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from ebay.client import log_debug
 from ebay.fees import _load_fees_config
 from ebay.oauth import get_oauth_session, get_post_order_session, raise_for_ebay_error
+
+
+class TrafficReportRateLimitError(RuntimeError):
+    """Raised by ``fetch_traffic_report`` after the burst-rate-limit retry
+    budget is exhausted (Issue #31 Phase 1).
+
+    Distinct from ``call_accountant.RateLimitError`` (which is the daily
+    quota gate, raised before any network round-trip). This error means
+    eBay returned HTTP 429 and the configured retry sequence did not
+    recover within ``total_wait_seconds``.
+
+    Carries enough metadata for callers to choose between fail-loud and
+    degrade-gracefully without re-parsing log lines:
+        attempts: int — total HTTP attempts made (>=1)
+        total_wait_seconds: float — wall-clock time spent in retry sleeps
+        last_error: str — the last upstream error message
+    """
+
+    def __init__(self, *, attempts: int, total_wait_seconds: float, last_error: str) -> None:
+        self.attempts = attempts
+        self.total_wait_seconds = total_wait_seconds
+        self.last_error = last_error
+        super().__init__(
+            f"traffic_report rate-limited: {attempts} attempts, "
+            f"waited {total_wait_seconds:.1f}s, last_error={last_error!r}"
+        )
+
+
+# Issue #31 Phase 1 — burst-window retry. Schedule chosen empirically:
+# observed cooldown >5min, so the first retry waits 5s (most opportunistic
+# recovery), the second 15s, the third 60s. Total wall-clock budget 80s
+# keeps the orchestrator responsive while giving any short-window throttle
+# a real chance to clear. Callers needing a longer budget pass overrides.
+_BURST_RETRY_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 15.0, 60.0)
+_BURST_RETRY_TOTAL_BUDGET_SECONDS: float = 80.0
+_RATE_LIMITED_MESSAGE_RE = re.compile(r"^eBay API 429\b")
 
 # Traffic Report metric list from research §5.
 _TRAFFIC_METRICS = (
@@ -215,6 +253,77 @@ def _sync_get_traffic_report(
     return response.json()
 
 
+def _is_rate_limited_error(exc: BaseException) -> bool:
+    """Issue #31 — detect HTTP 429 surfaced via ``oauth.raise_for_ebay_error``.
+
+    The oauth helper raises ``PermissionError("eBay API 429 on <url>: <body>")``
+    for any 4xx/5xx; we discriminate by status-code prefix so 401/403/5xx do
+    NOT trigger the burst-retry path (those need different recovery — token
+    refresh, fail-loud, etc).
+    """
+    if not isinstance(exc, PermissionError):
+        return False
+    return bool(_RATE_LIMITED_MESSAGE_RE.match(str(exc)))
+
+
+def _sync_get_traffic_report_with_retry(
+    listing_ids: list[str],
+    days: int,
+    marketplace_id: str,
+    *,
+    backoff_seconds: tuple[float, ...] = _BURST_RETRY_BACKOFF_SECONDS,
+    total_budget_seconds: float = _BURST_RETRY_TOTAL_BUDGET_SECONDS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    """Issue #31 Phase 1 — wrap ``_sync_get_traffic_report`` with bounded
+    retry-with-backoff for HTTP 429 burst-rate-limit responses.
+
+    Other errors (4xx non-429, 5xx, network drop, parse failures) propagate
+    on the first occurrence — burst-retry is opt-in for the specific 429
+    failure mode and must not mask different root causes.
+
+    ``sleep_fn`` and ``monotonic_fn`` are injected so tests can drive the
+    retry loop without burning real seconds. Production callers always use
+    the defaults.
+
+    Raises:
+        TrafficReportRateLimitError: once ``backoff_seconds`` and
+            ``total_budget_seconds`` are exhausted on consecutive 429s.
+        Exception: any non-429 upstream error, raised on the first attempt.
+    """
+    deadline = monotonic_fn() + total_budget_seconds
+    attempts = 0
+    total_wait = 0.0
+    last_error_message = ""
+    for backoff in (None,) + tuple(backoff_seconds):
+        if backoff is not None:
+            remaining_budget = deadline - monotonic_fn()
+            if remaining_budget <= 0:
+                break
+            wait_seconds = min(float(backoff), remaining_budget)
+            log_debug(
+                f"fetch_traffic_report 429_RETRY attempt={attempts + 1} "
+                f"wait_seconds={wait_seconds:.1f} total_wait={total_wait:.1f}"
+            )
+            sleep_fn(wait_seconds)
+            total_wait += wait_seconds
+        attempts += 1
+        try:
+            return _sync_get_traffic_report(listing_ids, days, marketplace_id)
+        except Exception as exc:  # noqa: BLE001 — discriminated below
+            if not _is_rate_limited_error(exc):
+                raise
+            last_error_message = str(exc)
+            if monotonic_fn() >= deadline:
+                break
+    raise TrafficReportRateLimitError(
+        attempts=attempts,
+        total_wait_seconds=total_wait,
+        last_error=last_error_message,
+    )
+
+
 async def fetch_traffic_report(
     listing_ids: list[str],
     days: int = 30,
@@ -226,13 +335,21 @@ async def fetch_traffic_report(
     call_accountant.account_call(api_namespace='sell_analytics'). Raises
     RateLimitError before contacting eBay if today's quota would be exceeded
     (#21 Phase 1).
+
+    Burst-rate-limit (Issue #31 Phase 1): on HTTP 429 the call retries with
+    backoff (5s, 15s, 60s; 80s wall-clock budget). After exhaustion raises
+    ``TrafficReportRateLimitError`` so the caller can degrade gracefully or
+    fail loud — the burst-retry logic stays out of every consumer.
     """
     # Quota gate first — fail loud BEFORE any network round-trip.
     from ebay.call_accountant import account_call  # noqa: PLC0415 — avoid import cycle
+
     account_call(api_namespace="sell_analytics")
     if marketplace_id is None:
         marketplace_id = str(_load_fees_config()["ebay_uk"]["marketplace_id"])
-    return await asyncio.to_thread(_sync_get_traffic_report, listing_ids, days, marketplace_id)
+    return await asyncio.to_thread(
+        _sync_get_traffic_report_with_retry, listing_ids, days, marketplace_id
+    )
 
 
 def _sync_get_listing_returns(item_id: str, days: int) -> dict[str, Any]:
