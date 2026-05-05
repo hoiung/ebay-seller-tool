@@ -330,6 +330,80 @@ def test_per_item_sweep_aborts_on_auth_error_code_932() -> None:
     assert mock_call.call_count == 1
 
 
+def test_per_item_sweep_handles_minimal_offer_node_gracefully() -> None:
+    """Mini-Stage-5 L1-C TEST-GAP follow-up: investigated the 'parse-side
+    raise' concern from the swarm. `_parse_offer_node` is fully defensive:
+    every `getattr(node, ATTR, None)` falls back to a safe sentinel,
+    so a malformed BestOffer node degrades to an empty-string dict
+    rather than raising. This test pins that defence so a future refactor
+    that reintroduces strict-mode parsing must update the per-item
+    try/except scope deliberately."""
+    minimal_offer = SimpleNamespace(
+        BestOfferID="bare",
+        Buyer=None,
+        Price=None,
+        BuyerMessage=None,
+        ReceivedTime=None,
+        ExpirationTime=None,
+        BestOfferCodeType=None,
+        Quantity=None,
+    )
+    minimal_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=minimal_offer))
+    with patch("ebay.client.execute_with_retry", return_value=_make_response(minimal_reply)):
+        result = _run(get_pending_best_offers(item_ids=["i_bare"]))
+    # No raise — defensive parser yields one row with empty / default fields
+    assert len(result) == 1
+    row = result[0]
+    assert row["offer_id"] == "bare"
+    assert row["item_id"] == "i_bare"
+    assert row["buyer_offer_gbp"] == 0.0  # Price=None → defaults to 0.0
+    assert row["quantity"] == 1  # Quantity=None → defaults to 1 via _coerce_quantity
+    assert row["buyer_user_id"] == ""
+
+
+def test_per_item_sweep_realistic_22_listings_with_mid_failure() -> None:
+    """Mini-Stage-5 L1-C TEST-GAP: realistic 22-listing sweep where most
+    listings have no offers (code 20140), one transient transport error
+    fires mid-sweep (item 11), one listing has a real offer (item 22).
+    Verifies items 12-21 are still polled despite the mid-sweep blip
+    AND the real offer at the tail is surfaced — i.e. no SPoF and no
+    silent abandonment past the error."""
+    fake_offer = SimpleNamespace(
+        BestOfferID="off_real",
+        Buyer=SimpleNamespace(UserID="buyer"),
+        Price=SimpleNamespace(value=80.00),
+        BuyerMessage="",
+        ReceivedTime="2026-05-04T14:00:00Z",
+        ExpirationTime="2026-05-06T14:00:00Z",
+        BestOfferCodeType="ManualBestOffer",
+        Quantity=2,
+    )
+    real_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=fake_offer))
+    no_offers_err = _stub_ebay_error("20140", "Best Offers Not Found")
+    transient_err = TimeoutError("transient transport blip")
+
+    # 22 listings — 21 empty, 1 with offer at the tail. Item 11 hits a
+    # transient error (not auth, not 20140). The sweep should:
+    # - skipped_no_offers count = 20 (items 1-10, 12-21)
+    # - skipped_errors count = 1 (item 11)
+    # - offers_found = 1 (item 22)
+    # - all 22 items polled (mock.call_count == 22)
+    side_effects = (
+        [no_offers_err] * 10  # items 1-10
+        + [transient_err]      # item 11
+        + [no_offers_err] * 10 # items 12-21
+        + [_make_response(real_reply)]  # item 22
+    )
+    item_ids = [f"i{n}" for n in range(1, 23)]
+    with patch("ebay.client.execute_with_retry", side_effect=side_effects) as mock_call:
+        result = _run(get_pending_best_offers(item_ids=item_ids))
+
+    assert mock_call.call_count == 22, "all 22 listings must be polled"
+    assert len(result) == 1, "the one real offer must be surfaced"
+    assert result[0]["item_id"] == "i22"
+    assert result[0]["quantity"] == 2
+
+
 def test_per_item_sweep_does_not_misclassify_other_error_as_no_offers() -> None:
     """Mini-Stage-5 GAP-A — code-set match (not substring) means a different
     eBay error code does NOT get silently swallowed as 'no offers'. Pre-fix
