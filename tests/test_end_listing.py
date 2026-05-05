@@ -344,6 +344,59 @@ def test_default_ending_reason_is_not_available() -> None:
     assert result["ending_reason"] == "NotAvailable"
 
 
+def test_auth_codes_canonical_location() -> None:
+    """Issue #32 AC2.5 — _AUTH_ERROR_CODES + _NON_RESPONDABLE_CODES are
+    importable from ebay.end_listing with the documented membership.
+
+    Single-source-of-truth check: best_offers.py + respond_best_offers.py
+    both import from this module; pinning membership prevents silent drift.
+    """
+    from ebay.end_listing import _AUTH_ERROR_CODES, _NON_RESPONDABLE_CODES
+
+    assert isinstance(_AUTH_ERROR_CODES, frozenset)
+    assert _AUTH_ERROR_CODES == {"932", "16110", "17470", "21917"}
+    assert isinstance(_NON_RESPONDABLE_CODES, frozenset)
+    # JBGE — only 21940 has live evidence (m.k_1978 cron loop, 2026-05-04..05).
+    # Future expansion requires evidence in commit message.
+    assert _NON_RESPONDABLE_CODES == {"21940"}
+
+
+def test_auth_codes_no_duplicate_definitions() -> None:
+    """Issue #32 AC2.3 — `^_AUTH_ERROR_CODES = frozenset` matches EXACTLY one
+    line across the ebay-seller-tool repo (the canonical location in
+    `ebay/end_listing.py`). Phase 2 deleted the duplicates from
+    `ebay/best_offers.py` and `respond_best_offers.py`.
+
+    The cross-repo half (ebay-ops responder script) is verified out-of-band
+    via grep across both repos — see Issue #32 AC2.3.
+    """
+    import subprocess
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            "grep",
+            "-rn",
+            "--include=*.py",
+            "^_AUTH_ERROR_CODES = frozenset",
+            str(repo_root / "ebay"),
+            str(repo_root / "tests"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    matches = [line for line in result.stdout.splitlines() if line.strip()]
+    assert len(matches) == 1, (
+        f"_AUTH_ERROR_CODES must be defined ONCE; got {len(matches)} matches:\n"
+        + "\n".join(matches)
+    )
+    assert "ebay/end_listing.py" in matches[0], (
+        f"canonical location is ebay/end_listing.py; got: {matches[0]!r}"
+    )
+
+
 def test_mcp_tool_wrapper_returns_json_envelope() -> None:
     """server.end_listing wraps ValueError → {"error": ...} JSON envelope."""
     import json
