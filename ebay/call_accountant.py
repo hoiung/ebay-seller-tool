@@ -26,7 +26,9 @@ import fcntl
 import json
 import os
 import tempfile
+import threading
 import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -39,6 +41,28 @@ CALL_CAPS: dict[str, int] = {
     # via account_call(api_namespace='sell_analytics'). #21 Phase 1.
     "sell_analytics": 9600,
 }
+
+# Issue #31 — burst-window awareness for Sell Analytics. The daily counter
+# above is the documented quota; the burst is a separate, undocumented
+# per-window throttle. Empirical observation 2026-05-05: ~22 sequential
+# per-listing traffic_report calls in ~22s triggered HTTP 429 with a
+# cooldown >5 minutes. Window size + ceiling are not in eBay docs, so the
+# tracker logs a WARNING when call frequency approaches the empirical
+# trigger band — it never blocks, never gates. Operator visibility only.
+#
+# Per-namespace config: (window_seconds, calls_threshold). When
+# threshold+1 calls fire inside window_seconds, log_debug emits a warning
+# tagged `burst_window_warn`. Conservative thresholds because the real
+# ceiling is unknown — we'd rather over-warn than miss a 429 wave.
+BURST_WINDOWS: dict[str, tuple[int, int]] = {
+    "sell_analytics": (30, 10),
+}
+_BURST_RECENT: dict[str, deque[float]] = {}
+_BURST_LOCK = threading.Lock()
+_BURST_LAST_WARN: dict[str, float] = {}
+# Don't spam the warn log — emit at most once per window-second-budget
+# while the burst-state persists.
+_BURST_WARN_COOLDOWN_SECONDS = 30.0
 
 # Stage 5 fix L1.G M16 — load-bearing safety margin between "send" and
 # "exhausted budget for read-side calls". Named so callers (ebay_reply.py
@@ -73,8 +97,9 @@ class RateLimitError(CallAccountantError):
     Phase 1.
     """
 
-    def __init__(self, *, api_namespace: str, remaining: int, cap: int,
-                 expected_calls: int = 1) -> None:
+    def __init__(
+        self, *, api_namespace: str, remaining: int, cap: int, expected_calls: int = 1
+    ) -> None:
         self.api_namespace = api_namespace
         self.remaining = remaining
         self.cap = cap
@@ -263,6 +288,61 @@ def daily_budget_remaining(call_name: str, daily_cap: int | None = None) -> int:
     return cap - today_count(call_name)
 
 
+def _record_burst_call(api_namespace: str, now: float | None = None) -> None:
+    """Log a burst-window warning when ``api_namespace`` calls are firing
+    fast enough to risk tripping eBay's undocumented per-window throttle.
+
+    Issue #31 — never gates the call. The daily quota gate above is the
+    only blocking layer; this is operator-visible logging only. Window +
+    threshold from ``BURST_WINDOWS``; namespaces without an entry are
+    silently skipped (no tracking overhead for unmeasured surfaces).
+
+    Lock-protected so concurrent threads (e.g. asyncio.to_thread from
+    fetch_traffic_report fanned out by an orchestrator) do not race the
+    deque or the warn-cooldown timestamp.
+    """
+    cfg = BURST_WINDOWS.get(api_namespace)
+    if cfg is None:
+        return
+    window_seconds, threshold = cfg
+    t = now if now is not None else time.monotonic()
+    with _BURST_LOCK:
+        recent = _BURST_RECENT.setdefault(api_namespace, deque())
+        recent.append(t)
+        cutoff = t - window_seconds
+        while recent and recent[0] < cutoff:
+            recent.popleft()
+        count = len(recent)
+        if count >= threshold:
+            last_warn = _BURST_LAST_WARN.get(api_namespace, 0.0)
+            if (t - last_warn) >= _BURST_WARN_COOLDOWN_SECONDS:
+                _BURST_LAST_WARN[api_namespace] = t
+                # Defer log import to avoid a circular ebay.client → call_accountant
+                # path at module load.
+                try:
+                    from ebay.client import log_debug  # noqa: PLC0415
+                except Exception:  # noqa: BLE001 — observability must never break the call
+                    return
+                log_debug(
+                    f"call_accountant burst_window_warn namespace={api_namespace} "
+                    f"calls={count} window_seconds={window_seconds} "
+                    f"threshold={threshold} — approaching the empirically-observed "
+                    f"burst-throttle band; consider throttling or batching"
+                )
+
+
+def reset_burst_tracker(api_namespace: str | None = None) -> None:
+    """Clear the in-process burst-window tracker. Tests use this between
+    cases; production callers never call it. ``None`` clears every namespace."""
+    with _BURST_LOCK:
+        if api_namespace is None:
+            _BURST_RECENT.clear()
+            _BURST_LAST_WARN.clear()
+        else:
+            _BURST_RECENT.pop(api_namespace, None)
+            _BURST_LAST_WARN.pop(api_namespace, None)
+
+
 def account_call(*, api_namespace: str, expected_calls: int = 1) -> None:
     """Pre-flight quota check + record one call for an API namespace. #21 Phase 1.
 
@@ -279,6 +359,11 @@ def account_call(*, api_namespace: str, expected_calls: int = 1) -> None:
     (regardless of ``expected_calls`` — one ``account_call`` invocation =
     one logical API call recorded). The counter is independent from any
     Trading verb counter even when caller_name happens to coincide.
+
+    Burst-window awareness (#31): in addition to the daily counter, track
+    rolling per-window call frequency for namespaces in ``BURST_WINDOWS``
+    and log a warning when frequency approaches the empirical trigger band.
+    Never gates — only the daily quota above blocks.
     """
     remaining = daily_budget_remaining(api_namespace)
     cap = CALL_CAPS.get(api_namespace, CALL_CAPS["_default"])
@@ -290,3 +375,4 @@ def account_call(*, api_namespace: str, expected_calls: int = 1) -> None:
             expected_calls=expected_calls,
         )
     record_call(api_namespace)
+    _record_burst_call(api_namespace)
