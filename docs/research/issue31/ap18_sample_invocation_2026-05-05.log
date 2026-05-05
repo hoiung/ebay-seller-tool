@@ -1,0 +1,41 @@
+[ebay-seller-tool 2026-05-05T02:33:48.591] OAUTH refreshing user-token
+[ebay-seller-tool 2026-05-05T02:33:49.167] fetch_traffic_report 429_RETRY attempt=2 wait_seconds=5.0 total_wait=0.0
+[ebay-seller-tool 2026-05-05T02:33:54.394] fetch_traffic_report 429_RETRY attempt=3 wait_seconds=15.0 total_wait=5.0
+[ebay-seller-tool 2026-05-05T02:34:09.632] fetch_traffic_report 429_RETRY attempt=4 wait_seconds=59.0 total_wait=20.0
+[ebay-seller-tool 2026-05-05T02:35:16.249] fetch_traffic_report 429_RETRY attempt=2 wait_seconds=5.0 total_wait=0.0
+[ebay-seller-tool 2026-05-05T02:35:21.448] fetch_traffic_report 429_RETRY attempt=3 wait_seconds=15.0 total_wait=5.0
+[ebay-seller-tool 2026-05-05T02:35:40.268] fetch_traffic_report 429_RETRY attempt=4 wait_seconds=59.3 total_wait=20.0
+[ebay-seller-tool 2026-05-05T02:37:17.338] fetch_traffic_report 429_RETRY attempt=2 wait_seconds=5.0 total_wait=0.0
+[ebay-seller-tool 2026-05-05T02:37:26.200] fetch_traffic_report 429_RETRY attempt=3 wait_seconds=15.0 total_wait=5.0
+[ebay-seller-tool 2026-05-05T02:37:41.470] fetch_traffic_report 429_RETRY attempt=4 wait_seconds=59.2 total_wait=20.0
+Loaded 22 listing ids from /tmp/ebay-listings-live.json
+AP #18: 2 runs separated by 30s (< 120s — burst-window contract)
+
+[raw spot-check] fetch_traffic_report_raw → eBay JSON…
+[raw spot-check] FAIL  TrafficReportRateLimitError: traffic_report rate-limited: 4 attempts, waited 79.0s, last_error='eBay API 429 on https://api.ebay.com/sell/analytics/v1/traffic_report?dimension=LISTING%2CDAY&metric=CLICK_THROUGH_RATE%2CLISTING_IMPRESSION_SEARCH_RESULTS_PAGE%2CLISTING_IMPRESSION_STORE%2CLISTING_IMPRESSION_TOTAL%2CLISTING_VIEWS_SOURCE_SEARCH_RESULTS_PAGE%2CLISTING_VIEWS_TOTAL%2CSALES_CONVERSION_RATE%2CTRANSACTION&filter=marketplace_ids%3A%7BEBAY_GB%7D%2Clisting_ids%3A%7B287260458724%7C287192992984%7C287193037693%7D%2Cdate_range%3A%5B2026-04-05T00%3A00%3A00.000Z..2026-05-05T23%3A59%3A59.999Z%5D: { "errors": [ { "errorId": 2001, "domain": "ACCESS", "category": "REQUEST", "message": "Too many requests.", "longMessage": "The request limit has been reached for the resource." } ] }'
+
+[run-1] fetch_traffic_report(22 ids, days=30)…
+[run-1] BURST-LIMIT-EXHAUSTED in 80.3s  attempts=4  total_wait=79.3043929800624s
+
+Sleeping 30s before run-2…
+
+[run-2] fetch_traffic_report(22 ids, days=30)…
+[run-2] BURST-LIMIT-EXHAUSTED in 80.3s  attempts=4  total_wait=79.16356181004085s
+
+=== AP #18 Evidence ===
+{
+  "run1": {
+    "label": "run-1",
+    "outcome": "rate_limit_exhausted",
+    "elapsed_seconds": 80.27,
+    "attempts": 4,
+    "total_wait_seconds": 79.3043929800624
+  },
+  "run2": {
+    "label": "run-2",
+    "outcome": "rate_limit_exhausted",
+    "elapsed_seconds": 80.26,
+    "attempts": 4,
+    "total_wait_seconds": 79.16356181004085
+  }
+}
