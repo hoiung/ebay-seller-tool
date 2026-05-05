@@ -568,7 +568,9 @@ def test_get_pending_best_offers_only_seller_counter_returns_empty() -> None:
     )
     fake_reply = SimpleNamespace(BestOfferArray=SimpleNamespace(BestOffer=seller_only))
 
-    with patch("ebay.client.execute_with_retry", return_value=_make_response(fake_reply)) as mock_call:
+    with patch(
+        "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
+    ) as mock_call:
         result = _run(get_pending_best_offers(item_ids=["264666106"]))
 
     assert result == []
