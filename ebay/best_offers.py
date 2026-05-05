@@ -22,6 +22,7 @@ constraint #4: NO new MCP tool).
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Literal
 
 # Action enum for respond_to_best_offer — Literal type narrows callers.
@@ -164,14 +165,15 @@ async def get_pending_best_offers(
 
     # Per-item iteration mode — one GetBestOffers call per listing ID.
     from ebay.client import log_warn  # noqa: PLC0415
-    # Issue #32 Phase 2 — _AUTH_ERROR_CODES sourced from end_listing.py
-    # (canonical single location across both consumers). Mini-Stage-5 GAP-C
-    # behaviour preserved: per-item sweep MUST raise on auth-error rather
-    # than log+continue, so expired tokens abort loud-and-fast instead of
-    # silently producing a "polled=22 errors=22 offers_found=0" log line
-    # that looks like a quiet day.
+    # Issue #32 Phase 2+4 — _AUTH_ERROR_CODES + _classify_ebay_error_codes
+    # sourced from end_listing.py (canonical single location across both
+    # consumers). Mini-Stage-5 GAP-C behaviour preserved: per-item sweep
+    # MUST raise on auth-error rather than log+continue, so expired tokens
+    # abort loud-and-fast instead of silently producing a misleading
+    # "errors=22 offers_found=0" log line that looks like a quiet day.
     from ebay.end_listing import (  # noqa: PLC0415
         _AUTH_ERROR_CODES,
+        _classify_ebay_error_codes,
         _extract_ebay_error_codes,
     )
 
@@ -180,7 +182,15 @@ async def get_pending_best_offers(
     )
     offers: list[dict[str, Any]] = []
     skipped_no_offers = 0
-    skipped_errors = 0
+    # Issue #32 Phase 3 — replace single `skipped_errors` counter with 4-way
+    # split via _classify_ebay_error_codes. Auth path raises (sweep abort),
+    # so errors_auth + errors_non_respondable would be 0 at emit time on the
+    # GET path; tracked anyway for schema-symmetry with the responder script.
+    errors_auth = 0
+    errors_non_respondable = 0
+    errors_transport = 0
+    errors_other = 0
+    sweep_start_ns = time.monotonic_ns()
     for item_id in item_ids:
         if not item_id:
             continue
@@ -231,11 +241,30 @@ async def get_pending_best_offers(
             # log + skip this item; the next 30-min cron cycle re-polls from
             # eBay's truth. Burning the whole sweep on one transient 5xx would
             # punish 21 listings for one item's hiccup.
+            #
+            # Issue #32 Phase 3+4 — bucket via _classify_ebay_error_codes so
+            # the per-sweep stats line exposes auth/non_respondable/transport/
+            # other counts separately. Auth would have raised above (sweep
+            # abort), so this branch only sees non-auth classes.
+            err_class = _classify_ebay_error_codes(ebay_codes, err_text)
+            if err_class == "auth":
+                # Defence-in-depth — auth detected via substring fallback
+                # (no codes parsed). Mirror the codes-path: abort the sweep.
+                log_warn(
+                    f"get_pending_best_offers: AUTH ERROR on ItemID={item_id} "
+                    f"(substring-detected, no parseable codes); aborting sweep"
+                )
+                raise
+            if err_class == "non_respondable":
+                errors_non_respondable += 1
+            elif err_class == "transport":
+                errors_transport += 1
+            else:
+                errors_other += 1
             log_warn(
                 f"get_pending_best_offers: per-item poll failed for ItemID={item_id} "
-                f"({type(e).__name__}: {err_text[:200]}); skipping this listing"
+                f"class={err_class} ({type(e).__name__}: {err_text[:200]}); skipping this listing"
             )
-            skipped_errors += 1
             continue
 
         # Per-item shape: <BestOfferArray><BestOffer>… directly under reply.
@@ -263,14 +292,19 @@ async def get_pending_best_offers(
                     continue
                 offers.append(parsed)
 
-    # Mini-Stage-5 GAP-D fix: emit per-sweep stats unconditionally for
-    # audit symmetry. The healthy-sweep case (polled=22 no_offers=0
-    # errors=0 offers_found=N) is exactly when the operator wants to
-    # confirm the sweep ran cleanly. Fixed-cost log line (1 per cron tick).
+    # Issue #32 Phase 3 — emit 8-key stats line unconditionally for audit
+    # symmetry + observability of D5/D7 axes. Replaces the legacy 4-key
+    # (polled/no_offers/errors/offers_found) format with the
+    # auth/non_respondable/transport/other split. wall_clock_ms via
+    # time.monotonic_ns() delta — operator's signal for sweep-duration
+    # regressions on the per-item path. Fixed-cost log line (1 per cron tick).
+    wall_clock_ms = (time.monotonic_ns() - sweep_start_ns) // 1_000_000
     log_debug(
         f"get_pending_best_offers: per-item sweep stats — "
         f"polled={len(item_ids)} no_offers={skipped_no_offers} "
-        f"errors={skipped_errors} offers_found={len(offers)}"
+        f"errors_auth={errors_auth} errors_non_respondable={errors_non_respondable} "
+        f"errors_transport={errors_transport} errors_other={errors_other} "
+        f"offers_found={len(offers)} wall_clock_ms={wall_clock_ms}"
     )
 
     log_debug(
