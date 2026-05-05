@@ -140,7 +140,7 @@ def _build_offer(
         "buyer_message": "",
         "offer_timestamp_iso": offer_timestamp_iso,
         "expiration_iso": "2026-05-04T14:30:00Z",
-        "best_offer_code_type": "ManualBestOffer",
+        "best_offer_code_type": "BuyerBestOffer",
         "quantity": quantity,
     }
 
