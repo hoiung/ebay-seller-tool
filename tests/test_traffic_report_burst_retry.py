@@ -225,14 +225,13 @@ def test_rate_limit_message_regex_matches_only_429() -> None:
     assert not _is_rate_limited_error(ValueError("not an ebay error"))
 
 
-def test_async_fetch_traffic_report_propagates_through_to_thread() -> None:
-    """Public async surface fetch_traffic_report wires through to the retry
-    helper. Patches the sync helper so the public path is verified end-to-end
-    without hitting eBay (or the call_accountant ledger)."""
+def test_async_fetch_traffic_report_raw_propagates_through_to_thread() -> None:
+    """Issue #31 Phase 2 — ``fetch_traffic_report_raw`` returns the eBay
+    JSON unparsed. Patches the sync helper so the raw public surface is
+    verified end-to-end without hitting eBay or the call_accountant ledger."""
     fake_payload = {"header": {"metrics": []}, "records": []}
 
     def fake_sync_with_retry(ids, days, marketplace, **_kwargs):
-        # The async wrapper passes positional listing_ids, days, marketplace.
         assert ids == ["111", "222"]
         assert days == 30
         assert marketplace == "EBAY_GB"
@@ -242,7 +241,7 @@ def test_async_fetch_traffic_report_propagates_through_to_thread() -> None:
         patch("ebay.call_accountant.account_call"),  # bypass quota gate
         patch.object(rest, "_sync_get_traffic_report_with_retry", side_effect=fake_sync_with_retry),
     ):
-        result = _run(rest.fetch_traffic_report(["111", "222"], days=30))
+        result = _run(rest.fetch_traffic_report_raw(["111", "222"], days=30))
     assert result is fake_payload
 
 

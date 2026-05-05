@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
+from ebay import rest
 
 
 def _reply(**kwargs: object) -> SimpleNamespace:
@@ -151,27 +152,32 @@ def test_analyse_listing_phase2_backfills_views(tmp_path, monkeypatch) -> None:
         return {"listings": []}
 
     async def fake_fetch_traffic_report(*_, **__):
-        return {
-            "header": {
-                "metrics": [
-                    {"key": "LISTING_IMPRESSION_TOTAL"},
-                    {"key": "LISTING_VIEWS_TOTAL"},
-                    {"key": "TRANSACTION"},
-                    {"key": "SALES_CONVERSION_RATE"},
-                ]
-            },
-            "records": [
-                {
-                    "dimensionValues": [{"value": "999", "applicable": True}],
-                    "metricValues": [
-                        {"value": 3474, "applicable": True},
-                        {"value": 76, "applicable": True},
-                        {"value": 5, "applicable": True},
-                        {"value": 0.06, "applicable": True},
-                    ],
-                }
-            ],
-        }
+        # Issue #31 Phase 2 — fetch_traffic_report is parsed-by-default; the
+        # fake returns the parsed shape directly via the same parser server.py
+        # would call, keeping wire-format ↔ summary fidelity in test data.
+        return rest.parse_traffic_report_response(
+            {
+                "header": {
+                    "metrics": [
+                        {"key": "LISTING_IMPRESSION_TOTAL"},
+                        {"key": "LISTING_VIEWS_TOTAL"},
+                        {"key": "TRANSACTION"},
+                        {"key": "SALES_CONVERSION_RATE"},
+                    ]
+                },
+                "records": [
+                    {
+                        "dimensionValues": [{"value": "999", "applicable": True}],
+                        "metricValues": [
+                            {"value": 3474, "applicable": True},
+                            {"value": 76, "applicable": True},
+                            {"value": 5, "applicable": True},
+                            {"value": 0.06, "applicable": True},
+                        ],
+                    }
+                ],
+            }
+        )
 
     async def fake_rest_compute_return_rate(**_):
         return {"return_rate_pct": None}
@@ -429,29 +435,33 @@ def test_analyse_listing_surfaces_best_offer_thresholds_when_recommended(
         return {"transactions": [], "entries": [], "open_cases": 0, "listings": []}
 
     async def fake_fetch_traffic_report(*_, **__):
-        # Above-floor price + watchers + zero sales + stale listing -> drives
-        # diagnose_listing toward "Drop price 5-8% or enable Best Offer." action.
-        return {
-            "header": {
-                "metrics": [
-                    {"key": "LISTING_IMPRESSION_TOTAL"},
-                    {"key": "LISTING_VIEWS_TOTAL"},
-                    {"key": "TRANSACTION"},
-                    {"key": "SALES_CONVERSION_RATE"},
-                ]
-            },
-            "records": [
-                {
-                    "dimensionValues": [{"value": "999", "applicable": True}],
-                    "metricValues": [
-                        {"value": 1500, "applicable": True},  # impressions
-                        {"value": 100, "applicable": True},  # views
-                        {"value": 0, "applicable": True},  # transactions
-                        {"value": 0.0, "applicable": True},  # conversion
-                    ],
-                }
-            ],
-        }
+        # Issue #31 Phase 2 — fetch_traffic_report is parsed-by-default; the
+        # fake returns the parsed shape directly. Above-floor price + watchers
+        # + zero sales + stale listing -> drives diagnose_listing toward
+        # "Drop price 5-8% or enable Best Offer." action.
+        return rest.parse_traffic_report_response(
+            {
+                "header": {
+                    "metrics": [
+                        {"key": "LISTING_IMPRESSION_TOTAL"},
+                        {"key": "LISTING_VIEWS_TOTAL"},
+                        {"key": "TRANSACTION"},
+                        {"key": "SALES_CONVERSION_RATE"},
+                    ]
+                },
+                "records": [
+                    {
+                        "dimensionValues": [{"value": "999", "applicable": True}],
+                        "metricValues": [
+                            {"value": 1500, "applicable": True},  # impressions
+                            {"value": 100, "applicable": True},  # views
+                            {"value": 0, "applicable": True},  # transactions
+                            {"value": 0.0, "applicable": True},  # conversion
+                        ],
+                    }
+                ],
+            }
+        )
 
     async def fake_rest_compute_return_rate(**_):
         return {"return_rate_pct": None}

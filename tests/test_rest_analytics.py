@@ -38,21 +38,60 @@ def _fake_client_with_response(status: int, json_payload: object) -> MagicMock:
 
 
 def test_traffic_report_days_bounds() -> None:
+    # Validation lives in the sync helper which both _raw and parsed paths share;
+    # exercise via _raw to avoid double-parsing on a path that should never reach parse.
     with pytest.raises(ValueError, match="days must be"):
-        _run(rest.fetch_traffic_report(["111"], days=0))
+        _run(rest.fetch_traffic_report_raw(["111"], days=0))
     with pytest.raises(ValueError, match="days must be"):
-        _run(rest.fetch_traffic_report(["111"], days=91))
+        _run(rest.fetch_traffic_report_raw(["111"], days=91))
 
 
 def test_traffic_report_empty_ids() -> None:
     with pytest.raises(ValueError, match="listing_ids"):
-        _run(rest.fetch_traffic_report([], days=30))
+        _run(rest.fetch_traffic_report_raw([], days=30))
 
 
-def test_traffic_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Real API shape: header.metrics[i].key + records[i].metricValues[i] positional.
-    # The old fake shape ({"metrics": [{"metricKey": ..., "value": ...}]}) silently
-    # locked in a parser bug (AC-1.3 contract fix).
+def test_traffic_report_raw_returns_ebay_wire_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #31 Phase 2 — ``fetch_traffic_report_raw`` returns the eBay
+    JSON exactly as received. Filter-string construction is the AP #18
+    contract assertion."""
+    fake_payload = {
+        "header": {
+            "metrics": [
+                {"key": "LISTING_IMPRESSION_TOTAL"},
+                {"key": "LISTING_VIEWS_TOTAL"},
+                {"key": "TRANSACTION"},
+                {"key": "SALES_CONVERSION_RATE"},
+            ]
+        },
+        "records": [
+            {
+                "dimensionValues": [{"value": "111", "applicable": True}],
+                "metricValues": [
+                    {"value": 500, "applicable": True},
+                    {"value": 20, "applicable": True},
+                    {"value": 2, "applicable": True},
+                    {"value": 0.1, "applicable": True},
+                ],
+            }
+        ],
+    }
+    fake_client = _fake_client_with_response(200, fake_payload)
+    with patch("ebay.rest.get_oauth_session", return_value=fake_client):
+        result = _run(rest.fetch_traffic_report_raw(["111", "222"], days=30))
+    assert "records" in result
+    assert "header" in result
+    # AP #18: verify filter construction
+    call_args = fake_client.get.call_args
+    params = call_args.kwargs.get("params") or call_args.args[1]
+    assert "listing_ids:{111|222}" in params["filter"]
+    assert "marketplace_ids:{EBAY_GB}" in params["filter"]
+
+
+def test_traffic_report_parsed_default_returns_decoded_shape() -> None:
+    """Issue #31 Phase 2 — ``fetch_traffic_report`` is parsed-by-default.
+    Same upstream payload as the raw test; assertion is on the parsed
+    aggregate keys, NOT the raw eBay wire shape."""
     fake_payload = {
         "header": {
             "metrics": [
@@ -77,20 +116,16 @@ def test_traffic_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_client = _fake_client_with_response(200, fake_payload)
     with patch("ebay.rest.get_oauth_session", return_value=fake_client):
         result = _run(rest.fetch_traffic_report(["111", "222"], days=30))
-    assert "records" in result
-    # AP #18: verify filter construction
-    call_args = fake_client.get.call_args
-    params = call_args.kwargs.get("params") or call_args.args[1]
-    assert "listing_ids:{111|222}" in params["filter"]
-    assert "marketplace_ids:{EBAY_GB}" in params["filter"]
-
-    # Contract: parser decodes positional metricValues against header.metrics[i].key
-    summary = rest.parse_traffic_report_response(result)
-    assert summary["impressions"] == 500
-    assert summary["views"] == 20
-    assert summary["transactions"] == 2
-    assert summary["ctr_pct"] == 4.0  # 100 * 20 / 500
-    assert summary["sales_conversion_rate_pct"] == 10.0  # 0.1 * 100 (decimal → percent)
+    # Parsed-by-default contract: callers receive the decoded aggregate
+    # without having to know about parse_traffic_report_response.
+    assert result["impressions"] == 500
+    assert result["views"] == 20
+    assert result["transactions"] == 2
+    assert result["ctr_pct"] == 4.0
+    assert result["sales_conversion_rate_pct"] == 10.0
+    # Raw eBay shape NOT exposed at this surface.
+    assert "header" not in result
+    assert "records" not in result
 
 
 def test_traffic_report_real_fixture_parses() -> None:
