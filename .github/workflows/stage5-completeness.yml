@@ -41,6 +41,12 @@ jobs:
           repository: hoiung/dotfiles
           ref: master
           path: dotfiles
+          # Cross-repo private-repo checkout requires a fine-grained PAT
+          # (#473 / #477 Phase 8). DOTFILES_READ_TOKEN is scoped Contents:Read
+          # on hoiung/dotfiles ONLY. No-op for harness-side runs (same-repo
+          # checkout works without the token); load-bearing for consumer-side
+          # runs where default GITHUB_TOKEN is repo-scoped to the consumer.
+          token: ${{ secrets.DOTFILES_READ_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
