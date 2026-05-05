@@ -362,6 +362,21 @@ def test_validate_best_offer_config_rejects_zero_qty_key() -> None:
         )
 
 
+def test_validate_best_offer_config_rejects_round_down_false() -> None:
+    """Stage 5 follow-up: round_down_to_pound=False is rejected at validate
+    time because the responder script (respond_best_offers.py) hardcodes
+    math.floor() regardless of this flag — the two surfaces would silently
+    diverge if false were allowed."""
+    with pytest.raises(ValueError, match="round_down_to_pound=False is not currently supported"):
+        _validate_best_offer_config(
+            {
+                "qty_tiers": {1: 0.95, 2: 0.925, "default": 0.90},
+                "auto_decline_pct": 0.75,
+                "round_down_to_pound": False,
+            }
+        )
+
+
 def test_validate_best_offer_config_rejects_non_bool_round_down() -> None:
     """round_down_to_pound must be bool; reject str 'true', int 1, etc."""
     with pytest.raises(ValueError, match="round_down_to_pound"):
