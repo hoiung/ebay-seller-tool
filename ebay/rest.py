@@ -324,12 +324,19 @@ def _sync_get_traffic_report_with_retry(
     )
 
 
-async def fetch_traffic_report(
+async def fetch_traffic_report_raw(
     listing_ids: list[str],
     days: int = 30,
     marketplace_id: str | None = None,
 ) -> dict[str, Any]:
-    """REST Analytics traffic_report. marketplace_id defaults to config/fees.yaml value.
+    """REST Analytics traffic_report — RAW eBay JSON shape (Issue #31 Phase 2).
+
+    Returns the raw eBay response (``header.metrics`` + ``records[*].dimensionValues``
+    + ``records[*].metricValues``). Most callers should use ``fetch_traffic_report``
+    instead, which applies ``parse_traffic_report_response`` and returns the
+    decoded shape. This raw variant exists for tests that need to assert on
+    eBay's wire format and for advanced callers that handle the positional
+    decode themselves.
 
     Quota: each invocation accounts for one logical Sell Analytics call via
     call_accountant.account_call(api_namespace='sell_analytics'). Raises
@@ -350,6 +357,41 @@ async def fetch_traffic_report(
     return await asyncio.to_thread(
         _sync_get_traffic_report_with_retry, listing_ids, days, marketplace_id
     )
+
+
+async def fetch_traffic_report(
+    listing_ids: list[str],
+    days: int = 30,
+    marketplace_id: str | None = None,
+) -> dict[str, Any]:
+    """REST Analytics traffic_report — PARSED shape (Issue #31 Phase 2).
+
+    Public surface for the orchestrator + MCP tools. Calls
+    ``fetch_traffic_report_raw`` then applies
+    ``parse_traffic_report_response`` so callers receive the decoded
+    aggregate + per-listing breakdown directly.
+
+    Returned shape (see ``parse_traffic_report_response`` for the full
+    documentation):
+        {
+            "impressions": int, "views": int, "transactions": int,
+            "ctr_pct": float | None, "sales_conversion_rate_pct": float | None,
+            "search_impression_share_pct": float | None,
+            "store_impression_share_pct": float | None,
+            "search_view_share_pct": float | None,
+            "organic_search_exposure_pct": float | None,
+            "records_count": int,
+            "per_listing": [{"listing_id", "metrics", "summary"}, ...],
+            "per_listing_summary": {listing_id: {imp, views, tx_count, ...}},
+            # plus abbreviated aliases (imp / tx_count / conv_pct) for the
+            # ebay-ops Fetchers Protocol — see Phase 3 Gap 3.
+        }
+
+    Quota + burst-retry behaviour: identical to ``fetch_traffic_report_raw``
+    (this wrapper does not issue an additional API call — parsing is local).
+    """
+    raw = await fetch_traffic_report_raw(listing_ids, days, marketplace_id)
+    return parse_traffic_report_response(raw)
 
 
 def _sync_get_listing_returns(item_id: str, days: int) -> dict[str, Any]:
