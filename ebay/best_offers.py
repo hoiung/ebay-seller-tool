@@ -165,6 +165,7 @@ async def get_pending_best_offers(
 
     # Per-item iteration mode — one GetBestOffers call per listing ID.
     from ebay.client import log_warn  # noqa: PLC0415
+
     # Issue #32 Phase 2+4 — _AUTH_ERROR_CODES + _classify_ebay_error_codes
     # sourced from end_listing.py (canonical single location across both
     # consumers). Mini-Stage-5 GAP-C behaviour preserved: per-item sweep
