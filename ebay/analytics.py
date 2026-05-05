@@ -826,6 +826,22 @@ def _validate_best_offer_config(cfg_bo: dict[str, Any]) -> None:
             f"config/fees.yaml best_offer.round_down_to_pound={cfg_bo['round_down_to_pound']!r} "
             "invalid — must be bool"
         )
+    # Stage 5 follow-up (issue #30): the responder script
+    # (respond_best_offers.py:191) hardcodes math.floor() via
+    # _round_down_to_pound regardless of this flag, while analytics-side
+    # compute_best_offer_thresholds gates math.floor() behind `if
+    # round_down`. If the operator ever set false, the two surfaces
+    # would silently diverge (analytics surface returns float thresholds;
+    # responder still floors). Until both surfaces honour the flag
+    # consistently, reject false at validate-time so the divergence
+    # cannot occur.
+    if cfg_bo["round_down_to_pound"] is False:
+        raise ValueError(
+            "config/fees.yaml best_offer.round_down_to_pound=False is not currently "
+            "supported — responder script (respond_best_offers.py) hardcodes math.floor "
+            "regardless. Either keep this flag true or land a follow-up issue that "
+            "wires the gate through compute_decision before flipping."
+        )
 
     qty_tiers = cfg_bo["qty_tiers"]
     if not isinstance(qty_tiers, dict):

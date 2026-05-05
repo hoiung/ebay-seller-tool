@@ -423,6 +423,115 @@ def test_responder_load_jsonl_tail_skips_partial_last_line(
     assert len(seen) == 1  # truncated row not parsed
 
 
+def test_load_recent_signatures_filters_dry_run_rows(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """Stage 5 follow-up — dry-run rows MUST NOT poison the live cron's
+    idempotency window. A `dry_run_accept` row in the ledger should leave
+    the (offer_id, state_hash) tuple absent from `seen`, so the next live
+    fire can still process the same buyer offer.
+
+    Surfaced 2026-05-05: developer dry-run for issue #30 wrote
+    `dry_run_accept` for offer 264666106; the next live cron fire then
+    silently `skip`'d the same offer because the tuple matched."""
+    isolated_ledger.mkdir(parents=True, exist_ok=True)
+    rows = [
+        # dry-run row — MUST NOT contribute to dedup set
+        {
+            "timestamp": "2026-05-04T13:44:49Z",
+            "offer_id": "264666106",
+            "state_hash": "72e386bb9555050c",
+            "item_id": "287193037693",
+            "buyer_user_id": "m.k_1978",
+            "buyer_offer_gbp": 95.0,
+            "live_price_gbp": 105.0,
+            "quantity": 3,
+            "cron_action": "dry_run_accept",
+            "counter_price_gbp": None,
+            "reason": "qtydefault_offer_ge_90.0pct_auto_accept",
+            "error_message": None,
+        },
+        # skip row — MUST NOT contribute to dedup set (no eBay-side change)
+        {
+            "timestamp": "2026-05-04T13:45:12Z",
+            "offer_id": "264666106",
+            "state_hash": "72e386bb9555050c",
+            "item_id": "287193037693",
+            "buyer_user_id": "m.k_1978",
+            "buyer_offer_gbp": 95.0,
+            "live_price_gbp": 105.0,
+            "quantity": 3,
+            "cron_action": "skip",
+            "counter_price_gbp": None,
+            "reason": "already_responded_state_match",
+            "error_message": None,
+        },
+        # live accept row — MUST contribute to dedup set
+        {
+            "timestamp": "2026-05-04T13:46:00Z",
+            "offer_id": "other_offer",
+            "state_hash": "deadbeef",
+            "item_id": "111",
+            "buyer_user_id": "buyer",
+            "buyer_offer_gbp": 47.0,
+            "live_price_gbp": 50.0,
+            "quantity": 1,
+            "cron_action": "accept",
+            "counter_price_gbp": None,
+            "reason": "qty1_offer_ge_95.0pct_auto_accept",
+            "error_message": None,
+        },
+    ]
+    rbo.LEDGER_PATH.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    seen = rbo.load_recent_signatures(window_hours=10000)
+    # dry-run + skip rows are filtered — the live cron is free to act
+    assert ("264666106", "72e386bb9555050c") not in seen
+    # the real accept row is still in the dedup set
+    assert ("other_offer", "deadbeef") in seen
+    assert len(seen) == 1
+
+
+def test_load_recent_signatures_filters_dry_run_counter_and_decline(
+    isolated_fees_config, isolated_ledger
+) -> None:
+    """Symmetric coverage — dry_run_counter and dry_run_decline also filtered."""
+    isolated_ledger.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "timestamp": "2026-05-04T13:44:49Z",
+            "offer_id": "off1",
+            "state_hash": "h1",
+            "item_id": "i1",
+            "buyer_user_id": "b",
+            "buyer_offer_gbp": 80.0,
+            "live_price_gbp": 100.0,
+            "quantity": 2,
+            "cron_action": "dry_run_counter",
+            "counter_price_gbp": 92,
+            "reason": "qty2_offer_in_75.0_to_92.5pct_band_counter_at_92.5pct",
+            "error_message": None,
+        },
+        {
+            "timestamp": "2026-05-04T13:45:00Z",
+            "offer_id": "off2",
+            "state_hash": "h2",
+            "item_id": "i2",
+            "buyer_user_id": "b",
+            "buyer_offer_gbp": 50.0,
+            "live_price_gbp": 100.0,
+            "quantity": 3,
+            "cron_action": "dry_run_decline",
+            "counter_price_gbp": None,
+            "reason": "qtydefault_offer_lt_75.0pct_auto_decline",
+            "error_message": None,
+        },
+    ]
+    rbo.LEDGER_PATH.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    seen = rbo.load_recent_signatures(window_hours=10000)
+    assert seen == set()
+
+
 def test_responder_aborts_when_offer_count_exceeds_sanity_cap(
     isolated_fees_config, isolated_ledger
 ) -> None:
