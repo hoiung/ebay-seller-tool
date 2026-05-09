@@ -25,6 +25,8 @@ import asyncio
 import time
 from typing import Any, Literal
 
+from .listings import _decimal_str
+
 # Action enum for respond_to_best_offer — Literal type narrows callers.
 BestOfferAction = Literal["Accept", "Counter", "Decline"]
 
@@ -357,7 +359,15 @@ async def respond_to_best_offer(
         "Action": action,
     }
     if action == "Counter":
-        payload["CounterOfferPrice"] = {"value": counter_price_gbp, "@currencyID": "GBP"}
+        # ebaysdk 2.2.0 dict→XML serialiser: `{"#text": V, "@attrs": {"currencyID": C}}`
+        # emits `<X currencyID="C">V</X>`. Matches the canonical shape used at
+        # listings.py:491-502 for BestOfferAutoAcceptPrice + MinimumBestOfferPrice
+        # (single-source-edit per AP #9). _decimal_str uses
+        # Decimal(str(value)).quantize(Decimal("0.01")) for float-drift safety.
+        payload["CounterOfferPrice"] = {
+            "#text": _decimal_str(counter_price_gbp),
+            "@attrs": {"currencyID": "GBP"},
+        }
 
     log_debug(
         f"respond_to_best_offer: item={item_id} offer={offer_id} action={action} "
