@@ -608,6 +608,32 @@ def test_respond_to_best_offer_counter_requires_counter_price() -> None:
                 offer_id="abc456",
                 action="Counter",
                 counter_price_gbp=0,
+                counter_quantity=1,
+            )
+        )
+
+
+def test_respond_to_best_offer_counter_requires_counter_quantity() -> None:
+    """Issue #33 Stage 5 — ValueError when action='Counter' and counter_quantity
+    omitted or non-positive. eBay Trading API enforces this: Code 21921
+    'counteroffer quantity is required' (live regression 2026-05-09T15:16Z)."""
+    with pytest.raises(ValueError, match="counter_quantity"):
+        _run(
+            respond_to_best_offer(
+                item_id="287260458724",
+                offer_id="abc456",
+                action="Counter",
+                counter_price_gbp=49.0,
+            )
+        )
+    with pytest.raises(ValueError, match="counter_quantity"):
+        _run(
+            respond_to_best_offer(
+                item_id="287260458724",
+                offer_id="abc456",
+                action="Counter",
+                counter_price_gbp=49.0,
+                counter_quantity=0,
             )
         )
 
@@ -615,7 +641,8 @@ def test_respond_to_best_offer_counter_requires_counter_price() -> None:
 def test_respond_to_best_offer_counter_payload_includes_currency_id() -> None:
     """AP #18 — Counter payload uses ebaysdk canonical `{"#text": V, "@attrs": {...}}`
     shape (Issue #33 Phase 1 fix). The legacy `{"value": V, "@currencyID": C}` form
-    serialises as nested children and triggers eBay Code 5 XML Parse error."""
+    serialises as nested children and triggers eBay Code 5 XML Parse error.
+    Stage 5: also asserts CounterOfferQuantity (Code 21921 fix)."""
     fake_reply = SimpleNamespace(Ack="Success", Errors=None)
     with patch(
         "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
@@ -626,12 +653,14 @@ def test_respond_to_best_offer_counter_payload_includes_currency_id() -> None:
                 offer_id="abc456",
                 action="Counter",
                 counter_price_gbp=49.0,
+                counter_quantity=1,
             )
         )
     payload = mock_call.call_args[0][1]
     assert payload["Action"] == "Counter"
     assert payload["CounterOfferPrice"]["#text"] == "49.00"
     assert payload["CounterOfferPrice"]["@attrs"] == {"currencyID": "GBP"}
+    assert payload["CounterOfferQuantity"] == 1
 
 
 def test_respond_to_best_offer_counter_dict2xml_emits_currencyid_attribute() -> None:
@@ -639,7 +668,9 @@ def test_respond_to_best_offer_counter_dict2xml_emits_currencyid_attribute() -> 
     ebaysdk's actual `dict2xml` against the Counter payload. Asserts the emitted
     XML contains `<CounterOfferPrice currencyID="GBP">52.00</CounterOfferPrice>`
     (attribute-on-element) and does NOT contain the broken nested-children form
-    `<value>` or `<currencyID>` (as a child element)."""
+    `<value>` or `<currencyID>` (as a child element). Stage 5: also asserts
+    `<CounterOfferQuantity>1</CounterOfferQuantity>` is emitted (Code 21921 fix).
+    Synthetic test ID — does not reference any real eBay listing."""
     from ebaysdk.utils import dict2xml  # noqa: PLC0415
 
     fake_reply = SimpleNamespace(Ack="Success", Errors=None)
@@ -648,15 +679,22 @@ def test_respond_to_best_offer_counter_dict2xml_emits_currencyid_attribute() -> 
     ) as mock_call:
         _run(
             respond_to_best_offer(
-                item_id="287229796021",
-                offer_id="264958654",
+                item_id="999999999999",
+                offer_id="SYNTHETIC123",
                 action="Counter",
                 counter_price_gbp=52.0,
+                counter_quantity=1,
             )
         )
     payload = mock_call.call_args[0][1]
-    xml = dict2xml({"CounterOfferPrice": payload["CounterOfferPrice"]})
+    xml = dict2xml(
+        {
+            "CounterOfferPrice": payload["CounterOfferPrice"],
+            "CounterOfferQuantity": payload["CounterOfferQuantity"],
+        }
+    )
     assert '<CounterOfferPrice currencyID="GBP">52.00</CounterOfferPrice>' in xml, xml
+    assert "<CounterOfferQuantity>1</CounterOfferQuantity>" in xml, xml
     assert "<value>" not in xml, xml
     assert "<currencyID>" not in xml, xml
 
