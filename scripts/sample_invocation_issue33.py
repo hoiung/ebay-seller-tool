@@ -11,9 +11,13 @@ captured `CounterOfferPrice` field has the canonical ebaysdk shape:
 This proves:
   1. `from .listings import _decimal_str` import resolves at module load
   2. `_decimal_str(52.0)` rounds to `"52.00"` (Decimal-based, float-drift-safe)
-  3. The dict literal at `best_offers.py:360` produces the canonical structure
+  3. The dict literal in the `if action == "Counter"` branch produces the
+     canonical CounterOfferPrice structure + the new CounterOfferQuantity
+     int element (Stage 5 — Code 21921 "counteroffer quantity is required" fix)
   4. The structure survives the `asyncio.to_thread(execute_with_retry, ...)`
      boundary unchanged (the seam where Code 5 originally surfaced live)
+
+Synthetic IDs only — does NOT reference any real eBay listing or offer.
 
 Non-destructive — `execute_with_retry` is mocked, no eBay API call fires.
 
@@ -54,10 +58,11 @@ def main() -> int:
     with patch("ebay.client.execute_with_retry", side_effect=fake_execute):
         asyncio.run(
             respond_to_best_offer(
-                item_id="287229796021",
-                offer_id="264958654",
+                item_id="999999999999",
+                offer_id="SYNTHETIC123",
                 action="Counter",
                 counter_price_gbp=52.0,
+                counter_quantity=1,
             )
         )
 
@@ -66,14 +71,19 @@ def main() -> int:
     print(f"payload.BestOfferID: {captured['payload']['BestOfferID']!r}")
     print(f"payload.Action: {captured['payload']['Action']!r}")
     print(f"payload.CounterOfferPrice: {captured['payload']['CounterOfferPrice']!r}")
+    print(f"payload.CounterOfferQuantity: {captured['payload']['CounterOfferQuantity']!r}")
 
-    expected = {"#text": "52.00", "@attrs": {"currencyID": "GBP"}}
-    actual = captured["payload"]["CounterOfferPrice"]
-    assert actual == expected, f"expected {expected!r}, got {actual!r}"
+    expected_price = {"#text": "52.00", "@attrs": {"currencyID": "GBP"}}
+    actual_price = captured["payload"]["CounterOfferPrice"]
+    assert actual_price == expected_price, f"expected {expected_price!r}, got {actual_price!r}"
+    assert captured["payload"]["CounterOfferQuantity"] == 1, (
+        f"expected CounterOfferQuantity=1, got {captured['payload']['CounterOfferQuantity']!r}"
+    )
 
     assert captured["verb"] == "RespondToBestOffer"
     assert captured["payload"]["Action"] == "Counter"
     assert "CounterOfferPrice" in captured["payload"]
+    assert "CounterOfferQuantity" in captured["payload"]
 
     print("OK — canonical shape verified end-to-end across the execute_with_retry seam")
     return 0
