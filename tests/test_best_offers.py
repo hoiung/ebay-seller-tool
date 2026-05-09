@@ -613,7 +613,9 @@ def test_respond_to_best_offer_counter_requires_counter_price() -> None:
 
 
 def test_respond_to_best_offer_counter_payload_includes_currency_id() -> None:
-    """AP #18 — Counter payload: CounterOfferPrice.value + @currencyID='GBP'."""
+    """AP #18 — Counter payload uses ebaysdk canonical `{"#text": V, "@attrs": {...}}`
+    shape (Issue #33 Phase 1 fix). The legacy `{"value": V, "@currencyID": C}` form
+    serialises as nested children and triggers eBay Code 5 XML Parse error."""
     fake_reply = SimpleNamespace(Ack="Success", Errors=None)
     with patch(
         "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
@@ -628,8 +630,35 @@ def test_respond_to_best_offer_counter_payload_includes_currency_id() -> None:
         )
     payload = mock_call.call_args[0][1]
     assert payload["Action"] == "Counter"
-    assert payload["CounterOfferPrice"]["value"] == 49.0
-    assert payload["CounterOfferPrice"]["@currencyID"] == "GBP"
+    assert payload["CounterOfferPrice"]["#text"] == "49.00"
+    assert payload["CounterOfferPrice"]["@attrs"] == {"currencyID": "GBP"}
+
+
+def test_respond_to_best_offer_counter_dict2xml_emits_currencyid_attribute() -> None:
+    """Issue #33 Phase 1 AC 1.3 — closes the false-validator gap by exercising
+    ebaysdk's actual `dict2xml` against the Counter payload. Asserts the emitted
+    XML contains `<CounterOfferPrice currencyID="GBP">52.00</CounterOfferPrice>`
+    (attribute-on-element) and does NOT contain the broken nested-children form
+    `<value>` or `<currencyID>` (as a child element)."""
+    from ebaysdk.utils import dict2xml  # noqa: PLC0415
+
+    fake_reply = SimpleNamespace(Ack="Success", Errors=None)
+    with patch(
+        "ebay.client.execute_with_retry", return_value=_make_response(fake_reply)
+    ) as mock_call:
+        _run(
+            respond_to_best_offer(
+                item_id="287229796021",
+                offer_id="264958654",
+                action="Counter",
+                counter_price_gbp=52.0,
+            )
+        )
+    payload = mock_call.call_args[0][1]
+    xml = dict2xml({"CounterOfferPrice": payload["CounterOfferPrice"]})
+    assert '<CounterOfferPrice currencyID="GBP">52.00</CounterOfferPrice>' in xml, xml
+    assert "<value>" not in xml, xml
+    assert "<currencyID>" not in xml, xml
 
 
 def test_respond_to_best_offer_decline_action_payload_correct() -> None:
