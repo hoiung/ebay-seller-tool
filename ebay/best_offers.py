@@ -4,11 +4,16 @@ Two verbs only:
     GetBestOffers        — read pending offers across all listings (per-seller)
     RespondToBestOffer   — accept / counter / decline a single offer
 
-Carve-out (Issue #14 Phase 3 pattern, replicated in #16): module-top imports
-deliberately exclude `ebay.client` (`execute_with_retry`, `log_*`). Each
-wrapper lazy-imports them INSIDE its own body so unit tests can patch the
-API surface without dragging the broader analytics + listings layer into
-the mock graph. Documented per-call via `# noqa: PLC0415`.
+Carve-out (Issue #14 Phase 3 pattern, replicated in #16): `execute_with_retry`
+is lazy-imported INSIDE each wrapper body so unit tests can patch the API
+surface (via `patch("ebay.client.execute_with_retry")`) without dragging
+the broader analytics layer into the mock graph. Documented per-call via
+`# noqa: PLC0415`. Note (Issue #33): the module-top `from .listings import
+_decimal_str` import does transitively load `ebay.client` (listings.py uses
+`log_debug` at module-top), but the `execute_with_retry` lazy-import seam
+remains intact — the test-patch pattern still works correctly because
+patches resolve against `ebay.client` symbols directly, not through the
+import chain.
 
 Used by:
     - .claude/skills/ebay-seller-tool/scripts/respond_best_offers.py
@@ -320,6 +325,7 @@ async def respond_to_best_offer(
     offer_id: str,
     action: BestOfferAction,
     counter_price_gbp: float | None = None,
+    counter_quantity: int | None = None,
 ) -> dict[str, Any]:
     """Accept / counter / decline a single Best Offer.
 
@@ -329,6 +335,12 @@ async def respond_to_best_offer(
         action: Literal "Accept" | "Counter" | "Decline".
         counter_price_gbp: REQUIRED when action="Counter"; ignored otherwise.
             Raises ValueError if action="Counter" and value is None or <= 0.
+        counter_quantity: REQUIRED when action="Counter"; ignored otherwise.
+            eBay Trading API CounterOfferQuantity field (Issue #33 Stage 5
+            fix — Code 21921 "counteroffer quantity is required" surfaced
+            in production after the Phase 1 Code 5 XML Parse fix exposed
+            eBay's next-layer validation). Raises ValueError if
+            action="Counter" and value is None or <= 0.
 
     Returns:
         dict with 4 fields:
@@ -338,7 +350,8 @@ async def respond_to_best_offer(
             - error_message: str | None — None on success; populated on error
 
     Raises:
-        ValueError: if action="Counter" without a positive counter_price_gbp.
+        ValueError: if action="Counter" without positive counter_price_gbp
+            OR positive counter_quantity.
 
     NOTE: All eBay-side errors (BestOffer-disabled, MinimumBestOfferPrice
     violation, stale state, 5-counter aggregate limit) surface as
@@ -351,6 +364,10 @@ async def respond_to_best_offer(
         if counter_price_gbp is None or counter_price_gbp <= 0:
             raise ValueError(
                 f"action='Counter' requires positive counter_price_gbp; got {counter_price_gbp!r}"
+            )
+        if counter_quantity is None or counter_quantity <= 0:
+            raise ValueError(
+                f"action='Counter' requires positive counter_quantity; got {counter_quantity!r}"
             )
 
     payload: dict[str, Any] = {
@@ -368,10 +385,14 @@ async def respond_to_best_offer(
             "#text": _decimal_str(counter_price_gbp),
             "@attrs": {"currencyID": "GBP"},
         }
+        # CounterOfferQuantity is a plain int element (no currency attribute);
+        # required by eBay even for qty=1 listings (Issue #33 Stage 5 fix —
+        # Code 21921 surfaced live 2026-05-09T15:16Z after Phase 1 closed Code 5).
+        payload["CounterOfferQuantity"] = int(counter_quantity)
 
     log_debug(
         f"respond_to_best_offer: item={item_id} offer={offer_id} action={action} "
-        f"counter={counter_price_gbp}"
+        f"counter={counter_price_gbp} qty={counter_quantity}"
     )
 
     response = await asyncio.to_thread(execute_with_retry, "RespondToBestOffer", payload)
