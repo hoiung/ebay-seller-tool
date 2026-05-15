@@ -130,6 +130,7 @@ Cleanup branch, close Issue
 ### MCP Tools
 - **Checkboxes**: `mcp__github-checkbox__update_issue_checkbox(issue_number, checkbox_text, evidence)`
 - **Frontend**: Chrome DevTools MCP — guide `../dotfiles/docs/guides/chrome-devtools-mcp.md`, screenshots → `../screenshots/`
+- **Frontend fallback (no MCP)**: `playwright` Python lib — guide `../dotfiles/docs/guides/playwright-fallback.md`. Use when chrome-devtools MCP is disabled (operator may have it off by default) or its tools don't surface this session; or for cheap re-runnable AP #18 regression scripts
 - **GitHub Issues**: issue_write, add_issue_comment, search_issues, get_file_contents, create_pull_request
 
 ### Google Drive Sync Conflicts
@@ -143,6 +144,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
 
 
 
