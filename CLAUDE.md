@@ -26,7 +26,7 @@
 - **AP #17 Keep Going Until Done**: do NOT stop mid-work to ask permission, wait for user confirmation, or "check in". Phase checkpoints post a comment to the Issue and CONTINUE. Stop ONLY for: (a) context at 80%+ of model window, (b) irreversible destructive action needing user consent (force-push, rm -rf, DROP TABLE, branch deletion), (c) genuinely stuck after investigation (not a first-response-to-friction reflex), (d) task complete. Warn at 70%, keep working until 80%. The 1M window exists to be used.
 - **AP #16 Monitor, Don't Fire-and-Forget**: every script / command / subprocess / test / deployment / commit / push you launch must be verified end-to-end (tail logs, check exit code, verify output, confirm side effects). "Started" is not "done". For `run_in_background`, poll BashOutput. Be the user's eyes and ears, not just their executioner. If you cannot answer "what happened?" with specifics, you fired and forgot — go check NOW.
 - **AP #18 Sample Invocation Validates Workflow**: for any change touching pipeline / backtest / SL1 / SL2 / orchestration / CLI-wiring / cross-module function-arg propagation — run an actual end-to-end sample invocation (real CLI, real DB, small liquid basket 8 tickers) BEFORE closing. Unit + smoke tests are necessary but NOT sufficient. Mocks that accept `**kwargs` silently discard params and do NOT prove propagation — assert `call_args.kwargs[...]` explicitly. Stage 4 Verification Loop mandatory gate. See STANDARDS.md "Testing Priority — Workflow Validation Gate".
-- **Per-Stage Feedback Capture** (canonical: STANDARDS.md §Per-Stage Feedback Capture). Write `dotfiles/SST3-metrics/leader-feedback/feedback-<repo>-<issue>.md` `## Stage N` block at each `/Leader` stage close. 10 fields per stage (model / worked / didnt / why / improvement / improvement_status / evidence / friction / rule_self_caught / rule_user_caught). Channel rule (forward-preference-blocklist enforced via pre-commit hook `sst3-metrics-feedback-present`): feedback files MUST NOT contain `prefers / always / from now on / default ON / going forward` phrasing — that's auto-memory's channel; attribution wording (`Hoi flagged`, `user pointed out`) is FINE.
+- **Per-Stage Feedback Capture** (canonical: STANDARDS.md §Per-Stage Feedback Capture). Write `dotfiles/SST3-metrics/leader-feedback/feedback-<repo>-<issue>.md` `## Stage N` block at each `/Leader` stage close. For a NEW file, copy the write-time template `dotfiles/SST3/templates/leader-feedback-template.md` (canonical frontmatter + `## Stage N — <Title>` H2 headings + 10 fields) — never hand-roll the structure; a bare `## Stage N` heading is rejected by the strict parser (the dotfiles#486/#488 contention class). 10 fields per stage (model / worked / didnt / why / improvement / improvement_status / evidence / friction / rule_self_caught / rule_user_caught). Channel rule (forward-preference-blocklist enforced via pre-commit hook `sst3-metrics-feedback-present`): feedback files MUST NOT contain `prefers / always / from now on / default ON / going forward` phrasing — that's auto-memory's channel; attribution wording (`Hoi flagged`, `user pointed out`) is FINE.
 
 **STOP if**: No GitHub Issue exists. Create Issue using `../dotfiles/SST3/templates/issue-template.md`.
 
@@ -45,10 +45,12 @@ Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ wa
 
 ### Branch Safety (CRITICAL — DO NOT VIOLATE)
 
-- **NEVER switch branches** (`git checkout main`, `git checkout -b`, `git switch`).
-- **Always commit and push to the CURRENT active branch** — it will get merged later.
-- If you need something on main, **ask the user** — do NOT switch yourself.
-- The only exception is creating a NEW solo branch at the START of work.
+**Worktree-per-agent is the canonical Stage-4 isolation model (dotfiles#488 Fix-A).** A git clone has exactly one working dir, one HEAD, one index — so a second concurrent agent's `git checkout -b` moves the first agent's HEAD and muddles its implementation. Before any code edit, a Stage-4 implementing agent MUST **work in a worktree**: call the `EnterWorktree` tool (named `solo/issue-{N}-{desc}`) to get an isolated worktree on its own solo branch, instead of a bare `git checkout -b solo/...` in the shared clone. This instruction lives HERE (CLAUDE.md / memory) because the `EnterWorktree` tool only activates when "worktree" is explicitly directed by the user **or in CLAUDE.md / memory** — a slash-command-only instruction would leave the tool inert. `.claude/commands/Leader.md` Stage-4 step 1 and `.claude/commands/SST3-solo.md` "Before Starting Work" reference this anchor.
+
+- **NEVER switch branches** (`git checkout main`, `git checkout -b`, `git switch`) — this remains the in-worktree invariant: it is correct *inside* an isolated worktree (commit + push to that worktree's solo branch only).
+- **Always commit and push to the CURRENT worktree's solo branch** — it gets merged later via the recursion-safe remote fast-forward procedure (no shared-tree `git checkout main` — see Leader.md Gate 2 / AC 1.3).
+- If you need something from main, **ask the user** — do NOT switch yourself.
+- The only branch creation is the `EnterWorktree` solo branch at the START of work; `ExitWorktree action:keep` until the push is confirmed landed, then `action:remove`.
 
 ### Command Interface
 
@@ -144,6 +146,8 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
+
 
 
 
