@@ -51,6 +51,7 @@ Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ wa
 - **Always commit and push to the CURRENT worktree's solo branch** — it gets merged later via the recursion-safe remote fast-forward procedure (no shared-tree `git checkout main` — see Leader.md Gate 2 / AC 1.3).
 - If you need something from main, **ask the user** — do NOT switch yourself.
 - The only branch creation is the `EnterWorktree` solo branch at the START of work; `ExitWorktree action:keep` until the push is confirmed landed, then `action:remove`.
+- **Runtime backstop (dotfiles#490)**: a Claude Code PreToolUse hook — canonical `claude/hooks/sst3-branch-guard.sh`, installed user-scope by `scripts/install.sh`, wired in `claude/settings.json` `hooks.PreToolUse` — deterministically intercepts a Bash branch *switch-to-existing / non-`solo/*` create* **before it executes**, so this rule is no longer prose-only (STANDARDS.md:27 "not honor system"). WARN by default (advisory, fully reversible: remove the `hooks` block or set `disableAllHooks`); one config flip `SST3_BRANCH_GUARD_MODE=DENY` hard-blocks (exit 2, overrides `permissions.allow`). Tests: `claude/hooks/tests/test_branch_guard.sh`.
 
 ### Command Interface
 
@@ -146,6 +147,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
+
 
 
 
