@@ -864,8 +864,7 @@ def _validate_best_offer_config(cfg_bo: dict[str, Any]) -> None:
                 )
         if not isinstance(val, (int, float)) or isinstance(val, bool):
             raise ValueError(
-                f"config/fees.yaml best_offer.qty_tiers[{key!r}]={val!r} invalid — "
-                "must be float."
+                f"config/fees.yaml best_offer.qty_tiers[{key!r}]={val!r} invalid — must be float."
             )
         fval = float(val)
         if not (float(decline) <= fval <= 1.0):
@@ -875,9 +874,7 @@ def _validate_best_offer_config(cfg_bo: dict[str, Any]) -> None:
             )
 
 
-def _resolve_qty_tier_pct(
-    qty_tiers: dict[Any, Any], quantity: int
-) -> tuple[float, str]:
+def _resolve_qty_tier_pct(qty_tiers: dict[Any, Any], quantity: int) -> tuple[float, str]:
     """Look up the tier percentage for `quantity`. Returns (pct, tier_label).
 
     qty_tiers maps int-or-"default" → float in [decline_pct, 1.0]. Numeric
@@ -945,13 +942,9 @@ def compute_best_offer_thresholds(
             f"floor_buffer_pct={floor_buffer_pct} invalid — must be >= 0 (programming error)"
         )
     if not isinstance(quantity, int) or quantity < 1:
-        raise ValueError(
-            f"quantity={quantity!r} invalid — must be int >= 1"
-        )
+        raise ValueError(f"quantity={quantity!r} invalid — must be int >= 1")
     if live_price_gbp <= 0.0:
-        raise ValueError(
-            f"live_price_gbp={live_price_gbp} invalid — must be > 0"
-        )
+        raise ValueError(f"live_price_gbp={live_price_gbp} invalid — must be > 0")
     if live_price_gbp < 2.0:
         raise ValueError(
             f"live_price_gbp={live_price_gbp} too low — minimum supported is £2 "
