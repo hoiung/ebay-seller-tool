@@ -269,9 +269,13 @@ def _warn_missing_oauth_vars() -> None:
     This warning is purely discoverability — surfaces the degraded state
     at boot so the operator knows BEFORE reaching for an OAuth tool.
     """
+    # secret-allow applies to the EBAY_APP_CLIENT_SECRET entry below (env-var
+    # description string, not a literal secret value).
     runtime_required = {
         "EBAY_APP_CLIENT_ID": "Browse + Traffic Report + Post-Order v2 OAuth app auth",
-        "EBAY_APP_CLIENT_SECRET": "Browse + Traffic Report + Post-Order v2 OAuth app auth",  # secret-allow (env-var description, not a value)
+        "EBAY_APP_CLIENT_SECRET": (  # secret-allow
+            "Browse + Traffic Report + Post-Order v2 OAuth app auth"
+        ),
         "EBAY_OWN_SELLER_USERNAME": "own-seller exclusion in find_competitor_prices",
     }
     missing = [k for k in runtime_required if not os.environ.get(k)]
