@@ -154,9 +154,11 @@ async def main(apply: bool) -> int:
         return 2
 
     print(f"Mode: {'APPLY (live)' if apply else 'DRY-RUN (no changes)'}")
-    print(f"Payment={profiles['SellerPaymentProfile']['PaymentProfileID']} "
-          f"Shipping={profiles['SellerShippingProfile']['ShippingProfileID']} "
-          f"Return={profiles['SellerReturnProfile']['ReturnProfileID']}")
+    print(
+        f"Payment={profiles['SellerPaymentProfile']['PaymentProfileID']} "
+        f"Shipping={profiles['SellerShippingProfile']['ShippingProfileID']} "
+        f"Return={profiles['SellerReturnProfile']['ReturnProfileID']}"
+    )
 
     item_ids = await _fetch_all_active_ids()
     print(f"Active listings: {len(item_ids)}\n")
@@ -170,8 +172,14 @@ async def main(apply: bool) -> int:
         except Exception as exc:
             print(f"  {item_id}  ERROR fetching before-state: {type(exc).__name__}: {exc}")
             summary["failed"] += 1
-            _audit({"mode": "apply" if apply else "dry_run", "item_id": item_id,
-                    "result": "fail", "error": f"GetItem: {exc}"})
+            _audit(
+                {
+                    "mode": "apply" if apply else "dry_run",
+                    "item_id": item_id,
+                    "result": "fail",
+                    "error": f"GetItem: {exc}",
+                }
+            )
             continue
 
         # Phase 4 AC: only revise FixedPriceItem listings — auction-format
@@ -180,8 +188,14 @@ async def main(apply: bool) -> int:
         if listing_type and listing_type not in ("FixedPriceItem", "StoresFixedPrice"):
             print(f"  {item_id}  SKIP listing_type={listing_type}")
             summary["skipped_non_fixed"] += 1
-            _audit({"mode": "apply" if apply else "dry_run", "item_id": item_id,
-                    "result": "skip", "reason": f"listing_type={listing_type}"})
+            _audit(
+                {
+                    "mode": "apply" if apply else "dry_run",
+                    "item_id": item_id,
+                    "result": "skip",
+                    "reason": f"listing_type={listing_type}",
+                }
+            )
             continue
 
         before_policy = before_full.get("return_policy")
@@ -191,8 +205,14 @@ async def main(apply: bool) -> int:
         if _is_compliant(before_policy):
             print(f"  {item_id}  before={before:<20}  -> already_compliant (skipped)")
             summary["already_compliant"] += 1
-            _audit({"mode": "apply" if apply else "dry_run", "item_id": item_id,
-                    "before": before_policy, "result": "already_compliant"})
+            _audit(
+                {
+                    "mode": "apply" if apply else "dry_run",
+                    "item_id": item_id,
+                    "before": before_policy,
+                    "result": "already_compliant",
+                }
+            )
             continue
 
         if not apply:
@@ -204,8 +224,15 @@ async def main(apply: bool) -> int:
         if not result["success"]:
             print(f"  {item_id}  before={before:<20}  -> FAILED: {result['error']}")
             summary["failed"] += 1
-            _audit({"mode": "apply", "item_id": item_id, "before": before_policy,
-                    "result": "fail", "error": result["error"]})
+            _audit(
+                {
+                    "mode": "apply",
+                    "item_id": item_id,
+                    "before": before_policy,
+                    "result": "fail",
+                    "error": result["error"],
+                }
+            )
             continue
 
         # Verify by re-fetching post-revise — confirm policy actually flipped.
@@ -216,19 +243,30 @@ async def main(apply: bool) -> int:
         except Exception as exc:
             print(f"  {item_id}  before={before:<20}  -> applied (verify failed: {exc})")
             summary["applied"] += 1
-            _audit({"mode": "apply", "item_id": item_id, "before": before_policy,
-                    "result": "applied_verify_failed", "error": str(exc)})
+            _audit(
+                {
+                    "mode": "apply",
+                    "item_id": item_id,
+                    "before": before_policy,
+                    "result": "applied_verify_failed",
+                    "error": str(exc),
+                }
+            )
             continue
 
         verified = _is_compliant(after_policy)
         status = "applied + verified" if verified else "applied but state mismatch"
         print(f"  {item_id}  before={before:<20}  after={after:<20}  -> {status}")
         summary["applied" if verified else "failed"] += 1
-        _audit({
-            "mode": "apply", "item_id": item_id,
-            "before": before_policy, "after": after_policy,
-            "result": "verified" if verified else "applied_state_mismatch",
-        })
+        _audit(
+            {
+                "mode": "apply",
+                "item_id": item_id,
+                "before": before_policy,
+                "after": after_policy,
+                "result": "verified" if verified else "applied_state_mismatch",
+            }
+        )
 
         # Trading API: 5000 calls/day cap. Sleep 0.5s between revises = 7200/hr ceiling.
         time.sleep(0.5)
