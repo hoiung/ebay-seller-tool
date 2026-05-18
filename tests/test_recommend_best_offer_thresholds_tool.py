@@ -128,8 +128,11 @@ def test_quantity_1_returns_95pct_threshold() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
-             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=1))
@@ -147,8 +150,11 @@ def test_quantity_2_returns_925pct_threshold() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
-             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=2))
@@ -165,8 +171,11 @@ def test_quantity_3_returns_default_90pct_threshold() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
-             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=3))
@@ -189,8 +198,11 @@ def test_quantity_omitted_defaults_to_qty1_tier() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
-             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         raw_default = _run(server.recommend_best_offer_thresholds(item_id="999"))
@@ -212,15 +224,24 @@ def test_response_has_full_canonical_keys() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 18.0, "suggested_ceiling_gbp": 30.0,
-             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 18.0,
+                "suggested_ceiling_gbp": 30.0,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         raw = _run(server.recommend_best_offer_thresholds(item_id="999", quantity=2))
     body = json.loads(raw)
     expected_keys = {
-        "item_id", "live_price_gbp", "quantity", "return_rate_source",
-        "auto_accept_gbp", "auto_decline_gbp", "floor_gbp", "rationale",
+        "item_id",
+        "live_price_gbp",
+        "quantity",
+        "return_rate_source",
+        "auto_accept_gbp",
+        "auto_decline_gbp",
+        "floor_gbp",
+        "rationale",
     }
     assert set(body.keys()) == expected_keys
 
