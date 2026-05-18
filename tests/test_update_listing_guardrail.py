@@ -587,8 +587,11 @@ def test_update_listing_revise_payload_emits_seller_profiles() -> None:
         patch("server._measure_or_default_floor", new_callable=AsyncMock) as mock_floor,
     ):
         mock_floor.return_value = (
-            {"floor_gbp": 7.94, "suggested_ceiling_gbp": 50.00,
-             "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0}},
+            {
+                "floor_gbp": 7.94,
+                "suggested_ceiling_gbp": 50.00,
+                "inputs": {"return_rate": 0.10, "cogs_gbp": 0.0},
+            },
             "default",
         )
         result = _run(update_listing(item_id="999", price=35.0, dry_run=False))
@@ -601,7 +604,5 @@ def test_update_listing_revise_payload_emits_seller_profiles() -> None:
     assert "PaymentMethods" not in item
     sp = item["SellerProfiles"]
     assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert "SellerShippingProfile" not in sp, (
-        "Phase 0 contract — no shipping policy ref on revise"
-    )
+    assert "SellerShippingProfile" not in sp, "Phase 0 contract — no shipping policy ref on revise"
     assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
