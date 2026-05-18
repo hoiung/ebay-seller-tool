@@ -360,9 +360,7 @@ def test_revise_pictures_emits_seller_profiles() -> None:
     assert "ShippingDetails" not in item
     sp = item["SellerProfiles"]
     assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert "SellerShippingProfile" not in sp, (
-        "Phase 0 contract — no shipping policy ref on revise"
-    )
+    assert "SellerShippingProfile" not in sp, "Phase 0 contract — no shipping policy ref on revise"
     assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
 
 
