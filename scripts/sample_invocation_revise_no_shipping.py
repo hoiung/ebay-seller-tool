@@ -139,7 +139,7 @@ async def main(args: argparse.Namespace) -> int:
 
     if args.confirm != "verified revise no shipping":
         print(
-            "FAIL: --apply requires --confirm \"verified revise no shipping\" "
+            'FAIL: --apply requires --confirm "verified revise no shipping" '
             "(matches the empirical-revise gate literal in #21 Phase 6).",
             file=sys.stderr,
         )
@@ -155,8 +155,7 @@ async def main(args: argparse.Namespace) -> int:
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Issue #21 Phase 0 — verify build_revise_payload does not attach "
-            "SellerShippingProfile."
+            "Issue #21 Phase 0 — verify build_revise_payload does not attach SellerShippingProfile."
         ),
     )
     p.add_argument(
