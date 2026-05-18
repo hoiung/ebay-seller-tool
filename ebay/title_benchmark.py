@@ -191,7 +191,7 @@ def compute_keyword_diff(
         rank_score = round(freq_pct * min(budget_remaining, char_cost), 2)
         candidates.append(
             {
-                "token": token,
+                "token": token,  # secret-allow (variable reference, not a literal token)
                 "freq_pct": freq_pct,
                 "char_cost": char_cost,
                 "rank_score": rank_score,

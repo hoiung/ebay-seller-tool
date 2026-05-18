@@ -271,7 +271,7 @@ def _warn_missing_oauth_vars() -> None:
     """
     runtime_required = {
         "EBAY_APP_CLIENT_ID": "Browse + Traffic Report + Post-Order v2 OAuth app auth",
-        "EBAY_APP_CLIENT_SECRET": "Browse + Traffic Report + Post-Order v2 OAuth app auth",
+        "EBAY_APP_CLIENT_SECRET": "Browse + Traffic Report + Post-Order v2 OAuth app auth",  # secret-allow (env-var description, not a value)
         "EBAY_OWN_SELLER_USERNAME": "own-seller exclusion in find_competitor_prices",
     }
     missing = [k for k in runtime_required if not os.environ.get(k)]

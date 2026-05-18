@@ -46,7 +46,7 @@ def test_refresh_user_token_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EBAY_OAUTH_REFRESH_TOKEN", "good-refresh")
     fake_resp = MagicMock(spec=httpx.Response)
     fake_resp.status_code = 200
-    fake_resp.json.return_value = {"access_token": "ACCESS-XYZ", "expires_in": 7200}
+    fake_resp.json.return_value = {"access_token": "ACCESS-XYZ", "expires_in": 7200}  # secret-allow (test fixture)
     with patch("ebay.oauth.httpx.post", return_value=fake_resp):
         token, expires = oauth._refresh_user_token()
     assert token == "ACCESS-XYZ"
@@ -58,7 +58,7 @@ def test_refresh_app_token_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EBAY_APP_CLIENT_SECRET", "secret")
     fake_resp = MagicMock(spec=httpx.Response)
     fake_resp.status_code = 200
-    fake_resp.json.return_value = {"access_token": "APP-ABC", "expires_in": 7200}
+    fake_resp.json.return_value = {"access_token": "APP-ABC", "expires_in": 7200}  # secret-allow (test fixture)
     with patch("ebay.oauth.httpx.post", return_value=fake_resp):
         token, expires = oauth._refresh_app_token()
     assert token == "APP-ABC"
