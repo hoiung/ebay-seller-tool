@@ -179,17 +179,37 @@ def test_compute_elasticity_zero_price_change(
 # v2-deferred = write-only in v1, reserved for the v2 cluster classifier so it
 # doesn't need a JSONL backfill.
 WEEKLY_SNAPSHOT_V1_CONSUMED_FIELDS = {
-    "week_id", "previous_price", "delta_pct", "floor_price_gbp",
-    "imp_30d", "views_30d", "ctr_pct", "conv_pct", "tx_30d",
-    "days_on_site", "decision", "decision_rationale", "consecutive_drops",
-    "previous_decision", "manual_hold_flag", "data_quality_caveat",
+    "week_id",
+    "previous_price",
+    "delta_pct",
+    "floor_price_gbp",
+    "imp_30d",
+    "views_30d",
+    "ctr_pct",
+    "conv_pct",
+    "tx_30d",
+    "days_on_site",
+    "decision",
+    "decision_rationale",
+    "consecutive_drops",
+    "previous_decision",
+    "manual_hold_flag",
+    "data_quality_caveat",
     "applied_at",
 }
 
 WEEKLY_SNAPSHOT_V2_DEFERRED_FIELDS = {
-    "mpn", "drive_type", "product_line", "condition_id", "cond_name",
-    "watchers", "sold_lifetime", "rank_health_status", "audit_doc_cite",
-    "elasticity_classification_at_snapshot", "authorized_by",
+    "mpn",
+    "drive_type",
+    "product_line",
+    "condition_id",
+    "cond_name",
+    "watchers",
+    "sold_lifetime",
+    "rank_health_status",
+    "audit_doc_cite",
+    "elasticity_classification_at_snapshot",
+    "authorized_by",
 }
 
 
@@ -293,14 +313,10 @@ def test_weekly_snapshot_schema_v2_deferred_fields_round_trip(
         assert field in row, f"v2-deferred field {field!r} missing from row"
 
 
-def test_weekly_snapshot_v1_field_types(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_weekly_snapshot_v1_field_types(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """#21 Phase 2 — type test on each v1-consumed field."""
     target = _set_path(monkeypatch, tmp_path)
-    snapshots.append_snapshot(
-        "weekly_snapshot", "287192992984", _sample_weekly_snapshot_payload()
-    )
+    snapshots.append_snapshot("weekly_snapshot", "287192992984", _sample_weekly_snapshot_payload())
     row = json.loads(target.read_text().strip())
 
     # String fields
@@ -332,8 +348,15 @@ def test_weekly_snapshot_decision_in_canonical_enum(
 ) -> None:
     """#21 Phase 2 — `decision` must be one of the 7 canonical enum members."""
     target = _set_path(monkeypatch, tmp_path)
-    canonical = {"HOLD", "DROP_5", "DROP_10", "DROP_15", "RAISE_5",
-                 "ESCALATE_NON_PRICE", "INSUFFICIENT_DATA"}
+    canonical = {
+        "HOLD",
+        "DROP_5",
+        "DROP_10",
+        "DROP_15",
+        "RAISE_5",
+        "ESCALATE_NON_PRICE",
+        "INSUFFICIENT_DATA",
+    }
     payload = _sample_weekly_snapshot_payload()
     snapshots.append_snapshot("weekly_snapshot", "287192992984", payload)
     row = json.loads(target.read_text().strip())
@@ -351,5 +374,8 @@ def test_weekly_snapshot_does_not_break_existing_event_types(
     snapshots.append_snapshot("weekly_snapshot", "1", _sample_weekly_snapshot_payload())
     rows = [json.loads(line) for line in target.read_text().strip().split("\n")]
     assert [r["event"] for r in rows] == [
-        "analysis_baseline", "price_change", "post_change_check", "weekly_snapshot"
+        "analysis_baseline",
+        "price_change",
+        "post_change_check",
+        "weekly_snapshot",
     ]
