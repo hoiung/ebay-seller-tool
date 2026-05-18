@@ -84,15 +84,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_VALID_EVENT_TYPES = frozenset({
-    "analysis_baseline",
-    "price_change",
-    "post_change_check",
-    # #21 Phase 2 — written by the ebay-ops weekly pricing orchestrator.
-    # Field set enumerated in module docstring above (v1-consumed ★ +
-    # v2-deferred). One row per active listing per weekly run.
-    "weekly_snapshot",
-})
+_VALID_EVENT_TYPES = frozenset(
+    {
+        "analysis_baseline",
+        "price_change",
+        "post_change_check",
+        # #21 Phase 2 — written by the ebay-ops weekly pricing orchestrator.
+        # Field set enumerated in module docstring above (v1-consumed ★ +
+        # v2-deferred). One row per active listing per weekly run.
+        "weekly_snapshot",
+    }
+)
 
 # Default snapshot path. Overridable via EBAY_SNAPSHOT_PATH env var (used by
 # tests via monkeypatch).
