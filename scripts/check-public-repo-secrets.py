@@ -178,8 +178,12 @@ PRIVATE_KEY_PATTERNS: List[Dict] = [
 
 GENERIC_SECRET_PATTERNS: List[Dict] = [
     {
+        # Quote-flanking on the keyword closes the JSON-object recall hole
+        # (`"password":"dragon"`) per dotfiles#494 Defect 3 — the optional
+        # `['"]?` either side of the keyword preserves bare-keyword forms
+        # (`password = ...`) while also matching JSON quoted-key forms.
         "pattern": re.compile(
-            r"(?i)(?:password|passwd|secret|token|api_?key|auth_?key|credential|seller_id|account_id)"
+            r"(?i)['\"]?(?:password|passwd|secret|token|api_?key|auth_?key|credential|seller_id|account_id)['\"]?"
             r"\s*[=:]\s*['\"]?[^\s'\"]{4,}"
         ),
         "message": "Generic secret assignment",
@@ -253,6 +257,7 @@ PLACEHOLDER_PATTERNS: List[re.Pattern] = [
     re.compile(r"^mock$", re.IGNORECASE),
     re.compile(r"^placeholder$", re.IGNORECASE),
     re.compile(r"^x{3,}$", re.IGNORECASE),
+    re.compile(r"_x{3,}$", re.IGNORECASE),
     re.compile(r"^\*{3,}$"),
     re.compile(r"^todo$", re.IGNORECASE),
     re.compile(r"^fixme$", re.IGNORECASE),
@@ -264,6 +269,22 @@ PLACEHOLDER_PATTERNS: List[re.Pattern] = [
     re.compile(r"^\{\{.+\}\}$"),
     re.compile(r"^<[^>]+>$"),
 ]
+
+# Curated NON-SECRET schema/type/meta wordlist used by `is_likely_prose_value`
+# to suppress the prose false-positive class (`token: input`, `secret: value`,
+# `password: required`, ...). Recall-critical config kept in-source by design
+# per dotfiles#494 AC 1.1.1 — readable to reviewers, no hidden-config drift.
+# Excludes all secret keyword-words; contains zero strings from the must-flag
+# adversarial TP corpus (dragon/monkey/football/qwerty/letmein/hunter2/...).
+CURATED_NONSECRET_VALUES: frozenset = frozenset({
+    "input", "value", "required", "optional",
+    "string", "identifier", "integer", "missing",
+    "boolean", "description", "header", "column",
+    "parameter", "default", "true", "false",
+    "none", "null", "example", "todo",
+    "number", "object", "array", "field",
+    "type", "enum",
+})
 
 # Files/dirs to always skip
 IGNORE_PATTERNS: List[str] = [
@@ -335,9 +356,70 @@ def is_placeholder_value(value: str) -> bool:
     return False
 
 
+# Three accepted assignment forms feed `is_likely_prose_value`:
+#   1) JSON form:        "keyword":"value"   — mandatory JSON quoting, bare-word
+#   2) JSON form (sgl):  'keyword':'value'   — single-quoted JSON variant
+#   3) Bare form:        keyword=value       — env/yaml unquoted prose
+# The Python-literal form `keyword="value"` (bare keyword, quoted value) is
+# DELIBERATELY excluded — quoting an otherwise-bare value is a strong
+# "developer chose to make this a string literal" signal, so the prose
+# discriminator does not suppress it. See dotfiles#494 AC 1.1.2 + research §L2a.
+_KEYWORD_ALT = (
+    r"password|passwd|secret|token|api_?key|auth_?key|"
+    r"credential|seller_id|account_id"
+)
+_PROSE_CONTEXT_RE = re.compile(
+    rf"(?i)(?:"
+    rf"\"(?:{_KEYWORD_ALT})\"\s*[=:]\s*\""
+    rf"|"
+    rf"'(?:{_KEYWORD_ALT})'\s*[=:]\s*'"
+    rf"|"
+    rf"(?<![\"'])(?:{_KEYWORD_ALT})\s*[=:]\s*(?![\"'])"
+    rf")"
+)
+
+
+def is_likely_prose_value(line: str, value: str) -> bool:
+    """Discriminator: True if `value` is benign schema/type/meta prose
+    in a bare-word context (env/yaml unquoted OR JSON mandatory-quote form),
+    and either appears in `CURATED_NONSECRET_VALUES` or is followed by
+    >=1 further lowercase word on the line (multi-word prose run).
+
+    Returns False for any of: digit/uppercase/special in `value`; Python-
+    literal explicit-quote context (`keyword="value"` with bare keyword);
+    non-curated single-word with no trailing lowercase prose run.
+
+    Connection-string patterns ([2]-[5]) are unaffected — they yield
+    `value=None` from `extract_generic_secret_value` and short-circuit
+    the caller's `if value and ...: continue` guard before this runs.
+    """
+    if not re.fullmatch(r"[a-z]+", value):
+        return False
+    m = _PROSE_CONTEXT_RE.search(line)
+    if not m:
+        return False
+    rest = line[m.end():]
+    rest_match = re.match(re.escape(value) + r"(.*)", rest)
+    if not rest_match:
+        return False
+    after_value = rest_match.group(1)
+    if value in CURATED_NONSECRET_VALUES:
+        return True
+    return bool(re.match(r"\s+[a-z]+", after_value))
+
+
+_INLINE_ALLOW_RE = re.compile(r"(?:^|\s)(?:#|//)\s*secret-allow\s*$")
+
+
 def has_inline_allow(line: str) -> bool:
-    """Check if line has an inline secret-allow comment."""
-    return "# secret-allow" in line or "// secret-allow" in line
+    """Return True only when the line ends with a trailing `# secret-allow`
+    or `// secret-allow` token (whitespace-only after it), preceded by
+    whitespace or line-start. Tightened from the prior naive `in` substring
+    test which let prose mentions of the marker self-exempt the whole line
+    (dotfiles#494 Defect 2)."""
+    # Strip trailing newline only — preserve internal whitespace so the
+    # `\s*$` anchor reflects the real end of the source line.
+    return bool(_INLINE_ALLOW_RE.search(line.rstrip("\r\n")))
 
 
 def is_file_exempt(file_path: Path) -> bool:
@@ -363,8 +445,8 @@ def is_line_allowlisted(
 
 
 _GENERIC_VALUE_RE = re.compile(
-    r"(?i)(?:password|passwd|secret|token|api_?key|auth_?key|credential|seller_id|account_id"
-    r"|(?:DB|DATABASE)_(?:PASSWORD|PASS|PWD|SECRET))"
+    r"(?i)['\"]?(?:password|passwd|secret|token|api_?key|auth_?key|credential|seller_id|account_id"
+    r"|(?:DB|DATABASE)_(?:PASSWORD|PASS|PWD|SECRET))['\"]?"
     r"\s*[=:]\s*['\"]?([^\s'\"]+)"
 )
 
@@ -421,12 +503,12 @@ def scan_line(
             ))
             return findings
 
-    # GENERIC_SECRET — with placeholder filtering
+    # GENERIC_SECRET — with placeholder filtering + prose discriminator
     for pat in GENERIC_SECRET_PATTERNS:
         if pat["pattern"].search(line):
             value = extract_generic_secret_value(line)
-            if value and is_placeholder_value(value):
-                continue
+            if value and is_placeholder_value(value): continue
+            if value and is_likely_prose_value(line, value): continue
             findings.append(Finding(
                 line_num=line_num,
                 line=stripped,
