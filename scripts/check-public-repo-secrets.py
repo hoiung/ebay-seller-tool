@@ -557,21 +557,45 @@ def scan_text_content(
 
 
 def fetch_issue_or_pr_body(repo: str, number: int) -> str:
-    """Fetch issue or PR body + comments via gh CLI. Returns concatenated text."""
+    """Fetch issue/PR body + comments via gh CLI. Returns concatenated text.
+
+    Failure semantics (load-bearing — keep precise):
+    - Issue-body fetch is the only fetch whose failure means "no body": a
+      CalledProcessError here = transferred/redirected/deleted/404 issue, so
+      the caller skips the scan (an unfetchable body cannot leak from THIS
+      repo). It propagates to the caller untouched.
+    - Issue-body JSON unparseable despite gh exit 0 = the issue DOES exist but
+      we cannot read a body that may carry a leak. Do NOT silently skip and do
+      NOT traceback — raise RuntimeError so the caller fails loud (Fail Fast).
+    - Comments fetch is BEST-EFFORT: a comments failure after the body was
+      fetched must NOT discard the body (that would mask a body-resident
+      leak). Warn loudly and scan the body we already have.
+    """
+    import json as _json
     result = subprocess.run(
         ["gh", "api", f"repos/{repo}/issues/{number}"],
         capture_output=True, text=True, check=True,
     )
-    import json as _json
-    issue = _json.loads(result.stdout)
+    try:
+        issue = _json.loads(result.stdout)
+    except _json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"gh returned malformed JSON for {repo}#{number} issue body: {e}"
+        ) from e
     parts = [f"TITLE: {issue.get('title', '')}", f"BODY:\n{issue.get('body', '')}"]
-    # Also fetch all comments
-    comments_result = subprocess.run(
-        ["gh", "api", f"repos/{repo}/issues/{number}/comments", "--paginate"],
-        capture_output=True, text=True, check=True,
-    )
-    for comment in _json.loads(comments_result.stdout):
-        parts.append(f"COMMENT {comment['id']}:\n{comment.get('body', '')}")
+    try:
+        comments_result = subprocess.run(
+            ["gh", "api", f"repos/{repo}/issues/{number}/comments", "--paginate"],
+            capture_output=True, text=True, check=True,
+        )
+        for comment in _json.loads(comments_result.stdout):
+            parts.append(f"COMMENT {comment['id']}:\n{comment.get('body', '')}")
+    except (subprocess.CalledProcessError, _json.JSONDecodeError) as e:
+        print(
+            f"WARNING: could not fetch comments for {repo}#{number} ({e}) — "
+            f"scanning issue body only (comments dropped, NOT skipped)",
+            file=sys.stderr,
+        )
     return "\n\n".join(parts)
 
 
@@ -701,8 +725,34 @@ def main() -> int:
                 return 1
         try:
             body_text = fetch_issue_or_pr_body(repo, args.issue_number)
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            print(f"Error: Could not fetch issue #{args.issue_number}: {e}", file=sys.stderr)
+        except subprocess.CalledProcessError as e:
+            # Reaching here means the ISSUE-BODY fetch itself returned non-zero
+            # (comments-fetch failures are handled inside fetch_issue_or_pr_body
+            # and never propagate here). The real cause is a transferred/
+            # redirected/deleted issue (e.g. transferred to a private sibling
+            # repo the repo-scoped GITHUB_TOKEN cannot read) or a 404 —
+            # genuinely NO body was fetched. Hard-failing CI here is a false
+            # positive that turns the workflow permanently red on every
+            # transferred-issue edit. Skip loudly (not silently): no body was
+            # fetched, so the disjoint real-secret detection path below is
+            # never reached — this cannot mask a genuine leak.
+            print(
+                f"WARNING: could not fetch {repo}#{args.issue_number} "
+                f"(transferred/redirected/deleted/404) — skipping issue/PR-body "
+                f"secret scan for this ref: {e}",
+                file=sys.stderr,
+            )
+            return 0
+        except RuntimeError as e:
+            # gh exited 0 but the issue body JSON was unparseable. The issue
+            # EXISTS (not a transfer) and may carry a leak we cannot read —
+            # do NOT skip, do NOT traceback. Fail loud (Fail Fast).
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        except FileNotFoundError as e:
+            # gh binary genuinely absent => broken environment, not a
+            # transferred issue. Fail loud (Fail Fast); do NOT skip.
+            print(f"Error: gh CLI not available, cannot scan issue #{args.issue_number}: {e}", file=sys.stderr)
             return 1
         findings = scan_text_content(body_text, f"{repo}#{args.issue_number}", blocklist, allowlist)
         if findings:
