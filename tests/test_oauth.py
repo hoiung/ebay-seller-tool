@@ -47,7 +47,8 @@ def test_refresh_user_token_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_resp = MagicMock(spec=httpx.Response)
     fake_resp.status_code = 200
     fake_resp.json.return_value = {
-        "access_token": "ACCESS-XYZ", "expires_in": 7200,  # secret-allow (fixture)
+        "access_token": "ACCESS-XYZ",  # secret-allow (fixture)
+        "expires_in": 7200,
     }
     with patch("ebay.oauth.httpx.post", return_value=fake_resp):
         token, expires = oauth._refresh_user_token()
@@ -61,7 +62,8 @@ def test_refresh_app_token_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_resp = MagicMock(spec=httpx.Response)
     fake_resp.status_code = 200
     fake_resp.json.return_value = {
-        "access_token": "APP-ABC", "expires_in": 7200,  # secret-allow (fixture)
+        "access_token": "APP-ABC",  # secret-allow (fixture)
+        "expires_in": 7200,
     }
     with patch("ebay.oauth.httpx.post", return_value=fake_resp):
         token, expires = oauth._refresh_app_token()
