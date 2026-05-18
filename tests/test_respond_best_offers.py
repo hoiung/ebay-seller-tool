@@ -1071,6 +1071,4 @@ def test_per_fire_env_stats_emits_4_keys_exactly_once(
 
     # processed=0 because pending was mocked empty; pins the counter
     # initialisation contract (no off-by-one from a missing reset).
-    assert "processed=0" in line, (
-        f"processed should be 0 when pending is empty; line: {line}"
-    )
+    assert "processed=0" in line, f"processed should be 0 when pending is empty; line: {line}"
