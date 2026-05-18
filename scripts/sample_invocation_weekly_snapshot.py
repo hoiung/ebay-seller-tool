@@ -33,28 +33,58 @@ from ebay import snapshots
 # Mirror the canonical enumeration in tests/test_snapshots.py to keep the
 # sample-invocation contract aligned with the unit-test contract.
 V1_CONSUMED_FIELDS = {
-    "week_id", "previous_price", "delta_pct", "floor_price_gbp",
-    "imp_30d", "views_30d", "ctr_pct", "conv_pct", "tx_30d",
-    "days_on_site", "decision", "decision_rationale", "consecutive_drops",
-    "previous_decision", "manual_hold_flag", "data_quality_caveat",
+    "week_id",
+    "previous_price",
+    "delta_pct",
+    "floor_price_gbp",
+    "imp_30d",
+    "views_30d",
+    "ctr_pct",
+    "conv_pct",
+    "tx_30d",
+    "days_on_site",
+    "decision",
+    "decision_rationale",
+    "consecutive_drops",
+    "previous_decision",
+    "manual_hold_flag",
+    "data_quality_caveat",
     "applied_at",
 }
 
 V2_DEFERRED_FIELDS = {
-    "mpn", "drive_type", "product_line", "condition_id", "cond_name",
-    "watchers", "sold_lifetime", "rank_health_status", "audit_doc_cite",
-    "elasticity_classification_at_snapshot", "authorized_by",
+    "mpn",
+    "drive_type",
+    "product_line",
+    "condition_id",
+    "cond_name",
+    "watchers",
+    "sold_lifetime",
+    "rank_health_status",
+    "audit_doc_cite",
+    "elasticity_classification_at_snapshot",
+    "authorized_by",
 }
 
 CANONICAL_DECISIONS = {
-    "HOLD", "DROP_5", "DROP_10", "DROP_15", "RAISE_5",
-    "ESCALATE_NON_PRICE", "INSUFFICIENT_DATA",
+    "HOLD",
+    "DROP_5",
+    "DROP_10",
+    "DROP_15",
+    "RAISE_5",
+    "ESCALATE_NON_PRICE",
+    "INSUFFICIENT_DATA",
 }
 
 # Cycle through decisions to cover all 7 enum members across 22 rows.
 _DECISION_CYCLE = [
-    "HOLD", "DROP_5", "DROP_10", "DROP_15", "RAISE_5",
-    "ESCALATE_NON_PRICE", "INSUFFICIENT_DATA",
+    "HOLD",
+    "DROP_5",
+    "DROP_10",
+    "DROP_15",
+    "RAISE_5",
+    "ESCALATE_NON_PRICE",
+    "INSUFFICIENT_DATA",
 ]
 
 
@@ -91,7 +121,7 @@ def _payload_for(idx: int) -> dict:
         "data_quality_caveat": "post-#29-toggle-window" if idx < 6 else None,
         "applied_at": None,
         # v2-deferred (write-only in v1; populate to verify round-trip)
-        "mpn": f"ST{2000+idx}NX0253",
+        "mpn": f"ST{2000 + idx}NX0253",
         "drive_type": "HDD",
         "product_line": "Enterprise Capacity",
         "condition_id": 3000,
@@ -99,7 +129,7 @@ def _payload_for(idx: int) -> dict:
         "watchers": idx % 3,
         "sold_lifetime": idx,
         "rank_health_status": "stalled" if idx % 5 else "healthy",
-        "audit_doc_cite": f"14_SALES_IMPROVEMENT_2026-04-24.md#row-{idx+1}",
+        "audit_doc_cite": f"14_SALES_IMPROVEMENT_2026-04-24.md#row-{idx + 1}",
         "elasticity_classification_at_snapshot": None,
         "authorized_by": None,
     }
@@ -178,8 +208,9 @@ def main() -> int:
 
     if seen_decisions != CANONICAL_DECISIONS:
         missing = CANONICAL_DECISIONS - seen_decisions
-        print(f"\nFAIL: not all 7 canonical decisions exercised. Missing: {missing}",
-              file=sys.stderr)
+        print(
+            f"\nFAIL: not all 7 canonical decisions exercised. Missing: {missing}", file=sys.stderr
+        )
         return 1
 
     print("\nPASS — Phase 2 weekly_snapshot schema contract verified end-to-end.")
