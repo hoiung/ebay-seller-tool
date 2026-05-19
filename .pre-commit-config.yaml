@@ -22,43 +22,6 @@ repos:
         pass_filenames: false
         always_run: true
 
-      - id: secret-rules-drift
-        name: Secret detection script drift check
-        entry: bash
-        args:
-          - -c
-          - |
-            CANONICAL=../dotfiles/SST3/scripts/check-public-repo-secrets.py
-            LOCAL=scripts/check-public-repo-secrets.py
-            [ -f "$CANONICAL" ] || { echo "SKIP: dotfiles not found — drift check skipped" >&2; exit 0; }
-            cmp -s "$LOCAL" "$CANONICAL" || { echo "ERROR: $LOCAL has drifted. Run: cp $CANONICAL $LOCAL" >&2; exit 1; }
-        language: system
-        pass_filenames: false
-        always_run: true
-
-      - id: check-mirror-drift-self-drift
-        name: Self-check that vendored check-mirror-drift.py + sst3_mirror_utils.py match canonical
-        entry: bash
-        args:
-          - -c
-          - |
-            for f in check-mirror-drift.py sst3_mirror_utils.py; do
-              CANONICAL=../dotfiles/SST3/scripts/$f
-              LOCAL=scripts/$f
-              [ -f "$CANONICAL" ] || { echo "SKIP: dotfiles not found — drift check skipped" >&2; exit 0; }
-              cmp -s "$LOCAL" "$CANONICAL" || { echo "ERROR: scripts/$f has drifted from canonical. Run: cp $CANONICAL $LOCAL" >&2; exit 1; }
-            done
-        language: system
-        pass_filenames: false
-        always_run: true
-
-      - id: sst3-mirror-drift
-        name: SST3 vendored file drift check (manifest-driven)
-        entry: python scripts/check-mirror-drift.py --repo ebay-seller-tool
-        language: system
-        pass_filenames: false
-        always_run: true
-
       - id: sst3-closure-loop-applied
         name: Stage 1 closure-loop applied_in propagation gate (#460 Phase 6 W1; consumer-repo propagation)
         # Fires on commits with Phase: 4 or Phase: 5 trailer. Invokes the
@@ -84,6 +47,38 @@ repos:
         stages: [commit-msg]
         always_run: true
         verbose: true
+
+      # >>> SST3 MANAGED BLOCK — DO NOT EDIT — propagated by propagate-block.py >>>
+      - id: sst3-mirror-drift
+        name: SST3 vendored file drift check (manifest-driven, staged-aware)
+        entry: python3 scripts/check-mirror-drift.py --repo ebay-seller-tool
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: sst3-mirror-drift-strict
+        name: SST3 vendored file drift check (strict, push-time repo-wide)
+        entry: python3 scripts/check-mirror-drift.py --repo ebay-seller-tool --strict
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: sst3-managed-block-drift
+        name: SST3 managed-block drift check (boundary-marker integrity, staged-aware)
+        entry: python3 scripts/check-mirror-drift.py --repo ebay-seller-tool --managed-blocks
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: sst3-managed-block-drift-strict
+        name: SST3 managed-block drift check (strict, push-time)
+        entry: python3 scripts/check-mirror-drift.py --repo ebay-seller-tool --managed-blocks --strict
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      # <<< END SST3 MANAGED BLOCK — propagated by propagate-block.py <<<
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
