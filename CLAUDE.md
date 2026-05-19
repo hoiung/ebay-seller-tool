@@ -48,7 +48,7 @@ Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ wa
 **Worktree-per-agent is the canonical Stage-4 isolation model (dotfiles#488 Fix-A).** A git clone has exactly one working dir, one HEAD, one index — so a second concurrent agent's `git checkout -b` moves the first agent's HEAD and muddles its implementation. Before any code edit, a Stage-4 implementing agent MUST **work in a worktree**: call the `EnterWorktree` tool (named `solo/issue-{N}-{desc}`) to get an isolated worktree on its own solo branch, instead of a bare `git checkout -b solo/...` in the shared clone. This instruction lives HERE (CLAUDE.md / memory) because the `EnterWorktree` tool only activates when "worktree" is explicitly directed by the user **or in CLAUDE.md / memory** — a slash-command-only instruction would leave the tool inert. `.claude/commands/Leader.md` Stage-4 step 1 and `.claude/commands/SST3-solo.md` "Before Starting Work" reference this anchor.
 
 - **NEVER switch branches** (`git checkout main`, `git checkout -b`, `git switch`) — this remains the in-worktree invariant: it is correct *inside* an isolated worktree (commit + push to that worktree's solo branch only).
-- **Always commit and push to the CURRENT worktree's solo branch** — it gets merged later via the recursion-safe remote fast-forward procedure (no shared-tree `git checkout main` — see Leader.md Gate 2 / AC 1.3).
+- **Always commit and push to the CURRENT worktree's solo branch** — it gets merged later via the recursion-safe remote fast-forward procedure (NEVER a shared-tree `git checkout main` — see Leader.md Gate 2 / AC 1.3).
 - If you need something from main, **ask the user** — do NOT switch yourself.
 - The only branch creation is the `EnterWorktree` solo branch at the START of work; `ExitWorktree action:keep` until the push is confirmed landed, then `action:remove`.
 - **Runtime backstop (dotfiles#490)**: a Claude Code PreToolUse hook — canonical `claude/hooks/sst3-branch-guard.sh`, installed user-scope by `scripts/install.sh`, wired in `claude/settings.json` `hooks.PreToolUse` — deterministically intercepts a Bash branch *switch-to-existing / non-`solo/*` create* **before it executes**, so this rule is no longer prose-only (STANDARDS.md:27 "not honor system"). WARN by default (advisory, fully reversible: remove the `hooks` block or set `disableAllHooks`); one config flip `SST3_BRANCH_GUARD_MODE=DENY` hard-blocks (exit 2, overrides `permissions.allow`). Tests: `claude/hooks/tests/test_branch_guard.sh`.
@@ -105,7 +105,7 @@ Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, 
 ```
 ## Working on Issue #X
 Read CLAUDE.md, STANDARDS.md, Issue
-Create branch: git checkout -b solo/issue-{X}-{description}
+Enter isolated worktree: call EnterWorktree tool named solo/issue-{X}-{description}
 Execute phase 1, commit per file, push, post checkpoint
 Execute phase 2, commit per file, push, post checkpoint
 ...
@@ -147,37 +147,6 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 <!-- Modifications require dotfiles repository SST3 issue approval -->
 <!-- Project-specific configuration begins BELOW this boundary -->
 <!-- ============================================================== -->
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # Project-Specific Configuration
 

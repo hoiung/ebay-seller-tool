@@ -127,6 +127,24 @@ def user_quote_scrub(text: str, ctx: dict) -> str:
     return _USER_QUOTE_RE.sub("", text)
 
 
+def substitute_repo_slug(text: str, ctx: dict) -> str:
+    """Replace the literal `<REPO_SLUG>` token with `ctx['repo']`.
+
+    Used by managed-block propagation (Issue #493 AC 1.5): the canonical
+    pre-commit block carries `--repo <REPO_SLUG>` in its hook entries; at
+    propagate-time each mirror entry substitutes its own repo slug. The
+    ctx['repo'] value is the same mirror['repo'] field that `iter_mirror_entries`
+    yields, so reuses the existing transform contract.
+
+    Idempotent: applying twice yields the same result (since `<REPO_SLUG>`
+    is gone after the first pass, the second pass is a no-op).
+    """
+    target = ctx.get("repo", "")
+    if not target:
+        return text
+    return text.replace("<REPO_SLUG>", target)
+
+
 def blocklist_subset(text: str, ctx: dict) -> str:
     """Filter canonical blocklist to repo-specific subset via ctx['repo'].
 
@@ -175,6 +193,7 @@ TRANSFORMS: dict[str, TransformFn] = {
     "private_path_scrub": private_path_scrub,
     "project_name_scrub": project_name_scrub,
     "repo_ref_scrub": repo_ref_scrub,
+    "substitute_repo_slug": substitute_repo_slug,
     "trading_term_scrub": trading_term_scrub,
     "user_quote_scrub": user_quote_scrub,
 }
@@ -270,6 +289,89 @@ def validate_manifest(data: Any) -> None:
         raise ManifestError("unmirrored_canonical_files must be list")
     for i, entry in enumerate(unmirrored):
         _validate_unmirrored_entry(entry, i)
+
+    # Issue #493 AC 1.6 — managed_blocks: boundary-marker propagation (paired-
+    # marker YAML blocks). Optional top-level array; each entry pairs one
+    # canonical block template with N mirror targets that get per-repo
+    # transforms applied at propagate-time. Without this validator extension,
+    # the new array would be silently ignored (unknown-key tolerance).
+    managed_blocks = data.get("managed_blocks", [])
+    if not isinstance(managed_blocks, list):
+        raise ManifestError("managed_blocks must be list")
+    seen_canonical_blocks: set[str] = set()
+    for i, entry in enumerate(managed_blocks):
+        _validate_managed_block_entry(entry, i, seen_canonical_blocks)
+
+
+def _validate_managed_block_entry(
+    entry: Any, index: int, seen: set[str]
+) -> None:
+    """Enforce `managed_blocks[i]` entry schema (Issue #493 AC 1.6).
+
+    Each entry maps one canonical block template (e.g. the SST3 pre-commit
+    block YAML at SST3/templates/pre-commit-managed-block.yaml) onto N
+    consumer mirror targets. Required fields:
+
+    * ``canonical``     — non-empty repo-rel path to the canonical block template.
+    * ``target_file``   — non-empty repo-rel filename inside each mirror
+                          that carries the boundary-marked block (e.g.
+                          ``.pre-commit-config.yaml``).
+    * ``marker_start``  — non-empty start-marker line content (line-anchored).
+    * ``marker_end``    — non-empty end-marker line content (line-anchored).
+    * ``mirrors``       — non-empty list of ``{repo, path, transforms?}`` entries
+                          (same shape as ``vendored_files[*].mirrors[*]``).
+    """
+    prefix = f"managed_blocks[{index}]"
+    if not isinstance(entry, dict):
+        raise ManifestError(f"{prefix} must be object")
+    canonical = entry.get("canonical")
+    if not isinstance(canonical, str) or not canonical:
+        raise ManifestError(f"{prefix}.canonical must be non-empty string")
+    if canonical in seen:
+        raise ManifestError(f"{prefix}.canonical duplicate: {canonical}")
+    seen.add(canonical)
+    for key in ("target_file", "marker_start", "marker_end"):
+        val = entry.get(key)
+        if not isinstance(val, str) or not val:
+            raise ManifestError(f"{prefix}.{key} must be non-empty string")
+    if entry["marker_start"] == entry["marker_end"]:
+        raise ManifestError(
+            f"{prefix}.marker_start and marker_end must differ (paired-marker contract)"
+        )
+    mirrors = entry.get("mirrors")
+    if not isinstance(mirrors, list) or not mirrors:
+        raise ManifestError(f"{prefix}.mirrors must be non-empty list")
+    for j, mirror in enumerate(mirrors):
+        _validate_managed_block_mirror(mirror, f"{prefix}.mirrors[{j}]")
+
+
+def _validate_managed_block_mirror(mirror: Any, prefix: str) -> None:
+    """Validate a single managed-block mirror entry.
+
+    Same shape as ``vendored_files`` mirrors for ``repo`` + ``path``, but
+    here ``path`` is the same as the parent entry's ``target_file`` in
+    every case — kept as a separate field for parallelism with
+    ``vendored_files[*].mirrors[*].path`` and to allow future divergence.
+    """
+    if not isinstance(mirror, dict):
+        raise ManifestError(f"{prefix} must be object")
+    for key in ("repo", "path"):
+        val = mirror.get(key)
+        if not isinstance(val, str) or not val:
+            raise ManifestError(f"{prefix}.{key} must be non-empty string")
+    transforms = mirror.get("transforms", [])
+    if not isinstance(transforms, list):
+        raise ManifestError(f"{prefix}.transforms must be list")
+    for k, name in enumerate(transforms):
+        if not isinstance(name, str) or not name:
+            raise ManifestError(
+                f"{prefix}.transforms[{k}] must be non-empty string"
+            )
+        if name not in TRANSFORMS:
+            raise ManifestError(
+                f"{prefix}.transforms[{k}] unknown transform '{name}'. "
+                f"Registry: {sorted(TRANSFORMS.keys())}"
+            )
 
 
 def _validate_unmirrored_entry(entry: Any, index: int) -> None:
@@ -433,6 +535,30 @@ def resolve_mirror(manifest_path: Path, mirror_repo: str, mirror_rel: str) -> Pa
     return devprojects / mirror_repo / mirror_rel
 
 
+def resolve_self_row_destination(
+    manifest_path: Path, mirror_repo: str, mirror_rel: str
+) -> Path:
+    """Resolve a mirror destination with worktree-aware self-row routing
+    (dotfiles#495 FRAG-1 / AC 2.1).
+
+    When invoked from a LINKED WORKTREE AND the mirror's `repo` is `dotfiles`
+    (the harness self-row), return the WORKTREE path (so an in-flight
+    canonical edit lands in the worktree's solo branch, mergeable via Gate-2
+    server-FF without a post-merge `--apply` from the main clone). Otherwise
+    delegate to `resolve_mirror` (consumer-repo mirrors always resolve to
+    main-clone siblings; main-clone invocations resolve the dotfiles self-row
+    in the main clone exactly as before).
+
+    Pure deterministic path math via the existing primitives:
+    `resolve_dotfiles_root(manifest_path) / mirror_rel` for the worktree
+    self-row case; `resolve_mirror(manifest_path, mirror_repo, mirror_rel)`
+    for every other case.
+    """
+    if in_linked_worktree(manifest_path) and mirror_repo == "dotfiles":
+        return resolve_dotfiles_root(manifest_path) / mirror_rel
+    return resolve_mirror(manifest_path, mirror_repo, mirror_rel)
+
+
 # -----------------------------------------------------------------------------
 # Iteration helpers
 # -----------------------------------------------------------------------------
@@ -446,6 +572,31 @@ def iter_mirror_entries(
 ) -> Iterable[tuple[dict[str, Any], dict[str, Any]]]:
     """Yield (entry, mirror) pairs matching filters."""
     for entry in manifest["vendored_files"]:
+        if file_filter and entry["canonical"] != file_filter:
+            continue
+        for mirror in entry["mirrors"]:
+            if repo_filter and mirror["repo"] != repo_filter:
+                continue
+            yield entry, mirror
+
+
+def iter_managed_block_entries(
+    manifest: dict[str, Any],
+    *,
+    repo_filter: str | None = None,
+    file_filter: str | None = None,
+) -> Iterable[tuple[dict[str, Any], dict[str, Any]]]:
+    """Yield (entry, mirror) pairs from `manifest['managed_blocks']` matching filters.
+
+    Mirrors the shape of `iter_mirror_entries` so propagate-block.py can use
+    the same loop pattern as propagate-mirrors.py. The `file_filter` matches
+    against `entry['canonical']` (the source template path); `repo_filter`
+    matches against `mirror['repo']`. Returns nothing if `managed_blocks` is
+    absent or empty.
+
+    Issue #493 AC 1.5.
+    """
+    for entry in manifest.get("managed_blocks", []):
         if file_filter and entry["canonical"] != file_filter:
             continue
         for mirror in entry["mirrors"]:
@@ -484,7 +635,13 @@ def check_mirror_drift(
     demand (safe default).
     """
     canonical_path = resolve_canonical(manifest_path, entry["canonical"])
-    mirror_path = resolve_mirror(manifest_path, mirror["repo"], mirror["path"])
+    # dotfiles#495 FRAG-1: use worktree-aware resolution so the dotfiles
+    # self-row mirror check looks at the WORKTREE's mirror file (synced via
+    # --apply from the same worktree). Consumer-row mirrors are unchanged
+    # (resolve_self_row_destination delegates to resolve_mirror for non-dotfiles).
+    mirror_path = resolve_self_row_destination(
+        manifest_path, mirror["repo"], mirror["path"]
+    )
 
     if not canonical_path.is_file():
         raise ManifestError(
