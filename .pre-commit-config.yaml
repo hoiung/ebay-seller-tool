@@ -78,6 +78,14 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+
+      - id: sst3-protected-tag-push-guard
+        name: SST3 protected-tag push guard (blocks leak of backup/* / pre-* / tmp/* / wip/* local-only safety bookmarks)
+        entry: python3 scripts/sst3_protected_tag_guard.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
       # <<< END SST3 MANAGED BLOCK — propagated by propagate-block.py <<<
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
