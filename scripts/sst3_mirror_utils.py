@@ -66,6 +66,15 @@ _TRADING_TERM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bbacktest\s*/\s*SL1\s*/\s*SL2\b"), "data-processing"),
 ]
 _PRIVATE_PATH_RE = re.compile(r"logs/sample_\d+_validation\.log")
+# #497 A.5: replace cross-repo `<private-repo>#<num>` references with `Issue #<num>`
+# so the mirror does not enumerate private consumer repos via issue-shorthand.
+# `auto_pb_swing_trader` + `tradebook_GAS` are operator-acknowledged-public
+# project names per Stage 1 §3.10 — kept out of this transform (project_name_scrub
+# handles the bare name elsewhere; URL forms still block via .secret-blocklist).
+# Includes `apbst` (legacy private slug for auto_pb_swing_trader internal Issues).
+_PRIVATE_REPO_ISSUE_RE = re.compile(
+    r"\b(ebay-ops|job-hunter|brainstorm|blog-priv|lab-ops|consulting-ops|apbst)#(\d+)\b"
+)
 # Strict start-of-line match — only lines of the form `# [identifier]` (optional trailing whitespace).
 # Data lines containing `[` (e.g. `ERROR_[42]`) do NOT match and are preserved as data. (#441 Phase 2 defensive regex.)
 _BLOCKLIST_SECTION_HEADER_RE = re.compile(r"^# \[([a-zA-Z0-9_-]+)\]\s*$")
@@ -74,13 +83,26 @@ _BLOCKLIST_SECTION_HEADER_RE = re.compile(r"^# \[([a-zA-Z0-9_-]+)\]\s*$")
 def path_scrub(text: str, ctx: dict) -> str:
     """Rewrite `../dotfiles/SST3/<subdir>/` cross-repo refs for mirror context.
 
-    In mirrors, SST3 content is at `<mirror>/<subdir>/` (no `SST3/` prefix),
-    so `../dotfiles/SST3/ralph/foo.md` → `../ralph/foo.md` (the sibling's
-    `ralph/foo.md`) from the perspective of a mirror script.
-
+    For depth-1 mirror sources (e.g. `standards/STANDARDS.md`):
+    `../dotfiles/SST3/ralph/foo.md` → `../ralph/foo.md` (resolves to mirror `ralph/foo.md`).
     `SST3/<subdir>/` (in-repo refs in dotfiles) → `<subdir>/` in mirrors.
     """
     out = _PATH_SCRUB_RE.sub(r"../\1/", text)
+    out = _SST3_SELF_RE.sub(r"\1/", out)
+    return out
+
+
+def path_scrub_depth2(text: str, ctx: dict) -> str:
+    """Variant of path_scrub for depth-2 mirror sources (#498 Ralph T3).
+
+    For depth-2 mirror sources (e.g. `standards/stage-4/foo.md`):
+    `../dotfiles/SST3/ralph/x.md` → `../../ralph/x.md` (resolves to mirror `ralph/x.md`).
+
+    `path_scrub` would emit `../ralph/x.md` which resolves to mirror
+    `standards/ralph/x.md` (broken — `ralph/` is at mirror root, not nested under
+    `standards/`). One extra `../` segment is required for depth-2 sources.
+    """
+    out = _PATH_SCRUB_RE.sub(r"../../\1/", text)
     out = _SST3_SELF_RE.sub(r"\1/", out)
     return out
 
@@ -93,9 +115,148 @@ def issue_url_scrub(text: str, ctx: dict) -> str:
     return out
 
 
+def private_repo_issue_scrub(text: str, ctx: dict) -> str:
+    """Replace `<private-repo>#<num>` shorthand with `Issue #<num>` (#497 A.5.1).
+
+    Mirrors should not enumerate private consumer repo names via cross-repo
+    issue references like `ebay-ops#12` / `lab-ops#7` / `apbst#1346`. The
+    operator-acknowledged-public project names (`auto_pb_swing_trader`,
+    `tradebook_GAS`) are NOT scrubbed by this transform — `project_name_scrub`
+    handles bare name occurrences, and URL-form references still block via
+    .secret-blocklist defence-in-depth.
+
+    Idempotent: applying twice yields the same output (the substitution
+    deletes the `<repo>#` prefix, so the second pass finds no further matches).
+    """
+    return _PRIVATE_REPO_ISSUE_RE.sub(r"Issue #\2", text)
+
+
 def repo_ref_scrub(text: str, ctx: dict) -> str:
     """Strip `hoiung/` org prefix from repo refs (e.g. `hoiung/dotfiles` → `dotfiles`)."""
     return _REPO_REF_RE.sub(r"\1", text)
+
+
+# #497 Phase E — content-level scrubs mirroring `.filter-repo-replacements.txt`
+# (the canonical mapping table used by Phase D's history rewrite). Single source
+# of truth for both lanes: filter-repo rewrites past history; this transform
+# scrubs runtime canonical→mirror propagation, so they produce identical mirror
+# state. Order matters — longer/compound patterns first so substring shadowing
+# does not fire (e.g. `Hoi-supplied` must precede `Hoi's` so the latter does
+# not partially-match the former's residue).
+_PRIVATE_TERM_PAIRS: list[tuple[str, str]] = [
+    # Operator-identity scrubs (case-sensitive; the `iamhoi`/`iamhoiend` marker
+    # names are lowercase + non-overlapping and remain unchanged).
+    ("Hoi-supplied", "operator-supplied"),
+    ("Hoi-voice", "operator-voice"),
+    ("Hoi-flagged", "operator-flagged"),
+    ("Hoi's", "the operator's"),
+    ("Hoi flagged", "operator flagged"),
+    ("Hoi raised", "operator raised"),
+    ("Hoi rule", "operator rule"),
+    ("Hoi 2026", "the operator 2026"),
+    ("Joel Sing", "the operator"),
+    # Private consumer repo names — same substitutions as filter-repo replacements.
+    # `auto_pb_swing_trader` / `tradebook_GAS` are NOT scrubbed here (operator-
+    # acknowledged public per Stage 1 §3.10 — handled by project_name_scrub when
+    # additional anonymisation is desired). Substring replacement is intentional:
+    # filter-repo rewrote history with the same substring rule, so canonical-with-
+    # transform output matches the post-filter-repo mirror tree byte-for-byte.
+    ("ebay-ops", "consumer-private-A"),
+    ("job-hunter", "voice-doc-repo"),
+    ("brainstorm", "idea-repo"),
+    ("blog-priv", "voice-staging"),
+    ("lab-ops", "lab-harness"),
+    ("consulting-ops", "consultancy-ops"),
+    ("bakeoff-priv", "private-bake-off"),
+    ("apbst", "project-x"),
+    # Personal cloud-drive paths + private hostnames + leak-tracking memory
+    # filenames — same substring-replacement semantics as filter-repo. Order is
+    # longest-first so `HU-<MODEL>` precedes any potential `NUC` collision.
+    ("HU-<MODEL>", "node-<MODEL>"),
+    ("My Drive", "UserHome"),
+    ("Google Drive", "UserHome"),
+    ("OneDrive", "UserHome"),
+    ("auto_pb_v1", "generic-pipeline-v1"),
+    ("feedback_public_artefact_leaks_in_issues.md", "internal-leak-pattern-doc"),
+    ("secret_scan_leak_log.md", "internal-leak-log"),
+    # NOTE: `NUC` and bare `Hoi` are intentionally absent from this literal-pair
+    # list — they are 3-char tokens whose substring `replace` produces collateral
+    # damage (`NUClear` → `nodelear`) and the literal table cannot catch bare-Hoi
+    # phrases (`the Hoi quote`). They are handled by `_WORD_BOUNDED_TERM_PAIRS`
+    # below with a word-boundary regex, applied AFTER this literal sweep so any
+    # longer compound (`Hoi-supplied`, `Hoi flagged`, `HU-<MODEL>`) matches the
+    # literal table first and never reaches the word-bounded fall-through.
+    # Stage 5 #497 fix (S6+S7 finding).
+    # #497 E.4.4 — Tier 3 Opus residue sweep follow-up. Bare-word `Hoi` and
+    # capital-S `Hoi-Supplied` forms surfaced in canonical ANTI-PATTERNS.md
+    # AP #25 body + scripts/check-ai-writing-tells.py comment + voice_rules.py
+    # comments. Each pair below was confirmed by a literal grep against the
+    # actual canonical files (not hypothetical patterns). Order: capital-S form
+    # FIRST (otherwise `Hoi-supplied`'s substring `Hoi` would steal the match
+    # at the capital-S site via the bare-word rule below).
+    ("Hoi-Supplied", "operator-supplied"),
+    ("by Hoi", "by the operator"),
+    ("Hoi writes", "the operator writes"),
+    ("Hoi never", "the operator never"),
+    ("Hoi framed", "the operator framed"),
+    ("Hoi did", "the operator did"),
+    ("Hoi stated", "the operator stated"),
+    ("Hoi confirmed", "the operator confirmed"),
+    ("Hoi: ", "Operator: "),
+    ("Hoi vocabulary", "operator vocabulary"),
+    ("non-Hoi", "non-operator"),
+    ("Hoi 50+", "the operator 50+"),
+    ("feedback_hoi_handwrites_notes_no_forget.md", "internal-handwriting-memory"),
+    ("feedback_nad9_is_production_not_lab.md", "internal-production-memory"),
+]
+
+
+# Word-boundary-anchored pairs — applied AFTER `_PRIVATE_TERM_PAIRS` literal
+# sweep. These exist for 3-character tokens whose substring `replace` would
+# create collateral damage. Stage 5 #497 fix (S6+S7 finding):
+#   - `NUC` literal-replace produces `NUClear → nodelear`, `NUCleus → nodeleus`.
+#   - bare `Hoi` cannot live in `_PRIVATE_TERM_PAIRS` as a literal (would hit
+#     `Hoist`, `Hoity-toity`), yet phrases like `the Hoi quote`, `Hoi can
+#     install`, `Hoi 'eyes and ears'` MUST be scrubbed before they propagate
+#     to the public mirror — load-bearing privacy constraint.
+# Ordering: compound forms (`Hoi-supplied`, `Hoi flagged`, `Hoi: `,
+# `HU-<MODEL>`, ...) match the literal table above FIRST; this fall-through
+# only catches genuinely bare uses.
+_WORD_BOUNDED_TERM_PAIRS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bNUC\b"), "node"),
+    (re.compile(r"\bHoi\b"), "operator"),
+)
+
+
+def private_term_scrub(text: str, ctx: dict) -> str:
+    """Replace operator-identity + private-repo-name literals (#497 Phase E).
+
+    Mirrors `.filter-repo-replacements.txt` used by Phase D's history rewrite,
+    so canonical→mirror runtime propagation produces the same output as the
+    filter-repo history rewrite. Pure substring replacement (matches the
+    filter-repo `--replace-text` semantics byte-for-byte).
+
+    Idempotent: each replacement consumes its input substring; second pass is
+    a no-op because no replacement output equals any other pair's input key.
+
+    **Known trade-off (operator-authorised, dotfiles#497 checkpoint comment
+    issuecomment-4493556489)**: the `_PRIVATE_TERM_PAIRS` mapping table itself
+    is visible in the vendored mirror copy of this file (mirror's
+    `scripts/sst3_mirror_utils.py` byte-identical to canonical per manifest
+    `transforms: []`). The mapping reveals the OLD→NEW correspondence
+    (`Hoi-supplied → operator-supplied`, `job-hunter → voice-doc-repo`, etc.) —
+    a bounded deanonymization-oracle. Operator-acknowledged trade-off: this
+    bounded one-file exposure is preferred over the alternative of literal
+    identifiers scattered through dozens of rule documents (orders-of-magnitude
+    larger surface). The scrub still strips the literals from rule docs; only
+    the substitution table itself remains visible.
+    """
+    out = text
+    for old, new in _PRIVATE_TERM_PAIRS:
+        out = out.replace(old, new)
+    for pat, repl in _WORD_BOUNDED_TERM_PAIRS:
+        out = pat.sub(repl, out)
+    return out
 
 
 def project_name_scrub(text: str, ctx: dict) -> str:
@@ -190,7 +351,10 @@ TRANSFORMS: dict[str, TransformFn] = {
     "blocklist_subset": blocklist_subset,
     "issue_url_scrub": issue_url_scrub,
     "path_scrub": path_scrub,
+    "path_scrub_depth2": path_scrub_depth2,
     "private_path_scrub": private_path_scrub,
+    "private_repo_issue_scrub": private_repo_issue_scrub,
+    "private_term_scrub": private_term_scrub,
     "project_name_scrub": project_name_scrub,
     "repo_ref_scrub": repo_ref_scrub,
     "substitute_repo_slug": substitute_repo_slug,
