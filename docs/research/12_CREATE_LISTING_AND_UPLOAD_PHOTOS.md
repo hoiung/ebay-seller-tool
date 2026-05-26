@@ -24,6 +24,27 @@
 > (the module docstring + `_build_seller_profiles_block`) for the live
 > architecture.
 
+> **⚠️ FURTHER SUPERSEDED by the 2026-05-26 permanent fix**
+>
+> The "After #29" architecture above (SellerProfiles + 3 Business Policy
+> env vars) is itself superseded. After the 3rd shipping-poison incident
+> caught by the ebay-ops#27 canary, `build_add_payload` and
+> `build_revise_payload` attach **NO `SellerProfiles` block at all**:
+>
+> - `_build_seller_profiles_block` raises `NotImplementedError`.
+> - `_REQUIRED_SELLER_PROFILE_ENV_VARS = ()` — env vars no longer required.
+> - `EBAY_PAYMENT_PROFILE_ID` / `EBAY_SHIPPING_PROFILE_ID` /
+>   `EBAY_RETURN_PROFILE_ID` are deprecated and read by nothing in the
+>   add/revise paths.
+> - Source of truth: account-level **eBay Simple Delivery** + manually-set
+>   free shipping. eBay leaves the listing's existing policy attachments
+>   alone when `SellerProfiles` is absent.
+>
+> See `ebay/listings.py` module docstring "SellerProfiles attachment
+> policy" + `memory/feedback_ebay_default_shipping_poisoned.md` for the
+> 3-incident history (2026-05-03/04 enrolment, #21 Phase 0 partial-attach,
+> 2026-05-26 canary catch) that drove the permanent invariant.
+
 ---
 
 ## 1. Findings

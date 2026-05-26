@@ -16,9 +16,13 @@ oldest non-index-0 URLs first — the operator's just-uploaded photos always
 survive. Replace-mode honours caller-supplied order via head-slice. The caller
 is informed via response `truncated` / `truncated_count` / `photos_lost` fields.
 
-Shipping/payment/returns come from SellerProfiles (Business Policies, issue #29) —
-no inline echo needed on enrolled accounts. The Revise-path Quantity invariant
-is preserved (build_revise_payload._assert_no_quantity).
+Shipping/payment/returns are NOT touched by revise_pictures. Per the
+2026-05-26 permanent fix (see ebay/listings.py module docstring),
+build_revise_payload attaches NO SellerProfiles block — eBay leaves the
+listing's existing policy attachments alone, and account-level eBay
+Simple Delivery + manually-set free shipping is the source of truth.
+The Revise-path Quantity invariant is preserved
+(build_revise_payload._assert_no_quantity).
 """
 
 from __future__ import annotations
