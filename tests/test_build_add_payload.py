@@ -259,3 +259,14 @@ def test_build_add_payload_does_not_require_profile_env_vars(
     # Should succeed without those env vars — they're no longer touched.
     payload = _minimal()
     assert "SellerProfiles" not in payload["Item"]
+
+
+def test_required_seller_profile_env_vars_is_empty() -> None:
+    """Stage 5 A2 layer-4 hardening — direct assertion on the contract
+    that the env-var requirement tuple is empty. If a future refactor
+    repopulates the tuple with new env-var names, this test fires;
+    the existing monkeypatch-based test above only catches it if the
+    specific 3 historical names are reused."""
+    from ebay.listings import _REQUIRED_SELLER_PROFILE_ENV_VARS
+
+    assert _REQUIRED_SELLER_PROFILE_ENV_VARS == ()

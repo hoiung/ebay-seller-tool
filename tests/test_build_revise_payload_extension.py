@@ -190,7 +190,8 @@ def test_revise_payload_with_picture_urls_no_seller_profiles() -> None:
 
 
 def test_revise_payload_with_price_no_seller_profiles() -> None:
-    """#29-followup — price-only revises (orchestrator apply path) MUST NOT attach SellerProfiles."""
+    """#29-followup — price-only revises (orchestrator apply path) MUST NOT
+    attach SellerProfiles."""
     payload = build_revise_payload(item_id="111", price=49.99)
     assert "SellerProfiles" not in payload["Item"]
     assert payload["Item"]["StartPrice"] == "49.99"
