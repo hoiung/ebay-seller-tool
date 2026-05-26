@@ -797,8 +797,13 @@ async def update_listing(
             dry_response["wrong_direction_warning"] = wrong_direction_warning
         return json.dumps(dry_response, indent=2)
 
-    # Build and send ReviseFixedPriceItem payload — Business Policies (#29)
-    # supplies shipping/payment/returns via SellerProfiles, no inline echo.
+    # Build and send ReviseFixedPriceItem payload — per 2026-05-26 permanent
+    # fix, build_revise_payload attaches NO SellerProfiles block at all.
+    # eBay leaves the listing's existing policy attachments alone; account-
+    # level eBay Simple Delivery + manually-set free shipping is the source
+    # of truth (see ebay/listings.py "SellerProfiles attachment policy"
+    # module docstring + feedback_ebay_default_shipping_poisoned.md for the
+    # 3-incident history that drove this invariant).
 
     # Item specifics: eBay replaces the entire block, so merge new values into existing
     merged_specifics = None
