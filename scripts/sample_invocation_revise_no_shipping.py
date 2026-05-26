@@ -1,11 +1,11 @@
-"""Issue #21 Phase 0 — sample invocation for the no-shipping revise payload shape.
+"""#29-followup — sample invocation for the no-SellerProfiles revise payload.
 
 Builds a price-only ReviseFixedPriceItem payload via build_revise_payload
-(the production function) and asserts the offline contract:
+(the production function) and asserts the permanent contract:
 
-  1. SellerProfiles is present (payment + return profiles attached)
-  2. SellerShippingProfile is NOT present (Phase 0 fix)
-  3. SellerPaymentProfile + SellerReturnProfile present and populated from .env
+  1. SellerProfiles is NOT present (no policy attachments of any kind)
+  2. No inline ShippingDetails, ReturnPolicy, or PaymentMethods
+  3. Only the price-change field is present in the Item dict
   4. Quantity invariant intact (whitebox _assert_no_quantity must not fire)
 
 When invoked with --apply against a real ItemID, also submits the
@@ -19,9 +19,9 @@ Default mode is OFFLINE (dry-run) — no live eBay submission.
 Live mode is opt-in via --apply <ItemID> --confirm.
 
 PREREQUISITES:
-  - .env populated with EBAY_PAYMENT_PROFILE_ID + EBAY_RETURN_PROFILE_ID
-    (+ EBAY_SHIPPING_PROFILE_ID for env-contract consistency, even though
-    Phase 0 no longer attaches it on revise)
+  - None. Build_revise_payload no longer reads Business Policy env vars
+    (the SellerProfiles attachment was removed permanently — see module-
+    level "SellerProfiles attachment policy" docstring in ebay/listings.py).
 
 USAGE (offline):
   uv run python scripts/sample_invocation_revise_no_shipping.py
@@ -51,27 +51,20 @@ _REGRESSION_ERROR_CODES = {"21920361", "37"}
 
 
 def _check_offline_contract(item_id: str, price: float | None) -> dict:
-    """Build payload + assert Phase 0 invariants; return the payload."""
+    """Build payload + assert #29-followup invariants; return the payload."""
     payload = build_revise_payload(item_id=item_id, price=price)
     item = payload["Item"]
 
-    sp = item.get("SellerProfiles")
-    assert sp is not None, "SellerProfiles missing from revise payload"
-
-    assert "SellerShippingProfile" not in sp, (
-        "FAIL: Phase 0 regression — SellerShippingProfile is attached to revise. "
-        "build_revise_payload must call _build_seller_profiles_block(include_shipping=False) "
-        "(see feedback_ebay_default_shipping_poisoned.md durable rule)."
+    assert "SellerProfiles" not in item, (
+        "FAIL: #29-followup regression — SellerProfiles is attached to revise. "
+        "build_revise_payload must NOT attach SellerProfiles at all — eBay "
+        "auto-fills missing profile slots from account defaults, destroying "
+        "inline shipping (3× historical, "
+        "feedback_ebay_default_shipping_poisoned.md)."
     )
-
-    payment = sp.get("SellerPaymentProfile")
-    assert payment is not None, "SellerPaymentProfile missing"
-    assert payment.get("PaymentProfileID"), "PaymentProfileID empty"
-
-    returns = sp.get("SellerReturnProfile")
-    assert returns is not None, "SellerReturnProfile missing"
-    assert returns.get("ReturnProfileID"), "ReturnProfileID empty"
-
+    assert "ShippingDetails" not in item, "Inline ShippingDetails leaked into revise"
+    assert "ReturnPolicy" not in item, "Inline ReturnPolicy leaked into revise"
+    assert "PaymentMethods" not in item, "Inline PaymentMethods leaked into revise"
     assert "Quantity" not in item, "Quantity leaked into revise payload"
 
     if price is not None:
@@ -83,12 +76,11 @@ def _check_offline_contract(item_id: str, price: float | None) -> dict:
 
 
 def _print_offline_summary(item_id: str, payload: dict) -> None:
-    sp = payload["Item"]["SellerProfiles"]
-    print("=== Offline payload ===")
-    print(f"  ItemID            = {item_id}")
-    print(f"  PaymentProfileID  = {sp['SellerPaymentProfile']['PaymentProfileID']}")
-    print(f"  ReturnProfileID   = {sp['SellerReturnProfile']['ReturnProfileID']}")
-    print("  ShippingProfileID = (NOT attached — Phase 0 contract)")
+    item = payload["Item"]
+    print("=== Offline payload (NO SellerProfiles, NO policy attachments) ===")
+    print(f"  ItemID         = {item_id}")
+    print(f"  StartPrice     = {item.get('StartPrice', '(not set)')}")
+    print(f"  Item dict keys = {sorted(item.keys())}")
     print()
 
 
@@ -114,14 +106,15 @@ async def _live_submit(item_id: str, price: float, payload: dict) -> int:
 
     if regression_hit:
         print(
-            "\nFAIL — eBay returned a Phase 0 regression error code "
-            f"({_REGRESSION_ERROR_CODES}). Investigate _build_seller_profiles_block "
-            "callers in ebay/listings.py."
+            "\nFAIL — eBay returned a #29-followup regression error code "
+            f"({_REGRESSION_ERROR_CODES}). Investigate build_revise_payload "
+            "in ebay/listings.py — payload should NOT contain a SellerProfiles "
+            "block on revise."
         )
         return 1
 
     if ack in ("Success", "Warning"):
-        print("\nPASS — revise without SellerShippingProfile accepted by eBay.")
+        print("\nPASS — revise without SellerProfiles accepted by eBay.")
         return 0
     print(f"\nFAIL — eBay rejected the revise (Ack={ack}).")
     return 1

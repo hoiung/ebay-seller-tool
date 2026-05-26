@@ -555,19 +555,26 @@ def test_update_listing_dry_run_surfaces_wrong_direction_warning_field() -> None
     assert body["wrong_direction_warning"] == fake_warning
 
 
-# ---- Issue #29 — SellerProfiles emission verification ----
+# ---- #29-followup permanent fix: revise payload NEVER attaches SellerProfiles ----
 
 
-def test_update_listing_revise_payload_emits_seller_profiles() -> None:
-    """Issue #29 + #21 Phase 0 — update_listing's ReviseFixedPriceItem payload
-    uses Profile IDs for payment + return; SellerShippingProfile is intentionally
-    NOT attached (default-shipping policy was poisoned post-#29 fallout, see
-    feedback_ebay_default_shipping_poisoned.md).
+def test_update_listing_revise_payload_attaches_no_seller_profiles() -> None:
+    """#29-followup — update_listing's ReviseFixedPriceItem payload MUST NOT
+    attach any SellerProfiles block at all.
 
-    Captures the second execute_with_retry call (the ReviseFixedPriceItem dispatch)
-    and asserts the payload's Item.SellerProfiles block carries the two Profile
-    IDs from conftest env, with no inline ShippingDetails / ReturnPolicy / PaymentMethods
-    AND no SellerShippingProfile ref.
+    History: Phase 0 fix attached SellerProfiles with payment+return but not
+    SellerShippingProfile, on the assumption eBay would leave inline shipping
+    alone. eBay's actual behavior: auto-fill the missing shipping slot from
+    account defaults → destroys inline free shipping (3× historical
+    incidents, see feedback_ebay_default_shipping_poisoned.md).
+
+    New permanent rule: payload contains ONLY the fields the caller passes.
+    Account-level eBay Simple Delivery + manually-set free shipping is the
+    source of truth; the code never touches policies.
+
+    Captures the ReviseFixedPriceItem dispatch payload and asserts NO
+    SellerProfiles, NO inline ShippingDetails, NO ReturnPolicy, NO
+    PaymentMethods — only the price-change.
     """
     from server import update_listing
 
@@ -599,10 +606,14 @@ def test_update_listing_revise_payload_emits_seller_profiles() -> None:
     body = json.loads(result)
     assert body.get("success") is True
     item = captured["payload"]["Item"]
+    # Permanent invariant — no policy attachments of any kind on revise.
+    assert "SellerProfiles" not in item, (
+        "ReviseFixedPriceItem must NOT attach SellerProfiles — would let "
+        "eBay auto-fill account-default shipping, destroying inline free "
+        "config (3× historical, feedback_ebay_default_shipping_poisoned.md)"
+    )
     assert "ShippingDetails" not in item
     assert "ReturnPolicy" not in item
     assert "PaymentMethods" not in item
-    sp = item["SellerProfiles"]
-    assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert "SellerShippingProfile" not in sp, "Phase 0 contract — no shipping policy ref on revise"
-    assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
+    # Only the price-change is present.
+    assert item["StartPrice"] == "35.0"

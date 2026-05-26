@@ -66,15 +66,20 @@ def test_build_add_payload_full_payload_shape() -> None:
         "https://i.ebayimg.com/images/g/abc/$_57.JPG",
         "https://i.ebayimg.com/images/g/def/$_57.JPG",
     ]
-    # Business Policies post-#29 revert: Payment + Return via SellerProfiles;
-    # SHIPPING is inline (FreeShipping=true) so Simple Delivery's "Who pays?"
-    # toggle defaults to seller-pays on new listings.
+    # #29-followup permanent fix: NO SellerProfiles block emitted EVER.
+    # Shipping is inline (FreeShipping=true) so eBay Simple Delivery's
+    # "Who pays?" defaults to seller-pays on new listings. The code
+    # never attaches a SellerShippingProfile — that destroyed inline
+    # shipping 3× historically (see module-level "SellerProfiles
+    # attachment policy" docstring in ebay/listings.py).
     assert "ReturnPolicy" not in item
     assert "PaymentMethods" not in item
-    sp = item["SellerProfiles"]
-    assert "SellerShippingProfile" not in sp, "no shipping policy ref on AddItem"
-    assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
+    assert "SellerProfiles" not in item, (
+        "AddFixedPriceItem must NOT attach SellerProfiles AT ALL — "
+        "any attachment lets eBay auto-fill missing slots from account "
+        "defaults, destroying inline shipping. Account-level eBay Simple "
+        "Delivery is the source of truth."
+    )
     assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true"
     assert item["ShippingDetails"]["GlobalShipping"] == "true"
     assert item["Location"] == "Coventry"  # EBAY_SELLER_LOCATION from conftest
@@ -225,35 +230,32 @@ def test_build_add_payload_custom_location_details_override_env() -> None:
     assert payload["Item"]["StartPrice"]["@attrs"]["currencyID"] == "USD"
 
 
-# ---- Issue #29 — Business Policies Fail-Fast ----
+# ---- #29-followup permanent fix: _build_seller_profiles_block is forbidden ----
 
 
-@pytest.mark.parametrize(
-    "missing_var",
-    [
-        "EBAY_PAYMENT_PROFILE_ID",
-        "EBAY_SHIPPING_PROFILE_ID",
-        "EBAY_RETURN_PROFILE_ID",
-    ],
-)
-def test_build_add_payload_missing_profile_id_raises_runtime_error(
-    monkeypatch: pytest.MonkeyPatch, missing_var: str
-) -> None:
-    """Each Profile ID env var is independently required — Fail-Fast naming the var."""
-    monkeypatch.delenv(missing_var, raising=False)
-    with pytest.raises(RuntimeError, match=missing_var):
-        _minimal()
+def test_build_seller_profiles_block_is_forbidden() -> None:
+    """#29-followup — the helper that attached SellerProfiles is permanently
+    fenced off. Any direct call raises NotImplementedError so a future
+    refactor can't accidentally reintroduce the bug."""
+    from ebay.listings import _build_seller_profiles_block
+
+    with pytest.raises(NotImplementedError, match="forbidden"):
+        _build_seller_profiles_block()
+    with pytest.raises(NotImplementedError, match="forbidden"):
+        _build_seller_profiles_block(include_shipping=False)
+    with pytest.raises(NotImplementedError, match="forbidden"):
+        _build_seller_profiles_block(include_shipping=True)
 
 
-def test_build_add_payload_all_profile_ids_missing_lists_all(
+def test_build_add_payload_does_not_require_profile_env_vars(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """All three missing — error message lists all three."""
+    """#29-followup — build_add_payload no longer needs the Business Policies
+    env vars (it stopped attaching SellerProfiles). Removing them must NOT
+    break the call. Defense against bringing back the env-var requirement
+    by accident."""
     for var in ("EBAY_PAYMENT_PROFILE_ID", "EBAY_SHIPPING_PROFILE_ID", "EBAY_RETURN_PROFILE_ID"):
         monkeypatch.delenv(var, raising=False)
-    with pytest.raises(RuntimeError) as excinfo:
-        _minimal()
-    msg = str(excinfo.value)
-    assert "EBAY_PAYMENT_PROFILE_ID" in msg
-    assert "EBAY_SHIPPING_PROFILE_ID" in msg
-    assert "EBAY_RETURN_PROFILE_ID" in msg
+    # Should succeed without those env vars — they're no longer touched.
+    payload = _minimal()
+    assert "SellerProfiles" not in payload["Item"]

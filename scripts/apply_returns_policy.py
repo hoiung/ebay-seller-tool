@@ -276,17 +276,65 @@ async def main(apply: bool) -> int:
     return 0 if summary.get("failed", 0) == 0 else 1
 
 
+_OBSOLETE_REFUSAL = """
+========================================================================
+REFUSING TO RUN — obsolete script, would destroy operator's shipping config.
+
+History (why this script is hard-refused):
+  - This script was the Issue #29 one-shot migration that attached
+    SellerShippingProfile (Tracked 48 buyer-pays) to every active listing.
+  - On its first run it destroyed the free-shipping config across the entire
+    store. Operator manually reverted every listing.
+  - Subsequent revise paths (build_revise_payload Phase 0 fix) attempted to
+    work around the corruption; each attempt re-destroyed shipping.
+    Operator manually reverted 3 times total.
+  - The operator has since moved to eBay Simple Delivery + manually-set free
+    shipping across all listings. Running this script would re-destroy all of
+    that work in a single pass.
+
+Permanent state (post #29-followup):
+  - build_revise_payload + build_add_payload no longer attach SellerProfiles.
+  - _build_seller_profiles_block raises NotImplementedError.
+  - This script's only legitimate historical purpose (Business Policies
+    one-shot enrolment) is complete — never run again.
+
+If you genuinely need to attach SellerProfiles to listings (you don't), pass
+--i-acknowledge-shipping-corruption AND --apply AND document the rationale
+in a GitHub Issue first. The flag exists so the refusal can be bypassed in a
+genuine emergency; it is not for normal operation.
+
+See: feedback_ebay_default_shipping_poisoned.md + module-level
+"SellerProfiles attachment policy" docstring in ebay/listings.py.
+========================================================================
+"""
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Issue #29 — apply SellerProfiles to all active listings.",
+        description=(
+            "OBSOLETE: Issue #29 Business Policies enrolment migration. "
+            "Hard-refused — would destroy shipping config. See module docstring."
+        ),
     )
     p.add_argument(
         "--apply",
         action="store_true",
-        help="Send ReviseFixedPriceItem live. Default is dry-run (no API mutation).",
+        help="(Blocked) Would send ReviseFixedPriceItem live if not hard-refused.",
+    )
+    p.add_argument(
+        "--i-acknowledge-shipping-corruption",
+        action="store_true",
+        help=(
+            "Override the hard-refusal. Reading this help text alone does NOT "
+            "qualify as acknowledgement — file a GitHub Issue first."
+        ),
     )
     return p.parse_args()
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main(_parse_args().apply)))
+    args = _parse_args()
+    if not args.i_acknowledge_shipping_corruption:
+        print(_OBSOLETE_REFUSAL, file=sys.stderr)
+        sys.exit(2)
+    sys.exit(asyncio.run(main(args.apply)))
