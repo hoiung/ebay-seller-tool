@@ -331,11 +331,17 @@ def test_revise_pictures_l13_truncate_to_cap_helper_unit() -> None:
     assert n == 5
 
 
-def test_revise_pictures_emits_seller_profiles() -> None:
-    """Issue #29 + #21 Phase 0: Business Policies — payload uses SellerProfiles
-    for payment + return; SellerShippingProfile is intentionally NOT attached
-    (default-shipping policy was poisoned post-#29 fallout, see
-    feedback_ebay_default_shipping_poisoned.md).
+def test_revise_pictures_attaches_no_seller_profiles() -> None:
+    """#29-followup — picture-revise payload MUST NOT attach SellerProfiles
+    OR inline ShippingDetails. The payload contains only the PictureDetails
+    field plus ItemID. eBay leaves the listing's existing policy attachments
+    alone when SellerProfiles is absent.
+
+    History: every ReviseFixedPriceItem call this codebase makes used to
+    attach SellerProfiles, which let eBay auto-fill the missing
+    SellerShippingProfile slot from account defaults — destroying inline
+    free shipping 3× historically (see module-level "SellerProfiles
+    attachment policy" docstring + feedback_ebay_default_shipping_poisoned.md).
     """
     captured = {}
 
@@ -353,15 +359,16 @@ def test_revise_pictures_emits_seller_profiles() -> None:
     ):
         _run(revise_pictures(item_id="123", photo_paths=["/tmp/a.jpg"], mode="append"))
 
-    # Built payload references the two Business Policy IDs (payment + return)
-    # and omits inline shipping. Shipping policy is intentionally NOT attached
-    # post-#21 Phase 0 — preserves listing-level seller-pays toggle.
+    # Permanent invariant — no policy attachments of any kind on revise.
     item = captured["payload"]["Item"]
+    assert "SellerProfiles" not in item, (
+        "ReviseFixedPriceItem must NOT attach SellerProfiles — would let "
+        "eBay auto-fill account-default shipping, destroying inline free "
+        "config (3× historical, feedback_ebay_default_shipping_poisoned.md)"
+    )
     assert "ShippingDetails" not in item
-    sp = item["SellerProfiles"]
-    assert sp["SellerPaymentProfile"]["PaymentProfileID"] == "100000000001"
-    assert "SellerShippingProfile" not in sp, "Phase 0 contract — no shipping policy ref on revise"
-    assert sp["SellerReturnProfile"]["ReturnProfileID"] == "100000000003"
+    assert "ReturnPolicy" not in item
+    assert "PaymentMethods" not in item
 
 
 def test_revise_pictures_audit_log_entry(tmp_path, monkeypatch) -> None:

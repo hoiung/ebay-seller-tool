@@ -156,48 +156,61 @@ def test_listing_details_merges_with_other_listing_detail_fields() -> None:
     assert "MinimumBestOfferPrice" in listing_details
 
 
-# ---- #21 Phase 0: SellerShippingProfile must NOT attach to revise payloads ----
+# ---- #29-followup: NO SellerProfiles attachment EVER on revise ----
 
 
-def test_revise_payload_no_seller_shipping_profile() -> None:
-    """#21 Phase 0 — build_revise_payload MUST NOT attach SellerShippingProfile.
+def test_revise_payload_no_seller_profiles_at_all() -> None:
+    """#29-followup permanent fix — build_revise_payload MUST NOT attach any
+    SellerProfiles block.
 
-    The default-shipping policy was poisoned post-#29 fallout
-    (see feedback_ebay_default_shipping_poisoned.md durable rule). Any revise
-    that attaches it would re-poison listings the operator manually toggled
-    to seller-pays. Mirrors the AddItem assertion at
-    test_build_add_payload.py:75 ('no shipping policy ref on AddItem').
+    History: the Phase 0 fix tried to omit SellerShippingProfile only (keep
+    payment + return). eBay's response was to auto-fill the missing
+    SellerShippingProfile slot from account defaults — destroying inline
+    shipping. The new permanent rule: attach NOTHING. eBay leaves the
+    listing's existing policy attachments alone when SellerProfiles is
+    absent from the payload. See module-level "SellerProfiles attachment
+    policy" docstring + feedback_ebay_default_shipping_poisoned.md.
     """
     payload = build_revise_payload(item_id="111", title="x")
-    sp = payload["Item"]["SellerProfiles"]
-    assert "SellerShippingProfile" not in sp, (
-        "ReviseFixedPriceItem must NOT attach SellerShippingProfile — "
-        "default-shipping policy is poisoned (#29 fallout, durable rule "
-        "feedback_ebay_default_shipping_poisoned.md)"
+    assert "SellerProfiles" not in payload["Item"], (
+        "ReviseFixedPriceItem must NOT attach SellerProfiles AT ALL — "
+        "any attachment lets eBay auto-fill missing slots from account "
+        "defaults, destroying inline shipping (3 historical incidents). "
+        "Account-level eBay Simple Delivery is the source of truth."
     )
 
 
-def test_revise_payload_keeps_payment_and_return_profiles() -> None:
-    """#21 Phase 0 — Phase 0 only drops shipping; payment + return must persist."""
-    payload = build_revise_payload(item_id="111", price=49.99)
-    sp = payload["Item"]["SellerProfiles"]
-    assert "SellerPaymentProfile" in sp
-    assert sp["SellerPaymentProfile"]["PaymentProfileID"]  # truthy (env-loaded)
-    assert "SellerReturnProfile" in sp
-    assert sp["SellerReturnProfile"]["ReturnProfileID"]  # truthy (env-loaded)
-
-
-def test_revise_payload_with_picture_urls_no_shipping_profile() -> None:
-    """#21 Phase 0 — picture-only revises (the most common path) also drop shipping."""
+def test_revise_payload_with_picture_urls_no_seller_profiles() -> None:
+    """#29-followup — picture-only revises (common path) MUST NOT attach SellerProfiles."""
     payload = build_revise_payload(
         item_id="111",
         picture_urls=["https://i.ebayimg.com/a.jpg"],
     )
-    assert "SellerShippingProfile" not in payload["Item"]["SellerProfiles"]
+    assert "SellerProfiles" not in payload["Item"]
 
 
-def test_revise_payload_with_price_no_shipping_profile() -> None:
-    """#21 Phase 0 — price-only revises (orchestrator apply path) drop shipping."""
+def test_revise_payload_with_price_no_seller_profiles() -> None:
+    """#29-followup — price-only revises (orchestrator apply path) MUST NOT attach SellerProfiles."""
     payload = build_revise_payload(item_id="111", price=49.99)
-    assert "SellerShippingProfile" not in payload["Item"]["SellerProfiles"]
+    assert "SellerProfiles" not in payload["Item"]
     assert payload["Item"]["StartPrice"] == "49.99"
+
+
+def test_revise_payload_with_all_fields_no_seller_profiles() -> None:
+    """#29-followup — even full-field revises (title+price+condition+specifics+pics)
+    MUST NOT sneak SellerProfiles in. Catches future regression that adds the
+    attachment back under any field combination."""
+    payload = build_revise_payload(
+        item_id="111",
+        title="new title",
+        description_html="<p>new desc</p>",
+        price=49.99,
+        condition_id=3000,
+        condition_description="seller notes",
+        item_specifics={"MPN": "ABC", "Brand": "HPE"},
+        picture_urls=["https://i.ebayimg.com/a.jpg"],
+        best_offer_enabled=True,
+        best_offer_auto_accept_gbp=45.0,
+        best_offer_auto_decline_gbp=40.0,
+    )
+    assert "SellerProfiles" not in payload["Item"]

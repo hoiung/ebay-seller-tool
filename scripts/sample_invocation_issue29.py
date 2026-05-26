@@ -80,24 +80,25 @@ async def main() -> int:
     )
 
     item = payload["Item"]
-    sp = item.get("SellerProfiles")
-    if sp is None:
-        print("FAIL: SellerProfiles block missing from payload", file=sys.stderr)
-        return 1
 
-    # Pre-flight assertions — post-revert: shipping is inline (not policy),
-    # payment + return are policy refs.
+    # #29-followup permanent fix: NO SellerProfiles block emitted EVER —
+    # shipping is inline (FreeShipping=true) and account-level eBay Simple
+    # Delivery is the source of truth. Code never attaches policies.
+    assert "SellerProfiles" not in item, (
+        "FAIL: SellerProfiles attached to AddFixedPriceItem — would let "
+        "eBay auto-fill account-default shipping, destroying inline free "
+        "config. See module-level 'SellerProfiles attachment policy' "
+        "docstring in ebay/listings.py."
+    )
     assert "ShippingDetails" in item, "inline ShippingDetails missing"
-    assert "ReturnPolicy" not in item, "inline ReturnPolicy present (must be SellerProfiles)"
-    assert "PaymentMethods" not in item, "inline PaymentMethods present (must be SellerProfiles)"
-    assert "SellerShippingProfile" not in sp, "shipping policy attached — must be inline only"
+    assert "ReturnPolicy" not in item, "inline ReturnPolicy present"
+    assert "PaymentMethods" not in item, "inline PaymentMethods present"
     assert item["ShippingDetails"]["ShippingServiceOptions"]["FreeShipping"] == "true", (
         "FreeShipping must be true (seller-pays default)"
     )
 
-    print("=== Payload ===")
-    print(f"  PaymentProfileID = {sp['SellerPaymentProfile']['PaymentProfileID']}")
-    print(f"  ReturnProfileID  = {sp['SellerReturnProfile']['ReturnProfileID']}")
+    print("=== Payload (NO SellerProfiles attached) ===")
+    print(f"  Item dict keys = {sorted(item.keys())}")
     print("  Inline shipping: FreeShipping=true, UK Royal Mail 2nd Class, £0.00")
     print()
     print("Submitting to VerifyAddFixedPriceItem (no listing created)...")
@@ -118,7 +119,7 @@ async def main() -> int:
             print(f"  [{sev}] {code}: {msg}")
 
     if ack in ("Success", "Warning"):
-        print("\nPASS — eBay accepted the SellerProfiles payload shape.")
+        print("\nPASS — eBay accepted the no-SellerProfiles AddItem payload.")
         return 0
     print(f"\nFAIL — eBay rejected the payload (Ack={ack}).")
     return 1

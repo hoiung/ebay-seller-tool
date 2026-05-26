@@ -27,58 +27,53 @@ _MIN_ITEM_SPECIFICS_KEYS = 20
 MAX_PICTURE_URLS = 24
 MAX_PICTURE_URLS_JOINED_CHARS = 3975
 
-# Business Policies (issue #29) — eBay account is enrolled.
-# Payment + Return profiles attach via SellerProfiles for ALL operations.
-# Shipping is NOT attached on Add or Revise — the post-#29 default-shipping
-# policy was poisoned (Tracked 48 buyer-pays config overrode UK Simple Delivery's
-# free-collection); see feedback_ebay_default_shipping_poisoned.md durable rule.
-#   - AddItem (new listings): NO shipping policy attached — inline ShippingDetails
-#     with FreeShipping=true preserves Simple Delivery's "Who pays?" defaulting
-#     to seller-pays.
-#   - ReviseFixedPriceItem (existing listings): NO shipping policy attached —
-#     preserves the listing-level seller-pays toggle the operator manually set
-#     post-#29 fallout (issue #21 Phase 0).
-#   - Legacy scripts/apply_returns_policy.py: still uses the default
-#     include_shipping=True for the one-shot Business Policies enrolment migration.
-_REQUIRED_SELLER_PROFILE_ENV_VARS = (
-    "EBAY_PAYMENT_PROFILE_ID",
-    "EBAY_SHIPPING_PROFILE_ID",
-    "EBAY_RETURN_PROFILE_ID",
-)
+# SellerProfiles attachment policy (post #29-followup permanent fix):
+#
+# NO ReviseFixedPriceItem or AddFixedPriceItem call in this codebase attaches
+# a SellerProfiles block. EVER. The account is on eBay Simple Delivery + the
+# operator's manually-set free-shipping config across all listings; nothing
+# in this code touches that.
+#
+# History (why this is a hard rule, not a guideline):
+#   - Issue #29 migrated to Business Policies, attaching SellerShippingProfile
+#     (Tracked 48 buyer-pays) on every listing. Result: every listing's free
+#     shipping was destroyed. Operator manually reverted each listing.
+#   - Phase 0 fix (issue #21) attempted to attach SellerProfiles WITHOUT a
+#     SellerShippingProfile, on the assumption eBay would leave inline shipping
+#     alone. Result: eBay auto-fills the missing shipping profile slot from
+#     the account default — destroying inline shipping AGAIN. Operator
+#     manually reverted again.
+#   - Each subsequent revise on an inline-shipping listing re-triggered the
+#     auto-fill — operator manually fixed it 3 times total before this
+#     permanent fix landed.
+#
+# Permanent rule: SellerProfiles attachment is FORBIDDEN in the revise/add
+# code paths. _build_seller_profiles_block raises NotImplementedError. The
+# only legitimate historical caller (scripts/apply_returns_policy.py) is
+# obsolete and behind a hard refusal gate. See
+# feedback_ebay_default_shipping_poisoned.md.
+_REQUIRED_SELLER_PROFILE_ENV_VARS = ()  # no longer required by add/revise paths
 
 
 def _build_seller_profiles_block(include_shipping: bool = True) -> dict:
-    """Return the SellerProfiles dict for AddItem/ReviseFixedPriceItem payloads.
+    """FORBIDDEN — no callsite in this codebase may attach SellerProfiles.
 
-    include_shipping: False for both Add and Revise paths — the default-shipping
-        policy was poisoned post-#29 enrolment (see
-        feedback_ebay_default_shipping_poisoned.md). Only the legacy
-        scripts/apply_returns_policy.py migration script uses the default True
-        to drive one-shot Business Policies enrolment across listings.
+    See the module-level "SellerProfiles attachment policy" docstring for
+    the 3-incident history. Any call to this function attaches policy IDs
+    to a payload, which eBay then uses to auto-fill missing policy slots
+    from account defaults — destroying inline shipping config.
 
-    Reads Profile IDs from env. Fails fast (RuntimeError) if any required
-    var is missing. EBAY_SHIPPING_PROFILE_ID is required even when not used
-    in AddItem/Revise so the env contract stays consistent across deployments.
+    If you need to do a one-shot Business Policies migration (the only
+    legitimate historical use case), edit scripts/apply_returns_policy.py
+    under the explicit operator-acknowledged corruption flag — and don't
+    reach for this helper from anywhere else.
     """
-    missing = [k for k in _REQUIRED_SELLER_PROFILE_ENV_VARS if not os.environ.get(k)]
-    if missing:
-        raise RuntimeError(
-            "Business Policies env vars not set: "
-            f"{', '.join(missing)}. See .env.example and issue #29."
-        )
-    profiles: dict = {
-        "SellerPaymentProfile": {
-            "PaymentProfileID": os.environ["EBAY_PAYMENT_PROFILE_ID"],
-        },
-        "SellerReturnProfile": {
-            "ReturnProfileID": os.environ["EBAY_RETURN_PROFILE_ID"],
-        },
-    }
-    if include_shipping:
-        profiles["SellerShippingProfile"] = {
-            "ShippingProfileID": os.environ["EBAY_SHIPPING_PROFILE_ID"],
-        }
-    return profiles
+    raise NotImplementedError(
+        "_build_seller_profiles_block is forbidden — SellerProfiles "
+        "attachment destroyed inline shipping 3× historically. See "
+        "feedback_ebay_default_shipping_poisoned.md + the module-level "
+        "SellerProfiles attachment policy in ebay/listings.py."
+    )
 
 
 def _parse_iso_ts(value: object) -> str | None:
@@ -423,10 +418,14 @@ def build_revise_payload(
     without auditing every caller — a stray non-None price here would
     revise the listing's price as a side-effect of a picture-only update.
 
-    Shipping/payment/returns are emitted via SellerProfiles (Business Policies,
-    issue #29). The previous ``shipping_details`` parameter and inline
-    ShippingDetails default were removed when the account enrolled — eBay
-    rejects mixed-mode payloads.
+    The payload contains ONLY the fields the caller explicitly passes —
+    no SellerProfiles attachment, no shipping policy, no payment policy,
+    no returns policy. eBay leaves the listing's existing policy
+    attachments alone when SellerProfiles is absent. Account-level eBay
+    Simple Delivery + the operator's manually-configured free shipping
+    is the source of truth (see module-level "SellerProfiles attachment
+    policy" docstring for the 3-incident history that made this a
+    permanent rule).
 
     condition_id: eBay condition ID (1000=New, 1500=Opened-never used,
     3000=Used, 7000=For parts or not working).
@@ -502,12 +501,12 @@ def build_revise_payload(
                 "@attrs": {"currencyID": currency},
             }
 
-    # Business Policies (issue #29 + #21 Phase 0): SellerProfiles supplies
-    # payment + returns via account-level Profile IDs. Shipping is intentionally
-    # NOT attached — preserves the listing-level seller-pays toggle the operator
-    # set manually post-#29 default-shipping fallout
-    # (see feedback_ebay_default_shipping_poisoned.md).
-    item["SellerProfiles"] = _build_seller_profiles_block(include_shipping=False)
+    # SellerProfiles attachment policy: FORBIDDEN on revise. See the
+    # module-level docstring for the 3-incident history. The payload contains
+    # ONLY the fields the caller explicitly passed — eBay leaves the
+    # listing's existing policy attachments alone when SellerProfiles is
+    # absent. Account-level eBay Simple Delivery + the operator's manual
+    # free-shipping config is the source of truth; the code never touches it.
 
     payload = {"Item": item}
 
@@ -539,10 +538,13 @@ def build_add_payload(
     eBay returns DuplicateInvocationDetails on replay instead of creating
     a second listing.
 
-    Shipping/payment/returns are emitted via SellerProfiles (Business Policies,
-    issue #29). The previous ``shipping_details`` and ``return_policy``
-    parameters were removed when the account enrolled — eBay rejects
-    mixed-mode payloads on enrolled accounts.
+    Shipping is inline (FreeShipping=true Royal Mail Second Class) so
+    eBay Simple Delivery's "Who pays?" defaults to seller-pays. NO
+    SellerProfiles block emitted — no shipping policy, no payment policy,
+    no returns policy attached. Account-level Simple Delivery + the
+    operator's manually-set free-shipping config is the source of truth
+    (see module-level "SellerProfiles attachment policy" docstring for
+    the 3-incident history).
 
     location_details: default reads EBAY_SELLER_LOCATION + EBAY_SELLER_POSTCODE
     from the environment eagerly. auth.py validates these at startup, so an
@@ -590,12 +592,11 @@ def build_add_payload(
             "PostalCode": os.environ["EBAY_SELLER_POSTCODE"],
             "Currency": _EBAY_UK_SITE_CURRENCY,
         }
-    # AddItem path: NO shipping policy reference; inline ShippingDetails below.
-    seller_profiles = _build_seller_profiles_block(include_shipping=False)
-
     # Inline ShippingDetails (FreeShipping=true) so Simple Delivery's
-    # "Who pays?" defaults to seller-pays on new listings. NO shipping policy
-    # reference — Simple Delivery is the operative shipping layer.
+    # "Who pays?" defaults to seller-pays on new listings. NO SellerProfiles
+    # block — Simple Delivery + inline shipping is the operative layer; the
+    # code never attaches a SellerShippingProfile (see module-level
+    # "SellerProfiles attachment policy" docstring for the 3-incident history).
     shipping_details = {
         "ShippingType": "Flat",
         "GlobalShipping": "true",
@@ -639,7 +640,6 @@ def build_add_payload(
         "PictureDetails": {"PictureURL": list(picture_urls)},
         "ItemSpecifics": {"NameValueList": nvl},
         "ShippingDetails": shipping_details,
-        "SellerProfiles": seller_profiles,
     }
     if condition_description is not None:
         item["ConditionDescription"] = condition_description
