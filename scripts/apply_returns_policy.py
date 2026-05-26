@@ -147,9 +147,12 @@ def _is_compliant(policy: dict | None) -> bool:
 
 async def main(apply: bool) -> int:
     # Resolve Profile IDs at startup so we Fail-Fast before any API call.
+    # Post 2026-05-26 permanent fix: _build_seller_profiles_block raises
+    # NotImplementedError unconditionally. The except below catches that
+    # (NotImplementedError is NOT a RuntimeError subclass — A6 finding).
     try:
         profiles = _build_seller_profiles_block()
-    except RuntimeError as exc:
+    except (NotImplementedError, RuntimeError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
 
