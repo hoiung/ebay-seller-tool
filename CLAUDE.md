@@ -139,6 +139,10 @@ Cleanup branch, close Issue
 ### Google Drive Sync Conflicts
 Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, edit copy, copy back. See `../dotfiles/docs/guides/google-drive-sync.md`.
 
+### Append vs Extend (authoring guidance for the project-specific section below)
+
+> About to add a paragraph to `## Project-Specific Notes` (below the boundary) or to any other CLAUDE.md section? **First check whether an existing `docs/<area>.md` is the right home** — extend the destination and leave a one-line pointer here. Appending to CLAUDE.md is the **last resort**, not the default. (Rationale: every CLAUDE.md line costs tokens on every future session; apbst#1494 trimmed 58k→28k after WHY-prose accumulation. Full rule: `../dotfiles/SST3/standards/STANDARDS.md` "Append vs Extend Rule".)
+
 ---
 <!-- ============================================================== -->
 <!-- ⚠️ DO NOT MODIFY OR DELETE ANYTHING ABOVE THIS LINE ⚠️ -->
