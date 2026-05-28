@@ -57,6 +57,7 @@ Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ wa
 
 - `/start` — list repos, prompt selection, load CLAUDE.md, WAIT for task.
 - `/SST3-solo` — load STANDARDS.md + repo CLAUDE.md, display summary, prompt for task, execute with guardrails.
+- `/handover` — pre-compact: write a structured AI-to-AI handover into auto-memory (topic file + ⭐ index bullet) + /tmp task file, so post-compact resume loses no context.
 
 Handover template: `../dotfiles/SST3/templates/chat-handover.md` (post checkpoint to Issue FIRST).
 
