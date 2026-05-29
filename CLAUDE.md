@@ -57,7 +57,7 @@ Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ wa
 
 - `/start` — list repos, prompt selection, load CLAUDE.md, WAIT for task.
 - `/SST3-solo` — load STANDARDS.md + repo CLAUDE.md, display summary, prompt for task, execute with guardrails.
-- `/handover` — pre-compact: write a structured AI-to-AI handover to `/tmp/handover_<slug>_<date>.md` + point `/tmp/sst3-current-task.txt` at it, so post-compact resume loses no context. Handovers are ephemeral `/tmp` files — NOT auto-memory (durable lessons go to `feedback_*`/`project_*` memories instead).
+- `/handover` — pre-compact: write a structured AI-to-AI handover to `~/handover/handover_<slug>_<date>.md` + point `~/handover/current-task.txt` at it, so post-compact resume loses no context (the `~/handover` dir survives compaction AND a WSL VM reboot, and is auto-pruned after 7 days). Handovers are ephemeral resume aids — NOT auto-memory (durable lessons go to `feedback_*`/`project_*` memories instead).
 
 Handover template: `../dotfiles/SST3/templates/chat-handover.md` (post checkpoint to Issue FIRST).
 
