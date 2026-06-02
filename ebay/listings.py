@@ -76,7 +76,7 @@ def _build_seller_profiles_block(include_shipping: bool = True) -> dict:
     )
 
 
-def _parse_iso_ts(value: object) -> str | None:
+def parse_iso_ts(value: object) -> str | None:
     """Coerce ebaysdk timestamp (may be datetime / str) to ISO-8601 Z string.
 
     ebaysdk returns datetime objects whose `str()` yields naive formats like
@@ -215,8 +215,8 @@ def listing_to_dict(item: object) -> dict:
     best_offer_auto_accept_gbp: float | None = None
     best_offer_auto_decline_gbp: float | None = None
     if listing_details is not None:
-        start_time = _parse_iso_ts(getattr(listing_details, "StartTime", None))
-        end_time = _parse_iso_ts(getattr(listing_details, "EndTime", None))
+        start_time = parse_iso_ts(getattr(listing_details, "StartTime", None))
+        end_time = parse_iso_ts(getattr(listing_details, "EndTime", None))
         relist_count = int(getattr(listing_details, "RelistCount", 0) or 0)
         # Phase 1.4 — Auto-Ads safety net. Doc 14 forbids Promoted Listings,
         # but eBay's account-level Auto Ads rules can enrol listings without
