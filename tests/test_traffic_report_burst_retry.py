@@ -74,6 +74,7 @@ def test_429_then_recover_returns_payload_in_one_retry() -> None:
             ["111"],
             30,
             "EBAY_GB",
+            account_fn=lambda: None,
             sleep_fn=sleep_fn,
             monotonic_fn=monotonic_fn,
         )
@@ -100,6 +101,7 @@ def test_429_then_recover_on_third_attempt() -> None:
             ["111"],
             30,
             "EBAY_GB",
+            account_fn=lambda: None,
             sleep_fn=sleep_fn,
             monotonic_fn=monotonic_fn,
         )
@@ -124,6 +126,7 @@ def test_429_budget_exhausted_raises_rate_limit_error() -> None:
                 ["111"],
                 30,
                 "EBAY_GB",
+                account_fn=lambda: None,
                 sleep_fn=sleep_fn,
                 monotonic_fn=monotonic_fn,
             )
@@ -152,6 +155,7 @@ def test_429_total_budget_caps_long_backoff() -> None:
                 ["111"],
                 30,
                 "EBAY_GB",
+                account_fn=lambda: None,
                 backoff_seconds=(10.0, 30.0, 100.0),  # 3rd retry would overshoot
                 total_budget_seconds=25.0,
                 sleep_fn=sleep_fn,
@@ -181,6 +185,7 @@ def test_non_429_error_is_not_retried() -> None:
                 ["111"],
                 30,
                 "EBAY_GB",
+                account_fn=lambda: None,
                 sleep_fn=sleep_fn,
                 monotonic_fn=monotonic_fn,
             )
@@ -204,6 +209,7 @@ def test_unrelated_exception_is_not_retried() -> None:
                 ["111"],
                 30,
                 "EBAY_GB",
+                account_fn=lambda: None,
                 sleep_fn=sleep_fn,
                 monotonic_fn=monotonic_fn,
             )
@@ -299,3 +305,39 @@ def test_burst_window_tracker_skips_unconfigured_namespace() -> None:
             call_accountant._record_burst_call("AddMemberMessageRTQ", now=1000.0)
     assert not any("burst_window_warn" in line for line in captured)
     assert "AddMemberMessageRTQ" not in call_accountant._BURST_RECENT
+
+
+def test_each_retry_get_is_recorded_against_daily_quota(tmp_path, monkeypatch) -> None:
+    """#40 AC1.3 — every Sell-Analytics GET, including burst retries, increments
+    the daily quota counter. The old design recorded only the first GET in
+    fetch_traffic_report_raw, undercounting exactly when eBay was throttling."""
+    monkeypatch.setattr(call_accountant, "_STATE_DIR", tmp_path)
+    assert call_accountant.today_count("sell_analytics") == 0
+
+    sleep_fn, monotonic_fn, _ = _make_clock()
+    fake_payload = {"header": {"metrics": []}, "records": []}
+    call_count = {"n": 0}
+
+    def fake_sync(_ids, _days, _market):
+        call_count["n"] += 1
+        if call_count["n"] < 3:  # first two GETs 429, third succeeds
+            raise _rate_limited_exc()
+        return fake_payload
+
+    def real_account() -> None:
+        call_accountant.account_call(api_namespace="sell_analytics")
+
+    with patch.object(rest, "_sync_get_traffic_report", side_effect=fake_sync):
+        result = _sync_get_traffic_report_with_retry(
+            ["111"],
+            30,
+            "EBAY_GB",
+            account_fn=real_account,
+            sleep_fn=sleep_fn,
+            monotonic_fn=monotonic_fn,
+        )
+    assert result is fake_payload
+    assert call_count["n"] == 3, "3 GETs: two 429s + one success"
+    # Pre-fix this counter read 1 (only the first GET recorded); the fix records
+    # every GET, so it must equal the number of real round-trips.
+    assert call_accountant.today_count("sell_analytics") == 3

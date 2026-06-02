@@ -345,6 +345,7 @@ def _sync_get_traffic_report_with_retry(
     days: int,
     marketplace_id: str,
     *,
+    account_fn: Callable[[], None],
     backoff_seconds: tuple[float, ...] = _BURST_RETRY_BACKOFF_SECONDS,
     total_budget_seconds: float = _BURST_RETRY_TOTAL_BUDGET_SECONDS,
     sleep_fn: Callable[[float], None] = time.sleep,
@@ -356,6 +357,16 @@ def _sync_get_traffic_report_with_retry(
     Other errors (4xx non-429, 5xx, network drop, parse failures) propagate
     on the first occurrence — burst-retry is opt-in for the specific 429
     failure mode and must not mask different root causes.
+
+    ``account_fn`` is invoked once per attempt, immediately before each real
+    HTTP GET — #40 AC1.3. Every GET (including burst retries) must be recorded
+    against the Sell-Analytics daily quota; the previous design recorded only
+    the first GET in ``fetch_traffic_report_raw`` and undercounted exactly when
+    eBay was throttling. It is a required injected seam (no silent default) so
+    every caller declares its accounting contract explicitly; the production
+    caller passes ``account_call(api_namespace="sell_analytics")`` (which also
+    re-applies the daily-quota gate per attempt), and backoff-logic tests pass
+    a no-op.
 
     ``sleep_fn`` and ``monotonic_fn`` are injected so tests can drive the
     retry loop without burning real seconds. Production callers always use
@@ -383,6 +394,9 @@ def _sync_get_traffic_report_with_retry(
             sleep_fn(wait_seconds)
             total_wait += wait_seconds
         attempts += 1
+        # #40 AC1.3 — record (and re-gate) THIS GET against the daily quota,
+        # not just the first. Runs before the network round-trip.
+        account_fn()
         try:
             return _sync_get_traffic_report(listing_ids, days, marketplace_id)
         except Exception as exc:  # noqa: BLE001 — discriminated below
@@ -422,14 +436,23 @@ async def fetch_traffic_report_raw(
     ``TrafficReportRateLimitError`` so the caller can degrade gracefully or
     fail loud — the burst-retry logic stays out of every consumer.
     """
-    # Quota gate first — fail loud BEFORE any network round-trip.
-    from ebay.call_accountant import account_call  # noqa: PLC0415 — avoid import cycle
+    # #40 AC1.3 — account_fn gates + records EACH GET (including burst retries),
+    # so the daily Sell-Analytics counter is accurate even under throttling. The
+    # first invocation inside the retry loop is the pre-network fail-loud gate
+    # that previously lived here as a single call.
+    from ebay import call_accountant  # noqa: PLC0415 — avoid import cycle
 
-    account_call(api_namespace="sell_analytics")
+    def _account() -> None:
+        call_accountant.account_call(api_namespace="sell_analytics")
+
     if marketplace_id is None:
         marketplace_id = str(_load_fees_config()["ebay_uk"]["marketplace_id"])
     return await asyncio.to_thread(
-        _sync_get_traffic_report_with_retry, listing_ids, days, marketplace_id
+        _sync_get_traffic_report_with_retry,
+        listing_ids,
+        days,
+        marketplace_id,
+        account_fn=_account,
     )
 
 
