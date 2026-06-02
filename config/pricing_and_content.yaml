@@ -145,7 +145,7 @@ comp_filter:
   # Schema: {own_mpn: [accepted_sibling_mpn_1, accepted_sibling_mpn_2, ...]}.
   # Note: allowlist is one-directional in storage but symmetric expansion is
   # the intended use — add entries on BOTH sides of the pair to guarantee
-  # query-direction independence (see browse._is_sibling_allowed).
+  # query-direction independence (see browse._comp_title_has_own_or_sibling_mpn).
   sibling_allowlist: {}
 
   # Phase 3.2 — series names that distinguish SKUs (Seagate HARD CONTRACT et al).
