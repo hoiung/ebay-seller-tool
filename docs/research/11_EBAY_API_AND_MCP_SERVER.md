@@ -189,6 +189,10 @@ Reasons:
 
 ### Repo Structure
 
+> Planned layout (original #11 design). See README.md for the shipped structure —
+> some modules below (e.g. `listing.py`/`inventory.py`/`conditions.py`, the
+> `business/` rule modules) were never built or were consolidated differently.
+
 ```
 ebay-seller-tool/
 ├── .env                          # Credentials (gitignored)
