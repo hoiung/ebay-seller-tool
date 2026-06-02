@@ -243,7 +243,7 @@ def reset_token_cache() -> None:
         _app_expires_at = 0.0
 
 
-def on_401_refresh_and_retry(response: httpx.Response) -> None:
+def raise_on_401(response: httpx.Response) -> None:
     """Raise PermissionError if we hit 401 on an authenticated call.
 
     Fail-fast per AC 2.7: 401 → loud PermissionError, no silent empty result.
@@ -261,7 +261,7 @@ _KNOWN_JSON_ERROR_KEYS = ("errors", "error", "errorMessage")
 
 def raise_for_ebay_error(response: httpx.Response) -> None:
     """Fail-loud parser — raises if response.status >= 400 or eBay error envelope."""
-    on_401_refresh_and_retry(response)
+    raise_on_401(response)
     if response.status_code >= 400:
         raise PermissionError(f"eBay API {response.status_code} on {response.url}: {response.text}")
     try:

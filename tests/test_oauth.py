@@ -76,7 +76,7 @@ def test_on_401_raises() -> None:
     fake.url = "https://api.ebay.com/test"
     fake.text = "unauthorized"
     with pytest.raises(PermissionError, match="401"):
-        oauth.on_401_refresh_and_retry(fake)
+        oauth.raise_on_401(fake)
 
 
 def test_raise_for_ebay_error_skips_ok() -> None:
