@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ebay.client import execute_with_retry
-from ebay.listings import _parse_iso_ts
+from ebay.listings import parse_iso_ts
 
 
 def _validate_window(days: int, max_days: int, tool_name: str) -> None:
@@ -89,10 +89,10 @@ async def fetch_sold_listings(days: int = 30, page: int = 1, per_page: int = 25)
         item_node = getattr(transaction, "Item", None)
         if item_node is None:
             continue
-        start_t = _parse_iso_ts(
+        start_t = parse_iso_ts(
             getattr(getattr(item_node, "ListingDetails", None), "StartTime", None)
         )
-        end_t = _parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "EndTime", None))
+        end_t = parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "EndTime", None))
         txn_price_obj = getattr(transaction, "TransactionPrice", None)
         txn_price = str(getattr(txn_price_obj, "value", "")) if txn_price_obj is not None else ""
         listings.append(
@@ -155,10 +155,10 @@ async def fetch_unsold_listings(
 
     listings: list[dict[str, Any]] = []
     for item_node in items:
-        start_t = _parse_iso_ts(
+        start_t = parse_iso_ts(
             getattr(getattr(item_node, "ListingDetails", None), "StartTime", None)
         )
-        end_t = _parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "EndTime", None))
+        end_t = parse_iso_ts(getattr(getattr(item_node, "ListingDetails", None), "EndTime", None))
         price_obj = getattr(getattr(item_node, "SellingStatus", None), "CurrentPrice", None)
         listings.append(
             {
@@ -215,10 +215,10 @@ async def fetch_seller_transactions(days: int = 30, page: int = 1) -> dict[str, 
     for t in transactions:
         item_node = getattr(t, "Item", None)
         price_obj = getattr(t, "TransactionPrice", None)
-        created = _parse_iso_ts(getattr(t, "CreatedDate", None))
-        paid = _parse_iso_ts(getattr(t, "PaidTime", None))
-        shipped = _parse_iso_ts(getattr(t, "ShippedTime", None))
-        start_listing = _parse_iso_ts(
+        created = parse_iso_ts(getattr(t, "CreatedDate", None))
+        paid = parse_iso_ts(getattr(t, "PaidTime", None))
+        shipped = parse_iso_ts(getattr(t, "ShippedTime", None))
+        start_listing = parse_iso_ts(
             getattr(getattr(item_node, "ListingDetails", None), "StartTime", None)
             if item_node
             else None
@@ -271,7 +271,7 @@ async def fetch_listing_feedback(item_id: str, days: int = 90) -> dict[str, Any]
     dsr_item_as_described: list[float] = []
 
     for fb in feedback_details:
-        comment_time_str = _parse_iso_ts(getattr(fb, "CommentTime", None))
+        comment_time_str = parse_iso_ts(getattr(fb, "CommentTime", None))
         # Window filter — skip if outside requested window.
         if comment_time_str is not None:
             try:
@@ -357,7 +357,7 @@ async def fetch_listing_cases(item_id: str, days: int = 90) -> dict[str, Any]:
                 ),
                 "case_type": str(getattr(c, "CaseType", "")),
                 "case_status": str(getattr(c, "CaseStatus", "")),
-                "creation_date": _parse_iso_ts(getattr(c, "CreationDate", None)),
+                "creation_date": parse_iso_ts(getattr(c, "CreationDate", None)),
                 "transaction_id": str(getattr(c, "TransactionID", "")),
             }
         )
