@@ -1584,6 +1584,51 @@ async def floor_price(
     return json.dumps(result, indent=2)
 
 
+def _maybe_best_offer_thresholds(
+    *,
+    action: str | None,
+    floor_gbp: float,
+    current_price_gbp: float | None,
+    quantity: int,
+    item_id: str,
+) -> dict | None:
+    """Compute Best-Offer thresholds when the diagnosis recommends Best Offer.
+
+    #40 AC1.1 — the explicit `current_price_gbp is not None` guard that replaces
+    the old silent except-swallow: a listing whose price is unparseable
+    (`current_price_gbp is None`) used to fall through to
+    `compute_best_offer_thresholds(live_price_gbp=None)`, raise a TypeError, and
+    get discarded by a bare `except (ValueError, TypeError)` — so the suggestion
+    vanished with no trace. Now an unparseable price produces a logged skip with
+    a reason. The `except` is retained only for genuinely-bad numeric inputs
+    (e.g. a negative price the pure fn rejects), which remain debug-level.
+
+    Returns the thresholds dict, or None when Best Offer is not recommended /
+    the price is unusable.
+    """
+    if not (action and "best offer" in action.lower()):
+        return None
+    # Explicit null guard (#40 AC1.1) — only anchor thresholds on a real price.
+    if current_price_gbp is not None:
+        try:
+            return compute_best_offer_thresholds(
+                floor_gbp=floor_gbp,
+                live_price_gbp=current_price_gbp,
+                quantity=quantity,
+            )
+        except (ValueError, TypeError) as exc:
+            log_debug(
+                f"analyse_listing best_offer_thresholds_skipped item_id={item_id} "
+                f"reason={type(exc).__name__}: {exc}"
+            )
+            return None
+    log_warn(
+        f"analyse_listing best_offer_thresholds_skipped item_id={item_id} "
+        "reason=unparseable_price (no numeric live price to anchor thresholds)"
+    )
+    return None
+
+
 @mcp.tool()
 @with_error_handling
 async def analyse_listing(
@@ -1835,19 +1880,13 @@ async def analyse_listing(
     # the phrase. Computed only when the recommendation triggers (cheap
     # pure-fn). Stage 5 Sonnet HIGH-4 fix: substring `"enable_best_offer"`
     # never fired because the action string spells it with spaces.
-    best_offer_thresholds: dict | None = None
-    if action and "best offer" in action.lower() and floor_gbp is not None:
-        try:
-            best_offer_thresholds = compute_best_offer_thresholds(
-                floor_gbp=floor_gbp,
-                live_price_gbp=current_price_gbp,
-                quantity=int(listing.get("quantity") or 1),
-            )
-        except (ValueError, TypeError) as exc:
-            log_debug(
-                f"analyse_listing best_offer_thresholds_skipped item_id={item_id} "
-                f"reason={type(exc).__name__}: {exc}"
-            )
+    best_offer_thresholds = _maybe_best_offer_thresholds(
+        action=action,
+        floor_gbp=floor_gbp,
+        current_price_gbp=current_price_gbp,
+        quantity=int(listing.get("quantity") or 1),
+        item_id=item_id,
+    )
 
     # Stub #19 — opt-in market-concentration computation. Adds one Browse API
     # call and one filter-pipeline run; expensive enough that we gate on the

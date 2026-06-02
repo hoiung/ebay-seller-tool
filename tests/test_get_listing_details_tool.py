@@ -515,3 +515,63 @@ def test_analyse_listing_surfaces_best_offer_thresholds_when_recommended(
     assert "best_offer_thresholds" in parsed, (
         "best_offer_thresholds key absent from analyse_listing response"
     )
+
+
+# ---------------------------------------------------------------------------
+# #40 AC1.1 — _maybe_best_offer_thresholds explicit None-price guard.
+# The old code passed current_price_gbp (which can be None for an unparseable
+# listing price) straight into compute_best_offer_thresholds, which raised a
+# TypeError that a bare `except (ValueError, TypeError)` swallowed — so the
+# best-offer suggestion vanished silently. The fix adds an explicit
+# `current_price_gbp is not None` guard that logs a skip reason instead.
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_best_offer_skips_unparseable_price_via_guard() -> None:
+    """Unparseable price must be caught by the explicit guard BEFORE the
+    compute call — not swallowed by the except — and the skip is logged."""
+    with (
+        patch("server.compute_best_offer_thresholds") as mock_compute,
+        patch("server.log_warn") as mock_warn,
+    ):
+        result = server._maybe_best_offer_thresholds(
+            action="Drop price 5-8% or enable Best Offer.",
+            floor_gbp=18.0,
+            current_price_gbp=None,
+            quantity=1,
+            item_id="123",
+        )
+    assert result is None
+    # Proves the fix is the explicit guard, not the bare except: the compute
+    # function is never reached when the price is None.
+    mock_compute.assert_not_called()
+    assert mock_warn.call_count == 1
+    assert "unparseable_price" in mock_warn.call_args[0][0]
+
+
+def test_maybe_best_offer_computes_on_valid_price() -> None:
+    """Valid price + Best-Offer recommendation yields a thresholds dict
+    (non-vacuous: the guard's true branch actually computes)."""
+    result = server._maybe_best_offer_thresholds(
+        action="enable Best Offer",
+        floor_gbp=18.0,
+        current_price_gbp=50.0,
+        quantity=1,
+        item_id="123",
+    )
+    assert isinstance(result, dict)
+    assert "auto_accept_gbp" in result
+
+
+def test_maybe_best_offer_none_when_not_recommended() -> None:
+    """No Best-Offer phrase in the action → no computation, returns None."""
+    with patch("server.compute_best_offer_thresholds") as mock_compute:
+        result = server._maybe_best_offer_thresholds(
+            action="Drop price 5%.",
+            floor_gbp=18.0,
+            current_price_gbp=50.0,
+            quantity=1,
+            item_id="123",
+        )
+    assert result is None
+    mock_compute.assert_not_called()
