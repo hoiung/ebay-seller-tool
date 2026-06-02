@@ -379,3 +379,54 @@ def test_weekly_snapshot_does_not_break_existing_event_types(
         "post_change_check",
         "weekly_snapshot",
     ]
+
+
+def _concurrent_append_worker(snapshot_path: str, writer_id: str, n: int) -> None:
+    """Module-level worker for the flock concurrency test (must be importable
+    so multiprocessing fork can target it)."""
+    import os as _os
+
+    _os.environ["EBAY_SNAPSHOT_PATH"] = snapshot_path
+    from ebay import snapshots as _snap
+
+    # Pad each row well past PIPE_BUF (4096) so a missing lock would surface as
+    # an interleaved/torn JSONL line, not be masked by small-write atomicity.
+    pad = "x" * 8000
+    for i in range(n):
+        _snap.append_snapshot(
+            "price_change", writer_id, {"seq": i, "writer": writer_id, "pad": pad}
+        )
+
+
+def test_concurrent_appends_serialise_under_flock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#40 AC1.4 — many processes appending at once must each land an intact
+    JSONL line (flock serialises the append+flush+fsync). Without the lock the
+    >PIPE_BUF rows would interleave and json.loads would fail / counts drift."""
+    import multiprocessing as mp
+    from collections import Counter
+
+    target = tmp_path / "snap.jsonl"
+    writers = 8
+    per_writer = 40
+    ctx = mp.get_context("fork")
+    procs = [
+        ctx.Process(
+            target=_concurrent_append_worker,
+            args=(str(target), f"item{w}", per_writer),
+        )
+        for w in range(writers)
+    ]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=60)
+        assert p.exitcode == 0, f"worker exited {p.exitcode}"
+
+    lines = target.read_text().splitlines()
+    assert len(lines) == writers * per_writer, "line count drifted — torn writes"
+    # Every line must parse — a torn/interleaved write raises here.
+    rows = [json.loads(ln) for ln in lines]
+    counts = Counter(r["item_id"] for r in rows)
+    assert all(counts[f"item{w}"] == per_writer for w in range(writers)), counts
