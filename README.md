@@ -16,7 +16,7 @@ Built for a side hustle selling on eBay. Managing listings manually is slow and 
 - **Bulk update descriptions** across all active listings (add warnings, fix text, update specs)
 - **Upload photos** directly from local filesystem to eBay Picture Services
 - **Get active listings** with current stats (price, quantity, views, watchers)
-- **Update inventory** quantities and pricing
+- **Revise listings** — title, description, price, condition, and item specifics (quantity is intentionally never modified)
 - **Smart templates** with Jinja2 for consistent listing HTML (warnings, condition badges, spec tables)
 - **Autonomous Best Offer responder** (#16) — `ebay/best_offers.py` Trading-API wrappers (`GetBestOffers` + `RespondToBestOffer`) used by a cron-driven script in the private operator skill. Operator runbook + thresholds live in the private skill repo; this repo provides the API surface only.
 
@@ -63,16 +63,17 @@ uv run python scripts/oauth_setup.py
 
 ### Required env vars
 
-Cross-referenced to `ebay/auth.py::REQUIRED_VARS` and `.env.example` line numbers. Boot exits with `SystemExit(1)` if any of these are unset or empty.
+Cross-referenced to `ebay/auth.py::REQUIRED_VARS` (see `.env.example` for the
+template). Boot exits with `SystemExit(1)` if any of these are unset or empty.
 
-| Variable | `.env.example` line | Read by |
-|---|---|---|
-| `EBAY_APP_ID` | 3 | `ebay/client.py` |
-| `EBAY_CERT_ID` | 4 | `ebay/client.py` |
-| `EBAY_DEV_ID` | 5 | `ebay/client.py` |
-| `EBAY_AUTH_TOKEN` | 9 | `ebay/client.py` |
-| `EBAY_SELLER_LOCATION` | 39 | `ebay/listings.py:503` (AddFixedPriceItem location) |
-| `EBAY_SELLER_POSTCODE` | 40 | `ebay/listings.py:504` (AddFixedPriceItem location) |
+| Variable | Read by |
+|---|---|
+| `EBAY_APP_ID` | `ebay/client.py` |
+| `EBAY_CERT_ID` | `ebay/client.py` |
+| `EBAY_DEV_ID` | `ebay/client.py` |
+| `EBAY_AUTH_TOKEN` | `ebay/client.py` |
+| `EBAY_SELLER_LOCATION` | `ebay/listings.py::build_add_payload` (AddFixedPriceItem location-details block) |
+| `EBAY_SELLER_POSTCODE` | `ebay/listings.py::build_add_payload` (AddFixedPriceItem location-details block) |
 
 Optional overrides (defaults apply when unset): `EBAY_MARKETPLACE_ID` (default `EBAY_GB`), `EBAY_OAUTH_BASE_URL` (default `https://api.ebay.com`), `EBAY_SANDBOX`, `EBAY_DEBUG`, `EBAY_DRIVE_ROOT`.
 
@@ -113,6 +114,11 @@ claude
 | `get_listing_returns` / `compute_return_rate` | Implemented (#4 Phase 2) | Post-Order v2 return search + per-SKU rate |
 | `find_competitor_prices` | Implemented (#4 Phase 3) | Browse API market scan with own-seller exclusion |
 | `get_store_info` | Implemented (#13 Phase 1.5) | GetStore wrapper — store name + custom categories + count |
+| `revise_pictures` | Implemented | Replace or append listing photos (no other field changes) |
+| `recommend_best_offer_thresholds` | Implemented | Suggest Best Offer auto-accept / auto-decline thresholds for a listing |
+| `compute_return_rates_bulk` | Implemented | Per-SKU return rates across many listings in one pass |
+| `get_elasticity` | Implemented | Price-elasticity estimate from logged price snapshots |
+| `end_listing` | Implemented | End an active listing with an allowed ending reason |
 
 ### Data files (out-of-repo)
 
@@ -173,10 +179,8 @@ ebay-seller-tool/
 ├── server.py              # MCP server entrypoint
 ├── ebay/                  # eBay API client layer
 │   ├── client.py          # Trading API connection factory
-│   ├── listing.py         # Create/revise/end listing logic
-│   ├── inventory.py       # Quantity and bulk operations
-│   ├── photos.py          # Photo upload and processing
-│   └── conditions.py      # Condition name to eBay ID mapping
+│   ├── listings.py        # Create/revise/end listing logic + payload builders
+│   └── photos.py          # Photo upload and processing
 ├── business/              # Placeholder package; per-seller business rules
 │                          # (title rules, warning rules, part lookups) live in
 │                          # a private companion repo and are not packaged here.
@@ -184,8 +188,7 @@ ebay-seller-tool/
 │   ├── base.html          # Base listing HTML shell
 │   └── warnings/          # Warning block templates
 ├── scripts/               # Standalone utilities
-│   ├── auth_setup.py      # Initial OAuth/token setup
-│   └── export_listings.py # Dump listings to JSON
+│   └── oauth_setup.py     # Initial OAuth/token setup
 └── docs/
     └── research/          # Decision logs and API research
 ```
