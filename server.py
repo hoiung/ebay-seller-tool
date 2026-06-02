@@ -303,9 +303,12 @@ mcp = FastMCP("ebay-seller-tool")
 if not os.environ.get("EBAY_DEBUG"):
     logging.getLogger("ebaysdk").setLevel(logging.CRITICAL)
 
-# Validate credentials at module load (runs whether invoked via __main__ or MCP framework)
-validate_credentials()
-check_token_expiry()
+# OAuth-var discoverability is network-free (env-var inspection + log only), so
+# it stays at import time. The credential validation + live token-expiry check
+# moved into the __main__ launch block (#40 AC1.2) — check_token_expiry issues a
+# live GetTokenStatus Trading API call, which must NOT fire on bare
+# `import server` (it burned Trading quota per import and broke the
+# "no network in unit tests" contract for the 11 test files that import server).
 _warn_missing_oauth_vars()
 
 
@@ -2491,5 +2494,10 @@ async def end_listing(
 
 
 if __name__ == "__main__":
+    # #40 AC1.2 — boot-time credential validation + live token-expiry check run
+    # ONLY when the server is launched as a script (the production
+    # `python server.py` path), never on bare `import server`.
+    validate_credentials()
+    check_token_expiry()
     log_debug("Starting ebay-seller-tool MCP server")
     mcp.run()
