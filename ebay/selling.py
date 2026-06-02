@@ -282,7 +282,6 @@ async def fetch_listing_feedback(item_id: str, days: int = 90) -> dict[str, Any]
                 pass
 
         dsr: dict[str, float] = {}
-        getattr(fb, "SellerDSR", None) or getattr(fb, "FeedbackRatingDetailArray", None)
         # DSR may also be flat — best-effort extract
         for attr in (
             "ItemAsDescribed",
