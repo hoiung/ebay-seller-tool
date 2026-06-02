@@ -145,8 +145,11 @@ async def revise_pictures(
             f"dropped={truncated_count} preserve_index_0={mode == 'append'}"
         )
 
-    # 5. Build payload — Business Policies (#29) supplies shipping/payment/returns
-    # via SellerProfiles, no inline echo needed.
+    # 5. Build payload — picture-only revise. build_revise_payload attaches NO
+    # SellerProfiles and no inline shipping/payment/returns block (the permanent
+    # poison-fix; see ebay/listings.py "SellerProfiles attachment policy"). eBay
+    # leaves the listing's existing account-level policy attachments untouched
+    # when SellerProfiles is absent.
     payload = build_revise_payload(
         item_id=item_id,
         picture_urls=composed,
