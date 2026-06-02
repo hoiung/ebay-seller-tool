@@ -52,6 +52,7 @@ from typing import Any
 import yaml
 
 from ebay.oauth import get_browse_session, raise_for_ebay_error
+from ebay.stats import percentile
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_FILTER_CONFIG = os.path.join(_REPO_ROOT, "config", "pricing_and_content.yaml")
@@ -380,9 +381,9 @@ def _sync_find_competitor_prices(
     raw_distribution = {
         "count": count,
         "min": round(sorted_prices[0], 2),
-        "p25": round(sorted_prices[max(0, count // 4)], 2),
+        "p25": round(percentile(sorted_prices, 0.25, method="nearest_rank", presorted=True), 2),
         "median": round(statistics.median(sorted_prices), 2),
-        "p75": round(sorted_prices[min(count - 1, (3 * count) // 4)], 2),
+        "p75": round(percentile(sorted_prices, 0.75, method="nearest_rank", presorted=True), 2),
         "max": round(sorted_prices[-1], 2),
         "currency": currency,
         "by_condition_dict": by_condition,
@@ -448,9 +449,9 @@ def _sync_find_competitor_prices(
         **raw_distribution,
         "count": kept_n,
         "min": round(kept_prices[0], 2),
-        "p25": round(kept_prices[max(0, kept_n // 4)], 2),
+        "p25": round(percentile(kept_prices, 0.25, method="nearest_rank", presorted=True), 2),
         "median": round(statistics.median(kept_prices), 2),
-        "p75": round(kept_prices[min(kept_n - 1, (3 * kept_n) // 4)], 2),
+        "p75": round(percentile(kept_prices, 0.75, method="nearest_rank", presorted=True), 2),
         "max": round(kept_prices[-1], 2),
         "listings": kept,
         "audit_flat": audit_flat,
@@ -931,8 +932,8 @@ def drop_price_outliers(
     transformed = [math.log(p) for p in prices] if log_transform else list(prices)
     sorted_t = sorted(transformed)
     n = len(sorted_t)
-    q1 = sorted_t[n // 4]
-    q3 = sorted_t[(3 * n) // 4]
+    q1 = percentile(sorted_t, 0.25, method="nearest_rank", presorted=True)
+    q3 = percentile(sorted_t, 0.75, method="nearest_rank", presorted=True)
     iqr = q3 - q1
     fence_lo_t = q1 - multiplier * iqr
     fence_hi_t = q3 + multiplier * iqr

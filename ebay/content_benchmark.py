@@ -13,27 +13,24 @@ weekly review window, so it's diagnostic but not actionable here.
 
 from __future__ import annotations
 
-import statistics
 from typing import Any
+
+from ebay.stats import percentile
 
 
 def _safe_p(values: list[float], q: float) -> float | None:
-    """Return the q-quantile of values (q in [0,1]). None on empty list."""
+    """Return the inclusive q-quantile of values (q in {0.25, 0.50, 0.75}).
+
+    None on empty list; the single value on a singleton. #40 AC2.3 routes the
+    interpolated computation through ebay.stats.percentile (single definition);
+    #40 AC2.4 — the redundant local sort is gone (the helper's inclusive method
+    re-sorts internally).
+    """
     if not values:
         return None
     if len(values) == 1:
         return values[0]
-    sorted_vals = sorted(values)
-    # statistics.quantiles requires len >= 2
-    quantiles = statistics.quantiles(sorted_vals, n=4, method="inclusive")
-    # quantiles returns [p25, p50, p75]; pick the closest match.
-    if q == 0.25:
-        return quantiles[0]
-    if q == 0.50:
-        return quantiles[1]
-    if q == 0.75:
-        return quantiles[2]
-    raise ValueError(f"_safe_p only supports q in {{0.25, 0.50, 0.75}}, got {q}")
+    return percentile(values, q, method="inclusive")
 
 
 def _photo_count_benchmark(
