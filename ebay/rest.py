@@ -375,6 +375,10 @@ def _sync_get_traffic_report_with_retry(
     Raises:
         TrafficReportRateLimitError: once ``backoff_seconds`` and
             ``total_budget_seconds`` are exhausted on consecutive 429s.
+        call_accountant.RateLimitError: if ``account_fn`` re-applies the daily
+            quota gate per attempt and that quota is exhausted mid-retry
+            (#40 AC1.3 — propagates cleanly; it is not a 429 so it is not
+            retried). Stops issuing GETs the moment daily quota is gone.
         Exception: any non-429 upstream error, raised on the first attempt.
     """
     deadline = monotonic_fn() + total_budget_seconds
