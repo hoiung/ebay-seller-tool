@@ -172,20 +172,15 @@ ebay-seller-tool/
 ├── server.py              # MCP server entrypoint (FastMCP)
 ├── ebay/                  # eBay API client layer
 │   ├── client.py          # Trading API connection factory
-│   ├── listing.py         # Create/revise/end listing logic
-│   ├── inventory.py       # Quantity management, bulk ops
-│   ├── photos.py          # Photo upload and processing
-│   └── conditions.py      # Condition name to eBay ID mapping
-├── business/              # Business rules (private, loaded at runtime)
-│   ├── title_generator.py # Title builder with configurable rules
-│   ├── warning_rules.py   # Compatibility warning engine
-│   └── part_lookup.py     # Part number lookup integration
+│   ├── listings.py        # Create/revise/end listing logic + payload builders
+│   └── photos.py          # Photo upload and processing
+├── business/              # Empty placeholder package (only __init__.py); the
+│                          # per-seller business rules live in a private repo
 ├── templates/             # Jinja2 HTML templates
 │   ├── base.html          # Base listing HTML shell
 │   └── warnings/          # Warning block templates
 ├── scripts/               # Standalone utilities
-│   ├── auth_setup.py      # OAuth2 / Auth'N'Auth initial setup
-│   └── export_listings.py # Dump active listings to JSON
+│   └── oauth_setup.py     # OAuth2 / Auth'N'Auth initial setup
 ├── docs/
 │   └── research/          # Decision logs and API research
 ├── pyproject.toml
@@ -348,7 +343,7 @@ This repo is **PUBLIC**. Business-sensitive data lives in the **PRIVATE** `dotfi
 - API Research: `docs/research/`
 - Skill (private): `~/.claude/skills/ebay-seller-tool/SKILL.md`
   - **Pricing Review Workflow** subsection (#13 — live 2026-04-25): full sweep procedure + 4-phase new-listing flow + verdict→action mapping. Cadence: weekly via skill prompt when `pricing_review.md` `last_full_review` is >7 days.
-- Business rules (private): `../ebay-ops/docs/research/ebay/` (16 docs)
+- Business rules (private): `../ebay-ops/docs/research/ebay/`
 - Business memory (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/user_ebay_business.md`
 - Pricing review state (private): `~/.claude/projects/-home-hoiung-DevProjects/memory/pricing_review.md`
 - Pricing elasticity log (out-of-repo): `~/.local/share/ebay-seller-tool/price_snapshots.jsonl`
