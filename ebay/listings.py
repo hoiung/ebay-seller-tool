@@ -404,6 +404,23 @@ def _decimal_str(value: float | int | str) -> str:
     return str(Decimal(str(value)).quantize(Decimal("0.01")))
 
 
+def _item_specifics_to_nvl(item_specifics: dict[str, str | list[str]]) -> list[dict]:
+    """Convert an item_specifics dict into eBay's NameValueList payload shape.
+
+    Single source of truth for build_add_payload + build_revise_payload — both
+    previously inlined this identical loop (#40 AC2.2 dedup). A list value maps
+    to a multi-value NameValueList entry; a scalar is wrapped in a single-item
+    list (eBay expects Value to be a list).
+    """
+    nvl: list[dict] = []
+    for name, value in item_specifics.items():
+        if isinstance(value, list):
+            nvl.append({"Name": name, "Value": value})
+        else:
+            nvl.append({"Name": name, "Value": [value]})
+    return nvl
+
+
 def build_revise_payload(
     item_id: str,
     title: str | None = None,
@@ -473,13 +490,7 @@ def build_revise_payload(
     if condition_description is not None:
         item["ConditionDescription"] = condition_description
     if item_specifics is not None:
-        nvl = []
-        for name, value in item_specifics.items():
-            if isinstance(value, list):
-                nvl.append({"Name": name, "Value": value})
-            else:
-                nvl.append({"Name": name, "Value": [value]})
-        item["ItemSpecifics"] = {"NameValueList": nvl}
+        item["ItemSpecifics"] = {"NameValueList": _item_specifics_to_nvl(item_specifics)}
 
     if picture_urls is not None:
         if len(picture_urls) > MAX_PICTURE_URLS:
@@ -624,13 +635,6 @@ def build_add_payload(
         },
     }
 
-    nvl = []
-    for name, value in item_specifics.items():
-        if isinstance(value, list):
-            nvl.append({"Name": name, "Value": value})
-        else:
-            nvl.append({"Name": name, "Value": [value]})
-
     item: dict = {
         "Title": title,
         "Description": cdata_wrap(description_html),
@@ -651,7 +655,7 @@ def build_add_payload(
         "DispatchTimeMax": "3",
         "UUID": uuid_hex,
         "PictureDetails": {"PictureURL": list(picture_urls)},
-        "ItemSpecifics": {"NameValueList": nvl},
+        "ItemSpecifics": {"NameValueList": _item_specifics_to_nvl(item_specifics)},
         "ShippingDetails": shipping_details,
     }
     if condition_description is not None:
