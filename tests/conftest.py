@@ -1,8 +1,12 @@
 """Shared test fixtures.
 
-Sets dummy eBay env vars so modules under test import cleanly without
-requiring a real .env file. No network calls are ever made by unit tests —
-the Trading API is always mocked.
+Sets dummy eBay env vars so modules under test import cleanly without requiring
+a real .env file. Importing ``server`` must make NO network call — that
+invariant is enforced by ``tests/test_no_boot_network.py``, which monkeypatches
+``ebay.client.execute_with_retry`` + ``socket.socket`` and asserts that
+importing/reloading server invokes neither (the #40 AC1.2 boot-call fix; the
+old "no network calls are ever made" prose here was unenforced). Do not
+reinstate any module-level Trading-API call.
 """
 
 import os
