@@ -78,6 +78,7 @@ per weekly sweep + handful of price_change events — manageable for years).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from datetime import datetime, timezone
@@ -143,9 +144,17 @@ def append_snapshot(event_type: str, item_id: str, snapshot: dict[str, Any]) -> 
     row["event"] = event_type
 
     with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(row, separators=(",", ":")) + "\n")
-        f.flush()
-        os.fsync(f.fileno())
+        # #40 AC1.4 — advisory exclusive lock so concurrent appends serialise
+        # and never interleave a half-written JSONL line, matching the flock
+        # discipline ebay/call_accountant.py applies to the same state dir.
+        # Released implicitly on close; LOCK_UN is explicit for clarity.
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(json.dumps(row, separators=(",", ":")) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def _read_events(item_id: str) -> list[dict[str, Any]]:
