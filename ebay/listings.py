@@ -371,10 +371,23 @@ def compute_diff(
             "before": before.get("condition_id"),
             "after": str(condition_id),
         }
-    if condition_description is not None:
-        diff["condition_description"] = {"after": condition_description}
-    if item_specifics is not None:
-        diff["item_specifics"] = {"after_count": len(item_specifics)}
+    # #40 AC2.6 — only report a change when the before snapshot carries the field
+    # AND the value actually differs. Emitting unconditionally whenever the kwarg
+    # was non-None over-reported "changed" on a revise that re-sent the SAME
+    # value. When `before` lacks the field there is no true comparison possible,
+    # so OMIT it rather than claim a change.
+    if condition_description is not None and "condition_description" in before:
+        if condition_description != before.get("condition_description"):
+            diff["condition_description"] = {
+                "before": before.get("condition_description"),
+                "after": condition_description,
+            }
+    if item_specifics is not None and "item_specifics" in before:
+        if item_specifics != before.get("item_specifics"):
+            diff["item_specifics"] = {
+                "before_count": len(before.get("item_specifics") or {}),
+                "after_count": len(item_specifics),
+            }
     return diff
 
 
