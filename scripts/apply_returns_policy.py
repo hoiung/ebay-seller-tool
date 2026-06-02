@@ -1,23 +1,29 @@
-"""Issue #29 Phase 4 — one-shot Business Policies migration.
+"""Issue #29 Phase 4 — OBSOLETE one-shot Business Policies migration (hard-refused).
 
-Applies the SellerProfiles block to every active listing on the store. This
-is a MIGRATION script — run once after Phase 1 (browser enrolment) + Phase 2
-(code switch). After this run, every listing references the three Business
-Policy IDs and inline shipping/payment/returns blocks are gone.
+This script was the historical migration that attached a SellerProfiles block to
+every active listing. It is now PERMANENTLY HARD-REFUSED and emits NO
+SellerProfiles: build_revise_payload + build_add_payload attach none, and
+_build_seller_profiles_block raises NotImplementedError. Running it once
+destroyed the store's free-shipping config; subsequent workaround revise paths
+re-destroyed it 3 more times. The operator's source of truth is now account-
+level eBay Simple Delivery + manually-set free shipping, so this script must
+never run again. (Mirror of the "SellerProfiles attachment policy" docstring in
+ebay/listings.py + feedback_ebay_default_shipping_poisoned.md.)
 
-The migration is idempotent: re-running on already-migrated listings detects
-the target state via per-listing GetItem and skips without an API mutation.
+The __main__ entry point refuses to execute (exit 2) unless the emergency
+override --i-acknowledge-shipping-corruption is passed — see _OBSOLETE_REFUSAL.
+The PREREQUISITES / USAGE / OUTPUT below describe the historical run ONLY and
+are retained for provenance; they no longer reflect a runnable path.
 
-PREREQUISITES:
+PREREQUISITES (historical):
   - .env populated with EBAY_AUTH_TOKEN + EBAY_OWN_SELLER_USERNAME
   - .env populated with EBAY_PAYMENT_PROFILE_ID + EBAY_SHIPPING_PROFILE_ID +
     EBAY_RETURN_PROFILE_ID (issue #29 Phase 1 enrolment output)
 
-USAGE:
-  uv run python scripts/apply_returns_policy.py             # dry-run
-  uv run python scripts/apply_returns_policy.py --apply     # live
+USAGE (historical — now hard-refused):
+  uv run python scripts/apply_returns_policy.py             # refused (exit 2)
 
-OUTPUT:
+OUTPUT (historical):
   Stdout: per-listing line with before + after policy + status
   Audit log appended to ~/.local/share/ebay-seller-tool/seller_profiles_migration.jsonl
   with full {item_id, before, after, timestamp, result} per the issue Phase 4 AC.
@@ -110,8 +116,10 @@ async def _get_item_full(item_id: str) -> dict:
 async def _apply_one(item_id: str) -> dict:
     """ReviseFixedPriceItem via build_revise_payload (preserves _assert_no_quantity safety).
 
-    No other field changes — build_revise_payload with item_id only emits
-    {ItemID, SellerProfiles} plus the codified Quantity-absence invariant.
+    No other field changes — build_revise_payload with item_id only emits ItemID
+    plus the codified Quantity-absence invariant. It attaches NO SellerProfiles
+    (the permanent poison-fix; see the module docstring + ebay/listings.py). This
+    function is unreachable in normal operation — the __main__ gate hard-refuses.
     """
     payload = build_revise_payload(item_id=item_id)
     try:
@@ -302,8 +310,10 @@ Permanent state (post #29-followup):
     one-shot enrolment) is complete — never run again.
 
 If you genuinely need to attach SellerProfiles to listings (you don't), pass
---i-acknowledge-shipping-corruption AND --apply AND document the rationale
-in a GitHub Issue first. The flag exists so the refusal can be bypassed in a
+--i-acknowledge-shipping-corruption to bypass this refusal AND document the
+rationale in a GitHub Issue first. That single flag is the ONLY gate; --apply is
+not an additional bypass requirement — once past the refusal it merely toggles a
+live run (add --apply) versus a dry-run (omit it). The override exists for a
 genuine emergency; it is not for normal operation.
 
 See: feedback_ebay_default_shipping_poisoned.md + module-level
