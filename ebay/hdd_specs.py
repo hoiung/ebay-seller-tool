@@ -121,6 +121,17 @@ HDD_SPECS: dict[str, dict[str, str | None]] = {
         "form_factor": "3.5 in",
         "height": None,
     },
+    "MB1000GCEHH": {
+        "brand": "Seagate",
+        "family": "Constellation ES",
+        "capacity": "1TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
     "EG1200JEMDA": {
         "brand": "Seagate",
         "family": "Enterprise Performance 10K.8",
