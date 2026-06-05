@@ -121,6 +121,17 @@ HDD_SPECS: dict[str, dict[str, str | None]] = {
         "form_factor": "3.5 in",
         "height": None,
     },
+    "MDL-A09": {
+        "brand": "Fabrikam",
+        "family": "Series-Delta",
+        "capacity": "1TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
     "MDL-A10": {
         "brand": "Fabrikam",
         "family": "Series-Epsilon",
