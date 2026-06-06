@@ -726,6 +726,115 @@ def test_build_21_field_specifics_raises_on_missing_required() -> None:
         )
 
 
+# ---- worksheet-scaffolding stripping (publish body only) ----
+
+# A realistic operator authoring worksheet: document chrome + <h1> + a "Title"
+# copy-block + an Item-Specifics reference table + section headings, THEN the
+# real listing body (warning + section divs). Only the body may reach buyers.
+_WORKSHEET = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>x</title>
+<style>body{font-family:Arial}</style></head>
+<body>
+<h1>Fabrikam Series-Alpha 2TB <span class="condition-badge">USED</span></h1>
+<p class="note">STANDARD POOL listing. low-hours file is listing-used-low-poh.html.</p>
+<h2>Title <span class="note">(paste into eBay title field)</span></h2>
+<div class="copy-block">Fabrikam Series-Alpha 2TB 7200RPM 2.5" SATA III HDD MDL-A03</div>
+<h2>Item Specifics <span class="note">(eBay item specifics fields)</span></h2>
+<table><tr><th>Field</th><th>Value</th></tr><tr><td>Brand</td><td>Fabrikam</td></tr></table>
+<h2>Description <span class="note">(paste into eBay description editor)</span></h2>
+<div class="warning" style="background:#ffebee;">
+<p class="warning-title">IMPORTANT</p><p>Body warning text.</p></div>
+<div class="section"><h3>Overview</h3><p>Real description body.</p></div>
+</body></html>"""
+
+_SCAFFOLDING_MARKERS = [
+    "paste into eBay",
+    "copy-block",
+    "STANDARD POOL",
+    "listing-used-low-poh.html",
+    "Item Specifics",
+    "condition-badge",
+    "<h1",
+    "<!DOCTYPE",
+    "<style",
+    "<head",
+]
+
+
+def test_extract_description_body_strips_worksheet_scaffolding() -> None:
+    out = server._extract_description_body(_WORKSHEET)
+    assert out.startswith('<div class="warning"')
+    assert "warning-title" in out
+    assert "Real description body." in out
+    for marker in _SCAFFOLDING_MARKERS:
+        assert marker not in out, f"worksheet scaffolding leaked into body: {marker!r}"
+
+
+def test_extract_description_body_clean_body_unchanged() -> None:
+    clean = '<div class="warning"><p>w</p></div>\n<div class="section"><p>b</p></div>'
+    assert server._extract_description_body(clean) == clean
+
+
+def test_extract_description_body_fallback_strips_chrome_and_scaffolding() -> None:
+    """No warning/section anchor (template/minimal body): still strip chrome + copy-block + <h1>."""
+    html = (
+        '<html><body><div class="copy-block">\nTitle: X\n</div>'
+        "<h1>X</h1><p>Body.</p></body></html>"
+    )
+    assert server._extract_description_body(html) == "<p>Body.</p>"
+
+
+def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> None:
+    """End-to-end: the AddFixedPriceItem payload must carry the listing body
+    and NONE of the worksheet scaffolding (regression for the verbatim-publish bug)."""
+    folder = tmp_path / "MDL-A03"
+    folder.mkdir()
+    im = Image.new("RGB", (400, 300), (10, 100, 200))
+    buf = BytesIO()
+    im.save(buf, format="JPEG")
+    (folder / "IMG20260420000000.jpg").write_bytes(buf.getvalue())
+    (folder / "listing-used.html").write_text(_WORKSHEET, encoding="utf-8")
+    server._create_listing_uuid_cache.clear()
+    captured: dict = {}
+
+    def fake_exec(verb: str, *args, **kwargs):
+        data = args[0] if args else {}
+        if verb == "UploadSiteHostedPictures":
+            r = MagicMock()
+            r.reply.SiteHostedPictureDetails.FullURL = "https://i.ebayimg.com/p/$_57.JPG"
+            return r
+        if verb == "AddFixedPriceItem":
+            captured.update(data)
+            return _fake_add_response("123")
+        if verb == "GetItem":
+            return _fake_getitem_response(
+                title="Fabrikam Series-Alpha 2TB 7200RPM 2.5\" SATA III HDD MDL-A03",
+                qty=1, condition_id=3000, photos=1, mpn="MDL-A03", brand="Fabrikam",
+            )
+        raise AssertionError(verb)
+
+    with patch("server.execute_with_retry", side_effect=fake_exec):
+        with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
+            with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder), price=49.99, quantity=1,
+                        condition="Used", has_caddy=False, dry_run=False,
+                    )
+                )
+
+    result = json.loads(raw)
+    assert result["success"] is True
+    # Title still derives from the worksheet copy-block.
+    assert "MDL-A03" in result["after"]["title"]
+    # Published description = body only, no scaffolding.
+    desc = captured["Item"]["Description"]
+    assert "warning-title" in desc
+    assert "Real description body." in desc
+    for marker in _SCAFFOLDING_MARKERS:
+        assert marker not in desc, f"worksheet scaffolding reached the live payload: {marker!r}"
+
+
 def test_update_listing_accepts_2750_used_excellent(tmp_path: Path) -> None:
     """update_listing validation must accept 2750 (Used - Excellent) per CONDITION_MAP."""
     # This is a pure validation test — no eBay API call needed because the

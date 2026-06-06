@@ -150,6 +150,46 @@ def _extract_title_from_html(html: str) -> str | None:
     return None
 
 
+# Operator authoring worksheets carry a title copy-block, an <h1>, an
+# Item-Specifics reference table and "(paste into eBay ...)" section headings.
+# create_listing reads the FULL worksheet to derive the title (the copy-block),
+# but the PUBLISHED description must contain only the listing body — never the
+# scaffolding. This stripper anchors on the first warning/section content div
+# (the convention every authored body opens with); everything before it is
+# scaffolding. Fallback for minimal bodies / the Jinja template (no such div):
+# strip the document chrome plus any residual copy-block / <h1>.
+_BODY_ANCHOR_RE = re.compile(
+    r'<div\b[^>]*\bclass=["\'][^"\']*\b(?:warning|section)\b[^"\']*["\']',
+    re.IGNORECASE,
+)
+_DOC_CHROME_RE = re.compile(
+    r"<!DOCTYPE[^>]*>|</?html[^>]*>|<head\b.*?</head>|</?body[^>]*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _extract_description_body(html: str) -> str:
+    """Return the publishable eBay description body, stripping authoring-
+    worksheet scaffolding so it never reaches buyers.
+
+    Primary path: the first ``<div class="warning">`` / ``<div class="section">``
+    onward (trailing ``</body></html>`` removed). Fallback: strip document
+    chrome plus any residual copy-block / ``<h1>``. An already-clean body
+    (warning/section, no scaffolding) is returned unchanged.
+    """
+    m = _BODY_ANCHOR_RE.search(html)
+    if m:
+        body = html[m.start() :]
+        cut = body.rfind("</body>")
+        if cut != -1:
+            body = body[:cut]
+        return body.strip()
+    body = _DOC_CHROME_RE.sub("", html)
+    body = _COPY_BLOCK_RE.sub("", body)
+    body = _H1_RE.sub("", body)
+    return body.strip()
+
+
 def _resolve_description_html(
     folder: Path,
     condition: str,
@@ -1262,9 +1302,13 @@ async def create_listing(
             log_debug(f"create_listing best_offer threshold skip: {e}")
 
     # --- P3.9 Build the Add payload ---
+    # Publish only the listing body — strip authoring-worksheet scaffolding
+    # (copy-block, <h1>, Item-Specifics table, section headings). The title was
+    # already derived from the FULL worksheet above.
+    published_html = _extract_description_body(resolved_html)
     payload = build_add_payload(
         title=title,
-        description_html=resolved_html,
+        description_html=published_html,
         price=price,
         quantity=quantity,
         condition_id=condition_id,
@@ -1433,7 +1477,7 @@ async def create_listing(
             item_id=new_item_id,
             fields_changed=["CREATE"],
             before_length=0,
-            after_length=len(resolved_html),
+            after_length=len(published_html),
             success=True,
             local_html_path=str(folder),
             condition_after=str(condition_id),
@@ -1487,7 +1531,7 @@ async def create_listing(
                 item_id="(failed)",
                 fields_changed=["CREATE"],
                 before_length=0,
-                after_length=len(resolved_html),
+                after_length=len(published_html),
                 success=False,
                 error=str(e),
                 local_html_path=str(folder),
