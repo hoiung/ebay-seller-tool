@@ -195,6 +195,97 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
     assert captured_payload["Item"]["UUID"] == result["uuid"]
 
 
+def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_path: Path) -> None:
+    """Operator policy: every new listing is born with Best Offer ON; thresholds from qty tier."""
+    folder = _mk_product_folder(tmp_path)
+    server._create_listing_uuid_cache.clear()
+    captured_payload: dict = {}
+
+    def fake_exec(verb: str, *args, **kwargs):
+        data = args[0] if args else kwargs.get("data", {})
+        if verb == "UploadSiteHostedPictures":
+            r = MagicMock()
+            r.reply.SiteHostedPictureDetails.FullURL = "https://i.ebayimg.com/p/$_57.JPG"
+            return r
+        if verb == "AddFixedPriceItem":
+            captured_payload.update(data)
+            return _fake_add_response("123456789")
+        if verb == "GetItem":
+            return _fake_getitem_response(
+                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                qty=1, condition_id=3000, photos=2, mpn="MDL-A03", brand="Fabrikam",
+            )
+        raise AssertionError(f"unexpected verb {verb}")
+
+    with patch("server.execute_with_retry", side_effect=fake_exec):
+        with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
+            with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
+                    )
+                )
+
+    result = json.loads(raw)
+    assert result["success"] is True
+    item = captured_payload["Item"]
+    # Best Offer ON by default (no explicit arg) — policy enforced by code
+    assert item["BestOfferDetails"]["BestOfferEnabled"] == "true"
+    # qty=1 → 95% accept on £49.99 → £47 (math.floor); decline 75% → £37
+    assert item["ListingDetails"]["BestOfferAutoAcceptPrice"]["#text"] == "47.00"
+    assert item["ListingDetails"]["MinimumBestOfferPrice"]["#text"] == "37.00"
+    assert result["after"]["best_offer"]["enabled"] is True
+    assert result["after"]["best_offer"]["auto_accept_gbp"] == 47
+
+
+def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> None:
+    """best_offer_enabled=False (explicit operator opt-out) emits no Best Offer block."""
+    folder = _mk_product_folder(tmp_path)
+    server._create_listing_uuid_cache.clear()
+    captured_payload: dict = {}
+
+    def fake_exec(verb: str, *args, **kwargs):
+        data = args[0] if args else kwargs.get("data", {})
+        if verb == "UploadSiteHostedPictures":
+            r = MagicMock()
+            r.reply.SiteHostedPictureDetails.FullURL = "https://i.ebayimg.com/p/$_57.JPG"
+            return r
+        if verb == "AddFixedPriceItem":
+            captured_payload.update(data)
+            return _fake_add_response("123456789")
+        if verb == "GetItem":
+            return _fake_getitem_response(
+                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                qty=1, condition_id=3000, photos=2, mpn="MDL-A03", brand="Fabrikam",
+            )
+        raise AssertionError(f"unexpected verb {verb}")
+
+    with patch("server.execute_with_retry", side_effect=fake_exec):
+        with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
+            with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
+                raw = _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
+                        best_offer_enabled=False,
+                    )
+                )
+
+    result = json.loads(raw)
+    assert result["success"] is True
+    assert "BestOfferDetails" not in captured_payload["Item"]
+    assert result["after"]["best_offer"]["enabled"] is False
+
+
 def test_create_listing_uuid_replay_returns_existing_itemid(tmp_path: Path) -> None:
     folder = _mk_product_folder(tmp_path)
     server._create_listing_uuid_cache.clear()

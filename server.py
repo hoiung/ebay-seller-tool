@@ -1069,6 +1069,7 @@ async def create_listing(
     description_html: str | None = None,
     dry_run: bool = True,
     picture_urls: list[str] | None = None,
+    best_offer_enabled: bool = True,
 ) -> str:
     """Create an eBay UK fixed-price listing end-to-end from a product folder.
 
@@ -1096,6 +1097,11 @@ async def create_listing(
             because VerifyAddFixedPriceItem still needs real PictureURLs.
             To do a pure dry-run without uploads, pre-upload separately and
             pass the URL list here, OR mock the uploads.
+        best_offer_enabled: Enable Best Offer on the new listing (default True —
+            operator policy: Best Offer on every listing). Auto-accept/decline
+            thresholds derive from config/fees.yaml qty_tiers anchored on the
+            break-even floor; sub-£2 listings enable the toggle without
+            thresholds. Pass False only with explicit operator direction.
 
     Returns:
         JSON — see module docstring for full return shape contract.
@@ -1225,6 +1231,30 @@ async def create_listing(
     # --- P3.5 21-field ItemSpecifics ---
     item_specifics = _build_21_field_specifics(oem_model, title, has_caddy, specs)
 
+    # --- Best Offer (operator policy: ON for every new listing) ---
+    # create_listing has no UI to opt out per-call except best_offer_enabled=False.
+    # Thresholds come from the qty-tier ladder in config/fees.yaml (same source as
+    # the autonomous responder + recommend_best_offer_thresholds), anchored on the
+    # break-even floor. Sub-£2 listings can't yield integer thresholds — in that
+    # case we still enable Best Offer (toggle on) but omit auto-accept/decline.
+    bo_accept_gbp: float | None = None
+    bo_decline_gbp: float | None = None
+    if best_offer_enabled:
+        try:
+            floor_result = compute_floor_price()
+            thresholds = compute_best_offer_thresholds(
+                floor_gbp=floor_result["floor_gbp"],
+                live_price_gbp=price,
+                quantity=quantity,
+            )
+            bo_accept_gbp = thresholds["auto_accept_gbp"]
+            bo_decline_gbp = thresholds["auto_decline_gbp"]
+        except ValueError as e:
+            photo_warnings.append(
+                f"Best Offer enabled without auto-accept/decline thresholds: {e}"
+            )
+            log_debug(f"create_listing best_offer threshold skip: {e}")
+
     # --- P3.9 Build the Add payload ---
     payload = build_add_payload(
         title=title,
@@ -1236,6 +1266,9 @@ async def create_listing(
         item_specifics=item_specifics,
         picture_urls=picture_urls,
         uuid_hex=uuid_hex,
+        best_offer_enabled=best_offer_enabled,
+        best_offer_auto_accept_gbp=bo_accept_gbp,
+        best_offer_auto_decline_gbp=bo_decline_gbp,
     )
 
     try:
@@ -1292,6 +1325,14 @@ async def create_listing(
                         "ConditionID": payload["Item"]["ConditionID"],
                         "ItemSpecifics_count": len(item_specifics),
                         "PictureURL_count": len(picture_urls),
+                        "BestOfferEnabled": payload["Item"]
+                        .get("BestOfferDetails", {})
+                        .get("BestOfferEnabled", "false"),
+                    },
+                    "best_offer": {
+                        "enabled": best_offer_enabled,
+                        "auto_accept_gbp": bo_accept_gbp,
+                        "auto_decline_gbp": bo_decline_gbp,
                     },
                 },
                 indent=2,
@@ -1372,6 +1413,10 @@ async def create_listing(
                 mpn_live = landed["specifics"].get("MPN", [None])[0]
                 if mpn_live != oem_model:
                     verify_warnings.append(f"MPN drift: payload={oem_model!r} live={mpn_live!r}")
+                if best_offer_enabled and not landed.get("best_offer_enabled"):
+                    verify_warnings.append(
+                        "best_offer drift: payload enabled Best Offer but live listing shows it off"
+                    )
             else:
                 verify_warnings.append("GetItem returned empty Item on post-create verify")
         except Exception as ve:
@@ -1417,6 +1462,11 @@ async def create_listing(
                     "quantity": quantity,
                     "price": f"{price:.2f}",
                     "picture_count": len(picture_urls),
+                    "best_offer": {
+                        "enabled": best_offer_enabled,
+                        "auto_accept_gbp": bo_accept_gbp,
+                        "auto_decline_gbp": bo_decline_gbp,
+                    },
                 },
             },
             indent=2,

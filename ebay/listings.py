@@ -551,6 +551,9 @@ def build_add_payload(
     picture_urls: list[str],
     uuid_hex: str,
     location_details: dict | None = None,
+    best_offer_enabled: bool = False,
+    best_offer_auto_accept_gbp: float | None = None,
+    best_offer_auto_decline_gbp: float | None = None,
 ) -> dict:
     """Build the AddFixedPriceItem payload dict.
 
@@ -573,6 +576,13 @@ def build_add_payload(
     location_details: default reads EBAY_SELLER_LOCATION + EBAY_SELLER_POSTCODE
     from the environment eagerly. auth.py validates these at startup, so an
     unset env here is a programmer error and raises KeyError fast.
+
+    best_offer_enabled / best_offer_auto_accept_gbp / best_offer_auto_decline_gbp:
+    when best_offer_enabled is True, emits Item.BestOfferDetails.BestOfferEnabled
+    = "true" and (when thresholds are supplied) ListingDetails.BestOfferAutoAccept
+    Price + MinimumBestOfferPrice — identical placement to build_revise_payload.
+    Defaults to False here (neutral builder); create_listing passes True per the
+    operator policy that Best Offer is on for every listing.
     """
     if not _UUID_RE.match(uuid_hex):
         raise ValueError(
@@ -660,6 +670,24 @@ def build_add_payload(
     }
     if condition_description is not None:
         item["ConditionDescription"] = condition_description
+
+    # Best Offer (operator policy: ON for every listing — create_listing passes
+    # True). Same placement build_revise_payload uses (D2-verified): the toggle
+    # under Item.BestOfferDetails, the thresholds under Item.ListingDetails.
+    if best_offer_enabled:
+        item["BestOfferDetails"] = {"BestOfferEnabled": "true"}
+        if best_offer_auto_accept_gbp is not None or best_offer_auto_decline_gbp is not None:
+            listing_details = item.setdefault("ListingDetails", {})
+            if best_offer_auto_accept_gbp is not None:
+                listing_details["BestOfferAutoAcceptPrice"] = {
+                    "#text": _decimal_str(best_offer_auto_accept_gbp),
+                    "@attrs": {"currencyID": location_details["Currency"]},
+                }
+            if best_offer_auto_decline_gbp is not None:
+                listing_details["MinimumBestOfferPrice"] = {
+                    "#text": _decimal_str(best_offer_auto_decline_gbp),
+                    "@attrs": {"currencyID": location_details["Currency"]},
+                }
 
     payload = {"Item": item}
     _assert_requires_quantity(payload)

@@ -76,6 +76,7 @@ _EXPECTED_FAMILY = {
     "MDL-A06": "Series-Gamma",
     "MDL-A07": "Series-Gamma",
     "MDL-A08": "Series-Delta-3",
+    "MDL-A09": "Series-Delta",
     "MDL-A10": "Series-Epsilon",
     "MDL-A11": "Series-Zeta-4000",
     "MDL-A12": "Series-Zeta-4000",
