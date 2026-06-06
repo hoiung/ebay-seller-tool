@@ -1154,8 +1154,14 @@ async def create_listing(
             {"error": f"derived title exceeds 80-char eBay limit (got {len(title)}): {title!r}"}
         )
 
-    # --- P3.7 UUID cache per folder for retry idempotency ---
-    cache_key = str(folder.resolve())
+    # --- P3.7 UUID cache per (folder, title) for retry idempotency ---
+    # Keyed on title (not folder alone) so a folder holding multiple condition/
+    # POH variants (e.g. listing-used.html + listing-used-low-poh.html, the latter
+    # selected via the description_html override) gets a DISTINCT UUID per variant.
+    # Folder-only keying made the 2nd variant's AddFixedPriceItem reuse the 1st's
+    # UUID, so eBay returned DuplicateInvocationDetails instead of creating a second
+    # listing. Re-running the SAME variant (same title) still re-uses its UUID.
+    cache_key = f"{folder.resolve()}::{title}"
     if cache_key not in _create_listing_uuid_cache:
         _create_listing_uuid_cache[cache_key] = uuid.uuid4().hex.upper()
     uuid_hex = _create_listing_uuid_cache[cache_key]

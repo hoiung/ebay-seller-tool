@@ -571,6 +571,44 @@ def test_create_listing_uuid_cache_stable_across_calls(tmp_path: Path) -> None:
     assert r1["uuid"] == r2["uuid"]
 
 
+def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> None:
+    """Two variants from ONE folder (distinct titles via description_html) get
+    distinct UUIDs — else the 2nd AddFixedPriceItem dedupes against the 1st."""
+    folder = _mk_product_folder(tmp_path)
+    server._create_listing_uuid_cache.clear()
+
+    def fake_exec(verb: str, *args, **kwargs):
+        if verb == "UploadSiteHostedPictures":
+            r = MagicMock()
+            r.reply.SiteHostedPictureDetails.FullURL = "https://i.ebayimg.com/x/$_57.JPG"
+            return r
+        if verb == "VerifyAddFixedPriceItem":
+            return _fake_verify_response()
+        raise AssertionError(verb)
+
+    html_a = '<div class="copy-block">Variant A Title One MDL-A03</div><h1>x</h1>'
+    html_b = '<div class="copy-block">Variant B Title Two Low Hours MDL-A03</div><h1>x</h1>'
+    with patch("server.execute_with_retry", side_effect=fake_exec):
+        with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
+            with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
+                raw_a = _run(
+                    server.create_listing(
+                        folder_path=str(folder), price=49.99, quantity=1,
+                        condition="Used", has_caddy=False, dry_run=True,
+                        description_html=html_a,
+                    )
+                )
+                raw_b = _run(
+                    server.create_listing(
+                        folder_path=str(folder), price=39.99, quantity=1,
+                        condition="Used", has_caddy=False, dry_run=True,
+                        description_html=html_b,
+                    )
+                )
+    ra, rb = json.loads(raw_a), json.loads(raw_b)
+    assert ra["uuid"] != rb["uuid"], "distinct-title variants must get distinct UUIDs"
+
+
 def test_create_listing_transfer_rate_12g_from_title(tmp_path: Path) -> None:
     """Title authoritative for Transfer Rate per P3.5."""
     folder = _mk_product_folder(
