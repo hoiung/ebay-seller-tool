@@ -53,6 +53,35 @@ def _minimal(**overrides: object) -> dict:
     return build_add_payload(**base)
 
 
+def test_build_add_payload_best_offer_default_off() -> None:
+    """Builder is neutral — no Best Offer block unless explicitly enabled."""
+    item = _minimal()["Item"]
+    assert "BestOfferDetails" not in item
+    assert "ListingDetails" not in item
+
+
+def test_build_add_payload_best_offer_enabled_with_thresholds() -> None:
+    """best_offer_enabled=True emits the toggle + ListingDetails thresholds."""
+    item = _minimal(
+        best_offer_enabled=True,
+        best_offer_auto_accept_gbp=47,
+        best_offer_auto_decline_gbp=37,
+    )["Item"]
+    assert item["BestOfferDetails"]["BestOfferEnabled"] == "true"
+    ld = item["ListingDetails"]
+    assert ld["BestOfferAutoAcceptPrice"]["#text"] == "47.00"
+    assert ld["BestOfferAutoAcceptPrice"]["@attrs"]["currencyID"] == "GBP"
+    assert ld["MinimumBestOfferPrice"]["#text"] == "37.00"
+    assert ld["MinimumBestOfferPrice"]["@attrs"]["currencyID"] == "GBP"
+
+
+def test_build_add_payload_best_offer_enabled_without_thresholds() -> None:
+    """Toggle on but no thresholds → BestOfferDetails present, no empty ListingDetails."""
+    item = _minimal(best_offer_enabled=True)["Item"]
+    assert item["BestOfferDetails"]["BestOfferEnabled"] == "true"
+    assert "ListingDetails" not in item
+
+
 def test_build_add_payload_full_payload_shape() -> None:
     """P2.2 — full field shape, matches issue spec verbatim."""
     payload = _minimal()

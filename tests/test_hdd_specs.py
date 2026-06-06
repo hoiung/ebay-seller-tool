@@ -76,6 +76,7 @@ _EXPECTED_FAMILY = {
     "ST4000LM016": "BarraCuda",
     "ST2000LM015": "BarraCuda",
     "ST3000NM0033": "Constellation ES.3",
+    "MB1000GCEHH": "Constellation ES",
     "EG1200JEMDA": "Enterprise Performance 10K.8",
     "HUS724020ALA640": "Ultrastar 7K4000",
     "HUS724030ALA640": "Ultrastar 7K4000",
