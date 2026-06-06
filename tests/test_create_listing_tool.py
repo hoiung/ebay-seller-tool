@@ -213,7 +213,11 @@ def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_pa
         if verb == "GetItem":
             return _fake_getitem_response(
                 title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
-                qty=1, condition_id=3000, photos=2, mpn="MDL-A03", brand="Fabrikam",
+                qty=1,
+                condition_id=3000,
+                photos=2,
+                mpn="MDL-A03",
+                brand="Fabrikam",
             )
         raise AssertionError(f"unexpected verb {verb}")
 
@@ -261,7 +265,11 @@ def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> No
         if verb == "GetItem":
             return _fake_getitem_response(
                 title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
-                qty=1, condition_id=3000, photos=2, mpn="MDL-A03", brand="Fabrikam",
+                qty=1,
+                condition_id=3000,
+                photos=2,
+                mpn="MDL-A03",
+                brand="Fabrikam",
             )
         raise AssertionError(f"unexpected verb {verb}")
 
@@ -593,15 +601,23 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
                 raw_a = _run(
                     server.create_listing(
-                        folder_path=str(folder), price=49.99, quantity=1,
-                        condition="Used", has_caddy=False, dry_run=True,
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
                         description_html=html_a,
                     )
                 )
                 raw_b = _run(
                     server.create_listing(
-                        folder_path=str(folder), price=39.99, quantity=1,
-                        condition="Used", has_caddy=False, dry_run=True,
+                        folder_path=str(folder),
+                        price=39.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=True,
                         description_html=html_b,
                     )
                 )
@@ -778,8 +794,7 @@ def test_extract_description_body_clean_body_unchanged() -> None:
 def test_extract_description_body_fallback_strips_chrome_and_scaffolding() -> None:
     """No warning/section anchor (template/minimal body): still strip chrome + copy-block + <h1>."""
     html = (
-        '<html><body><div class="copy-block">\nTitle: X\n</div>'
-        "<h1>X</h1><p>Body.</p></body></html>"
+        '<html><body><div class="copy-block">\nTitle: X\n</div><h1>X</h1><p>Body.</p></body></html>'
     )
     assert server._extract_description_body(html) == "<p>Body.</p>"
 
@@ -808,8 +823,12 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
             return _fake_add_response("123")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title="Fabrikam Series-Alpha 2TB 7200RPM 2.5\" SATA III HDD MDL-A03",
-                qty=1, condition_id=3000, photos=1, mpn="MDL-A03", brand="Fabrikam",
+                title='Fabrikam Series-Alpha 2TB 7200RPM 2.5" SATA III HDD MDL-A03',
+                qty=1,
+                condition_id=3000,
+                photos=1,
+                mpn="MDL-A03",
+                brand="Fabrikam",
             )
         raise AssertionError(verb)
 
@@ -818,8 +837,12 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
                 raw = _run(
                     server.create_listing(
-                        folder_path=str(folder), price=49.99, quantity=1,
-                        condition="Used", has_caddy=False, dry_run=False,
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        dry_run=False,
                     )
                 )
 
