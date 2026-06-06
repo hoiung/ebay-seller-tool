@@ -92,8 +92,7 @@ def test_expected_family_map_covers_every_row() -> None:
     coverage guard forces a human to confirm the contract for new drives rather
     than letting an un-pinned family slip through."""
     assert set(_EXPECTED_FAMILY) == set(HDD_SPECS), (
-        f"golden family map out of sync with HDD_SPECS: "
-        f"{set(_EXPECTED_FAMILY) ^ set(HDD_SPECS)}"
+        f"golden family map out of sync with HDD_SPECS: {set(_EXPECTED_FAMILY) ^ set(HDD_SPECS)}"
     )
 
 
