@@ -1296,9 +1296,7 @@ async def create_listing(
             bo_accept_gbp = thresholds["auto_accept_gbp"]
             bo_decline_gbp = thresholds["auto_decline_gbp"]
         except ValueError as e:
-            photo_warnings.append(
-                f"Best Offer enabled without auto-accept/decline thresholds: {e}"
-            )
+            photo_warnings.append(f"Best Offer enabled without auto-accept/decline thresholds: {e}")
             log_debug(f"create_listing best_offer threshold skip: {e}")
 
     # --- P3.9 Build the Add payload ---
