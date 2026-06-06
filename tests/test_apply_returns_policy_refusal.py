@@ -56,8 +56,7 @@ def test_apply_returns_policy_refuses_without_ack_flag() -> None:
     combined = (result.stderr or "") + (result.stdout or "")
     # Refusal banner mentions shipping corruption / historical incidents
     assert "shipping" in combined.lower() or "obsolete" in combined.lower(), (
-        f"Refusal banner must surface shipping/obsolete keyword. "
-        f"Got combined output:\n{combined}"
+        f"Refusal banner must surface shipping/obsolete keyword. Got combined output:\n{combined}"
     )
 
 

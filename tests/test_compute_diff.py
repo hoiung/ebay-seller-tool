@@ -55,7 +55,10 @@ def test_condition_description_unchanged_not_in_diff() -> None:
     before = dict(_BEFORE)
     before["condition_description"] = "Pull from working server"
     diff = compute_diff(
-        before, title=None, description_html=None, price=None,
+        before,
+        title=None,
+        description_html=None,
+        price=None,
         condition_description="Pull from working server",
     )
     assert "condition_description" not in diff
@@ -65,7 +68,10 @@ def test_condition_description_changed_in_diff() -> None:
     before = dict(_BEFORE)
     before["condition_description"] = "Old notes"
     diff = compute_diff(
-        before, title=None, description_html=None, price=None,
+        before,
+        title=None,
+        description_html=None,
+        price=None,
         condition_description="New notes",
     )
     assert diff["condition_description"] == {"before": "Old notes", "after": "New notes"}
@@ -75,7 +81,10 @@ def test_condition_description_omitted_when_before_lacks_field() -> None:
     # `before` has no condition_description → no true comparison → OMIT (do not
     # claim a change). This is the over-report fix: pre-fix this added the field.
     diff = compute_diff(
-        dict(_BEFORE), title=None, description_html=None, price=None,
+        dict(_BEFORE),
+        title=None,
+        description_html=None,
+        price=None,
         condition_description="Seller notes",
     )
     assert "condition_description" not in diff
@@ -88,7 +97,10 @@ def test_item_specifics_unchanged_not_in_diff() -> None:
     before = dict(_BEFORE)
     before["item_specifics"] = {"Brand": "Seagate", "Capacity": "2TB"}
     diff = compute_diff(
-        before, title=None, description_html=None, price=None,
+        before,
+        title=None,
+        description_html=None,
+        price=None,
         item_specifics={"Brand": "Seagate", "Capacity": "2TB"},
     )
     assert "item_specifics" not in diff
@@ -98,7 +110,10 @@ def test_item_specifics_changed_in_diff() -> None:
     before = dict(_BEFORE)
     before["item_specifics"] = {"Brand": "Seagate"}
     diff = compute_diff(
-        before, title=None, description_html=None, price=None,
+        before,
+        title=None,
+        description_html=None,
+        price=None,
         item_specifics={"Brand": "Seagate", "Capacity": "2TB"},
     )
     assert diff["item_specifics"] == {"before_count": 1, "after_count": 2}
@@ -106,7 +121,10 @@ def test_item_specifics_changed_in_diff() -> None:
 
 def test_item_specifics_omitted_when_before_lacks_field() -> None:
     diff = compute_diff(
-        dict(_BEFORE), title=None, description_html=None, price=None,
+        dict(_BEFORE),
+        title=None,
+        description_html=None,
+        price=None,
         item_specifics={"Brand": "Seagate"},
     )
     assert "item_specifics" not in diff

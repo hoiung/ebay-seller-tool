@@ -32,9 +32,7 @@ def test_validate_credentials_raises_systemexit_when_var_missing(
 def test_check_token_expiry_calls_gettokenstatus() -> None:
     fake = SimpleNamespace(
         reply=SimpleNamespace(
-            TokenStatus=SimpleNamespace(
-                ExpirationTime="2030-01-01T00:00:00.000Z", Status="Active"
-            )
+            TokenStatus=SimpleNamespace(ExpirationTime="2030-01-01T00:00:00.000Z", Status="Active")
         )
     )
     with patch("ebay.client.execute_with_retry", return_value=fake) as mock_exec:
