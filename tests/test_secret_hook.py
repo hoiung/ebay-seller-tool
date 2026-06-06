@@ -13,8 +13,18 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).parent.parent
 _SCRIPT = _REPO_ROOT / "scripts" / "check-public-repo-secrets.py"
+# The seller-username literal lives in .secret-blocklist only as a hashed token
+# (sha256:...:business-1) — a public repo must never hold the plaintext. The hook
+# reconstructs it via this operator-private manifest (vendored from the dotfiles
+# clone). When the manifest is absent (public CI, a fresh clone) the literal cannot
+# be expanded and the hook falls back to verbatim token matching, so the
+# literal-detection test below has nothing to match — skip it rather than fail
+# spuriously. The generic-secret-pattern tests do not depend on this manifest.
+_HASHES_MANIFEST = _REPO_ROOT / "SST3" / "scripts" / ".secret-blocklist-hashes.json"
 
 
 def _run_hook(target_path: Path) -> tuple[int, str, str]:
@@ -27,8 +37,16 @@ def _run_hook(target_path: Path) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
+@pytest.mark.skipif(
+    not _HASHES_MANIFEST.exists(),
+    reason=(
+        "requires the operator-private SST3/scripts/.secret-blocklist-hashes.json "
+        "(dotfiles clone) to expand the hashed seller-username token to its literal; "
+        "absent in public CI / fresh clones, where the hook verbatim-matches tokens"
+    ),
+)
 def test_seller_username_leak_blocked(tmp_path: Path) -> None:
-    """Blocklist catches the store username literal."""
+    """Blocklist catches the store username literal (needs hash-expansion manifest)."""
     bad = tmp_path / "bad.py"
     bad.write_text('STORE = "itdirectuk888"\n')
     code, out, err = _run_hook(bad)
