@@ -14,6 +14,7 @@ import traceback
 import uuid
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -37,6 +38,7 @@ from ebay.analytics import (  # noqa: E402
 )
 from ebay.auth import check_token_expiry, validate_credentials  # noqa: E402
 from ebay.browse import fetch_competitor_prices  # noqa: E402
+from ebay.catalogue_loader import ListingDataError, load_listing_data  # noqa: E402
 from ebay.client import execute_with_retry, log_debug, log_warn  # noqa: E402
 from ebay.end_listing import (  # noqa: E402
     ALLOWED_ENDING_REASONS,
@@ -44,7 +46,6 @@ from ebay.end_listing import (  # noqa: E402
 from ebay.end_listing import (  # noqa: E402
     end_listing as _end_listing_core,
 )
-from ebay.hdd_specs import HDD_SPECS  # noqa: E402
 from ebay.listings import (  # noqa: E402
     MAX_PICTURE_URLS,
     MAX_PICTURE_URLS_JOINED_CHARS,
@@ -81,7 +82,8 @@ from ebay.store import fetch_store_info  # noqa: E402
 MAX_PHOTOS_PER_LISTING = MAX_PICTURE_URLS
 UPLOAD_RATE_LIMIT_SLEEP_SECONDS = 0.5
 
-# Condition string → eBay ConditionID (category 56083, research §1.5).
+# Condition string → eBay ConditionID. Generic eBay used/new condition codes;
+# the listing category is supplied at runtime by the private contract.
 CONDITION_MAP: dict[str, int] = {
     "New": 1000,
     "Opened": 1500,
@@ -115,15 +117,19 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _create_listing_uuid_cache: dict[str, str] = {}
 
 
-def _derive_transfer_rate(title: str) -> str:
-    """Transfer Rate derivation (title-authoritative per P3.5)."""
+def _derive_transfer_rate(title: str, transfer_rate_contract: dict[str, Any]) -> str:
+    """Transfer Rate derivation (title-authoritative).
+
+    The interface-token -> rate MAPPING is private contract data, not hardcoded
+    here: the contract supplies an ordered list of ``rules`` (each a set of
+    title tokens -> a rate) plus a ``default``. First matching rule wins. This
+    function holds ZERO interface tokens of its own — it is category-agnostic.
+    """
     t = title.lower()
-    if "12gb/s" in t or "sas-3" in t:
-        return "12G"
-    if "3gb/s" in t or "sata ii" in t:
-        return "3G"
-    # SATA III, SATA 6Gb/s, SAS 6Gb/s — all 6G
-    return "6G"
+    for rule in transfer_rate_contract.get("rules", []):
+        if any(str(tok).lower() in t for tok in rule.get("tokens", [])):
+            return rule["rate"]
+    return transfer_rate_contract["default"]
 
 
 def _strip_html(text: str) -> str:
@@ -223,71 +229,83 @@ def _extract_oem_model(folder_path: str) -> str:
     return Path(folder_path).name
 
 
-_REQUIRED_SPEC_FIELDS = ("brand", "family", "capacity", "rpm", "interface", "form_factor", "cache")
-
-
-def _build_21_field_specifics(
+def _build_item_specifics(
     oem_model: str,
     title: str,
     has_caddy: bool,
     specs: dict[str, str | None],
     country_of_origin: str,
+    contract: dict[str, Any],
 ) -> dict[str, str | list[str]]:
-    """Canonical 21-field ItemSpecifics per research §1.3.
+    """Generic ItemSpecifics builder — fills a NameValueList from the
+    runtime-loaded listing-contract (field schema + constant values + rules)
+    plus this listing's per-row specs.
 
-    Required-field contract: every HDD_SPECS entry has non-None values for
-    brand/family/capacity/rpm/interface/form_factor/cache (enforced by the
-    P1.9 seed test). `height` may be None for 3.5" drives only.
+    Holds ZERO product/category constants: every category-specific value (the
+    field names, the constant values, the storage-format strings, the
+    interface->rate mapping, the required-field set) comes from the private
+    contract. The function only interprets the contract's field-source
+    vocabulary:
 
-    `Transfer Rate` is title-authoritative per P3.5; the HDD_SPECS
-    `transfer_rate` field exists as a catalogue reference and is NOT read
-    here — title is the ground truth for 12G vs 6G vs 3G.
+      spec           -> the catalogue row's sub-key (``key``)
+      model          -> the OEM model (folder basename)
+      const          -> a fixed value (``value``, scalar or list)
+      storage_format -> contract.storage_format.{with_caddy,without_caddy}
+      transfer_rate  -> derived from the title via the contract rules
+      country        -> the per-listing ``country_of_origin`` argument
 
-    `Country of Origin` is label-authoritative — same doctrine as Transfer
-    Rate. Manufacture country varies per physical drive / production run for
-    the same MPN, so it is NEVER an MPN-keyed catalogue constant: it is
-    supplied per listing (read off this drive's label) via `country_of_origin`
-    and fails loud when absent — never silently defaulted to a single country.
+    ``omit_if_empty: true`` drops a spec field whose value is falsy (e.g. a
+    catalogue row with no height). ``country_of_origin`` is label-authoritative
+    and fails loud when absent — the manufacture country is never defaulted.
     """
+    # Required-field set is contract-sourced (was a hardcoded storage-attribute
+    # tuple); the SHAPE is generic, the field list is private contract data.
+    _REQUIRED_SPEC_FIELDS = contract.get("required_spec_fields", [])  # noqa: N806
     missing = [k for k in _REQUIRED_SPEC_FIELDS if not specs.get(k)]
     if missing:
         raise ValueError(
-            f"HDD_SPECS[{oem_model!r}] has empty/None required field(s): {missing}. "
-            "Fix ebay/hdd_specs.py before creating listing."
+            f"catalogue row {oem_model!r} has empty/None required field(s): {missing}. "
+            "Fix the private catalogue (EBAY_LISTING_DATA_DIR) before creating listing."
         )
     if not country_of_origin or not country_of_origin.strip():
         raise ValueError(
             "country_of_origin is required and must be non-empty — read it from the "
-            "physical drive label (e.g. 'Thailand', 'Philippines', 'China'). "
-            "The manufacture country is never defaulted."
+            "physical product label. The manufacture country is never defaulted."
         )
-    storage_format = "HDD with Caddy" if has_caddy else "HDD Only"
-    specifics: dict[str, str | list[str]] = {
-        "Brand": specs["brand"],
-        "MPN": oem_model,
-        "Model": oem_model,
-        "Product Line": specs["family"],
-        "Type": "Internal Hard Drive",
-        "Drive Type(s) Supported": "HDD",
-        "Storage Format": storage_format,
-        "Storage Capacity": specs["capacity"],
-        "Interface": specs["interface"],
-        "Form Factor": specs["form_factor"],
-        "Rotation Speed": specs["rpm"],
-        "Cache": specs["cache"],
-        "Transfer Rate": _derive_transfer_rate(title),
-        "Compatible With": "PC",
-        "Features": ["Hot Swap", "24/7 Operation"],
-        "Colour": "Silver",
-        "Country of Origin": country_of_origin.strip(),
-        "EAN": "Does not apply",
-        "Manufacturer Warranty": "See Item Description",
-        "Unit Type": "Unit",
-    }
-    # Height applies to 2.5" drives only (3.5" has no 15mm/9.5mm variant).
-    height = specs.get("height")
-    if height:
-        specifics["Height"] = height
+    storage_formats = contract["storage_format"]
+    storage_format = (
+        storage_formats["with_caddy"] if has_caddy else storage_formats["without_caddy"]
+    )
+    country = country_of_origin.strip()
+
+    specifics: dict[str, str | list[str]] = {}
+    for field in contract["item_specifics"]:
+        name = field["name"]
+        source = field["source"]
+        if source == "spec":
+            value = specs.get(field["key"])
+            if not value:
+                if field.get("omit_if_empty"):
+                    continue
+                raise ValueError(
+                    f"catalogue value for {field['key']!r} (contract field {name!r}) "
+                    f"is empty for {oem_model!r}"
+                )
+        elif source == "model":
+            value = oem_model
+        elif source == "const":
+            value = field["value"]
+        elif source == "storage_format":
+            value = storage_format
+        elif source == "transfer_rate":
+            value = _derive_transfer_rate(title, contract["transfer_rate"])
+        elif source == "country":
+            value = country
+        else:
+            raise ValueError(
+                f"contract item_specifics field {name!r} has unknown source {source!r}"
+            )
+        specifics[name] = value
     return specifics
 
 
@@ -1135,11 +1153,12 @@ async def create_listing(
 
     Args:
         folder_path: Product folder on Google Drive. Basename IS the OEM model
-            (keyed into HDD_SPECS). `-EXOS` suffix valid.
+            (keyed into the runtime catalogue). A label-variant suffix is valid.
         price: Listing price in GBP, > 0.
         quantity: Initial stock count, >= 1.
         condition: One of {New, Opened, Used, Used - Excellent}.
-        has_caddy: True → Storage Format = "HDD with Caddy"; else "HDD Only".
+        has_caddy: True → the contract's with-caddy Storage Format value;
+            else the without-caddy value.
         photo_paths: Ordered list of photo paths. If None, glob IMG*.jpg and
             IMG*.JPG from folder (case-insensitive).
         description_html: Override the HTML file in the folder. If None, the
@@ -1192,12 +1211,21 @@ async def create_listing(
     condition_id = CONDITION_MAP[condition]
     oem_model = _extract_oem_model(folder_path)
 
-    # --- P3.4 HDD_SPECS lookup (fail loud on unknown MPN) ---
-    if oem_model not in HDD_SPECS:
+    # --- catalogue + contract lookup (runtime-loaded private data; fail loud) ---
+    try:
+        listing_data = load_listing_data()
+    except ListingDataError as e:
+        return json.dumps({"error": f"listing data unavailable: {e}"})
+    catalogue = listing_data["catalogue"]
+    contract = listing_data["contract"]
+    if oem_model not in catalogue:
         return json.dumps(
-            {"error": f"Unknown MPN {oem_model}. Add to ebay/hdd_specs.py before creating listing."}
+            {
+                "error": f"Unknown MPN {oem_model}. Add it to the private catalogue "
+                "(EBAY_LISTING_DATA_DIR) before creating listing."
+            }
         )
-    specs = HDD_SPECS[oem_model]
+    specs = catalogue[oem_model]
 
     # --- P3.3 HTML + title resolution ---
     try:
@@ -1300,9 +1328,9 @@ async def create_listing(
         uploaded_urls = upload_result["urls"]
         picture_urls = uploaded_urls
 
-    # --- P3.5 21-field ItemSpecifics ---
-    item_specifics = _build_21_field_specifics(
-        oem_model, title, has_caddy, specs, country_of_origin
+    # --- generic schema-driven ItemSpecifics (contract-sourced) ---
+    item_specifics = _build_item_specifics(
+        oem_model, title, has_caddy, specs, country_of_origin, contract
     )
 
     # --- Best Offer (operator policy: ON for every new listing) ---
@@ -1340,6 +1368,7 @@ async def create_listing(
         condition_id=condition_id,
         condition_description=None,
         item_specifics=item_specifics,
+        category_id=contract["category_id"],
         picture_urls=picture_urls,
         uuid_hex=uuid_hex,
         best_offer_enabled=best_offer_enabled,

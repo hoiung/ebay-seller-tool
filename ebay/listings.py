@@ -17,7 +17,6 @@ from pathlib import Path
 from ebay.client import log_debug
 
 _UUID_RE = re.compile(r"^[0-9A-F]{32}$")
-_HDD_CATEGORY_ID = "56083"
 _EBAY_UK_SITE_CURRENCY = "GBP"
 _EBAY_UK_COUNTRY = "GB"
 _MAX_TITLE_CHARS = 80
@@ -563,6 +562,7 @@ def build_add_payload(
     condition_id: int,
     condition_description: str | None,
     item_specifics: dict[str, str | list[str]],
+    category_id: str,
     picture_urls: list[str],
     uuid_hex: str,
     location_details: dict | None = None,
@@ -587,6 +587,9 @@ def build_add_payload(
     operator's manually-set free-shipping config is the source of truth
     (see module-level "SellerProfiles attachment policy" docstring for
     the 3-incident history).
+
+    category_id: the eBay PrimaryCategory id, supplied by the caller from the
+    runtime listing-contract (the public builder holds no hardcoded category).
 
     location_details: default reads EBAY_SELLER_LOCATION + EBAY_SELLER_POSTCODE
     from the environment eagerly. auth.py validates these at startup, so an
@@ -617,16 +620,17 @@ def build_add_payload(
             f"picture_urls total length {joined_urls_len} chars exceeds eBay "
             f"<{MAX_PICTURE_URLS_JOINED_CHARS} cap"
         )
-    # Category 56083 mandates Brand + MPN; the canonical 21-field table also
-    # sets a ≥20-key floor (some sellers omit Colour / Country of Origin,
-    # but our listings enforce the full set).
+    # The configured eBay category mandates Brand + MPN; the contract also sets
+    # a >=20-key item-specifics floor. Both are GENERIC shape gates (every
+    # category-agnostic listing needs Brand + MPN + a populated specifics set) —
+    # they stay regardless of which category the contract supplies.
     if "Brand" not in item_specifics:
         raise ValueError(
-            "item_specifics missing required field 'Brand' (category 56083 rejects payload)"
+            "item_specifics missing required field 'Brand' (configured category rejects payload)"
         )
     if "MPN" not in item_specifics:
         raise ValueError(
-            "item_specifics missing required field 'MPN' (category 56083 rejects payload)"
+            "item_specifics missing required field 'MPN' (configured category rejects payload)"
         )
     if len(item_specifics) < _MIN_ITEM_SPECIFICS_KEYS:
         raise ValueError(
@@ -663,7 +667,7 @@ def build_add_payload(
     item: dict = {
         "Title": title,
         "Description": cdata_wrap(description_html),
-        "PrimaryCategory": {"CategoryID": _HDD_CATEGORY_ID},
+        "PrimaryCategory": {"CategoryID": category_id},
         "StartPrice": {
             "#text": f"{price:.2f}",
             "@attrs": {"currencyID": location_details["Currency"]},
