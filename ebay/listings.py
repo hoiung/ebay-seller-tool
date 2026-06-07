@@ -332,6 +332,11 @@ def snapshot_listing(item: object) -> dict:
         "description_length": d["description_length"],
         "description_hash": hashlib.sha256(d["description_html"].encode()).hexdigest()[:16],
         "quantity": d["quantity"],
+        # Item specifics MUST be in the snapshot — `compute_diff` only reports an
+        # item-specifics change when "item_specifics" is present in `before`
+        # (#40 AC2.6). Omitting it made every item-specifics-only update_listing
+        # call a silent no-op (empty diff → "no_change", never revised).
+        "item_specifics": d["specifics"],
     }
 
 
