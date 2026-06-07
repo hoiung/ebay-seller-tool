@@ -1,0 +1,60 @@
+# SYNTHETIC example listing-contract — NOT a real category contract.
+#
+# Defines the ItemSpecifics field schema + constant values + transfer-rate
+# rules + category id that the GENERIC builder fills in. Every value is
+# fabricated. The real contract (the eBay category id, the real field names +
+# constant product values + interface->rate table) lives in the private
+# ebay-ops repo.
+#
+# Field-source vocabulary read by ebay/server.py::_build_item_specifics:
+#   spec           -> value from the catalogue row's sub-key (`key:`)
+#   model          -> the OEM model (folder basename)
+#   const          -> a fixed value (`value:`, scalar or list)
+#   storage_format -> storage_format.with_caddy / without_caddy by has_caddy
+#   transfer_rate  -> derived from the title via the transfer_rate rules
+#   country        -> the per-listing country_of_origin argument
+# `omit_if_empty: true` drops the field when its source value is falsy
+# (e.g. a catalogue row whose height is null).
+schema: listing-contract-v1
+category_id: "CONTRACT-CAT-0001"
+category_name: "Example Synthetic Category"
+required_spec_fields:
+  - brand
+  - family
+  - capacity
+  - rpm
+  - interface
+  - form_factor
+  - cache
+transfer_rate:
+  rules:
+    - tokens: ["zeta-link", "fastbus"]
+      rate: "RATE-HI"
+    - tokens: ["slowbus"]
+      rate: "RATE-LO"
+  default: "RATE-MID"
+storage_format:
+  with_caddy: "Boxed With Sleeve"
+  without_caddy: "Bare Unit"
+item_specifics:
+  - { name: "Brand", source: spec, key: brand }
+  - { name: "MPN", source: model }
+  - { name: "Model", source: model }
+  - { name: "Product Family", source: spec, key: family }
+  - { name: "Widget Type", source: const, value: "Synthetic Widget" }
+  - { name: "Medium Class", source: const, value: "Class-Z" }
+  - { name: "Packaging", source: storage_format }
+  - { name: "Capacity Spec", source: spec, key: capacity }
+  - { name: "Bus Spec", source: spec, key: interface }
+  - { name: "Body Size", source: spec, key: form_factor }
+  - { name: "Spin Spec", source: spec, key: rpm }
+  - { name: "Buffer Spec", source: spec, key: cache }
+  - { name: "Link Rate", source: transfer_rate }
+  - { name: "Fits With", source: const, value: "Generic Host" }
+  - { name: "Traits", source: const, value: ["Trait-Alpha", "Trait-Beta"] }
+  - { name: "Shade", source: const, value: "Greyish" }
+  - { name: "Origin Mark", source: country }
+  - { name: "Barcode", source: const, value: "Does not apply" }
+  - { name: "Cover Note", source: const, value: "See Item Description" }
+  - { name: "Pack Unit", source: const, value: "Unit" }
+  - { name: "Stature", source: spec, key: height, omit_if_empty: true }

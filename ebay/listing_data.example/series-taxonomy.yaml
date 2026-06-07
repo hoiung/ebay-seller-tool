@@ -1,0 +1,34 @@
+# SYNTHETIC example competitor-recognition taxonomy overlay — NOT real data.
+#
+# Merged onto the public generic config at runtime (ebay.catalogue_loader.
+# load_filter_config) to drive series-aware comp filtering + title rules. Every
+# token is fabricated; the real taxonomy (own product families + the generic
+# competitor series names + the HARD CONTRACT distinct-series set) lives in the
+# private ebay-ops repo. The overlay mirrors the destination config structure so
+# it deep-merges cleanly onto `title:` and `comp_filter:`.
+schema: series-taxonomy-v1
+taxonomy:
+  title:
+    preserved_phrases:
+      - "northwind alpha"
+      - "northwind beta"
+      - "contoso performance"
+    mandatory_by_drive_class:
+      class_a:
+        - Brand
+        - Capacity
+        - MPN
+  comp_filter:
+    series_names:
+      - "northwind alpha"
+      - "northwind beta"
+      - "northwind gamma"
+      - "contoso performance"
+    caddy_mismatch_patterns:
+      - '\b(no\s+sleeve|without\s+sleeve|bare\s+unit)\b'
+    sibling_allowlist: {}
+    hard_reject_patterns:
+      external_or_wrong_form_factor:
+        - '\b(external\s+widget|portable\s+widget)\b'
+      wrong_category:
+        - '\b(widget\s+controller|widget\s+bracket)\b'
