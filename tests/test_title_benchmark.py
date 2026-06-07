@@ -1,4 +1,12 @@
-"""Unit tests for ebay.title_benchmark (Issue #13 Phase 3)."""
+"""Unit tests for ebay.title_benchmark (Issue #13 Phase 3).
+
+Generic-machinery tests (tokenisation + keyword-diff). All product tokens are
+SYNTHETIC (Issue #45): brand ``Fabrikam``, model ``FBKMNX0253`` (hyphenless so
+it tokenises to a single token, exactly as a real bare-alphanumeric MPN would),
+preserved collocation ``Northwind Alpha`` (a synthetic preserved_phrase from the
+private overlay ``series-taxonomy.yaml``). Bare ``enterprise`` is a generic
+high-frequency demo keyword, not a product/series identifier.
+"""
 
 from __future__ import annotations
 
@@ -17,9 +25,9 @@ def setup_function() -> None:
 
 
 def test_tokenise_lowercase_basic() -> None:
-    tokens = tokenise_title("Seagate ST2000NX0253 2TB SAS HDD")
-    assert "seagate" in tokens
-    assert "st2000nx0253" in tokens
+    tokens = tokenise_title("Fabrikam FBKMNX0253 2TB SAS HDD")
+    assert "fabrikam" in tokens
+    assert "fbkmnx0253" in tokens
     assert "2tb" in tokens
     assert "sas" in tokens
     assert "hdd" in tokens
@@ -27,7 +35,7 @@ def test_tokenise_lowercase_basic() -> None:
 
 def test_tokenise_strips_filler_words() -> None:
     """Phase 3.1.1 — filler list strip."""
-    tokens = tokenise_title("Seagate 2TB SAS UK Stock Fast Shipping Excellent Condition")
+    tokens = tokenise_title("Fabrikam 2TB SAS UK Stock Fast Shipping Excellent Condition")
     # filler 'uk stock', 'fast shipping', 'excellent', 'condition' should be gone.
     assert "uk" not in tokens
     assert "stock" not in tokens
@@ -36,17 +44,17 @@ def test_tokenise_strips_filler_words() -> None:
     assert "excellent" not in tokens
     assert "condition" not in tokens
     # core terms survive.
-    assert "seagate" in tokens
+    assert "fabrikam" in tokens
     assert "2tb" in tokens
 
 
 def test_tokenise_preserves_collocations() -> None:
-    """Phase 3.1.1 — preserved_phrases keeps 'enterprise capacity' joined."""
-    tokens = tokenise_title("Seagate Enterprise Capacity 2TB ST2000NX0253")
-    # preserved_phrases joins as 'enterprise_capacity'.
-    assert "enterprise_capacity" in tokens
-    assert "enterprise" not in tokens
-    assert "capacity" not in tokens
+    """Phase 3.1.1 — preserved_phrases keeps 'northwind alpha' joined (synthetic overlay)."""
+    tokens = tokenise_title("Fabrikam Northwind Alpha 2TB FBKMNX0253")
+    # preserved_phrases (synthetic overlay) joins as 'northwind_alpha'.
+    assert "northwind_alpha" in tokens
+    assert "northwind" not in tokens
+    assert "alpha" not in tokens
 
 
 def test_tokenise_ascii_fold() -> None:
@@ -59,8 +67,8 @@ def test_tokenise_ascii_fold() -> None:
 
 def test_tokenise_punctuation_split() -> None:
     """Punctuation acts as splitter."""
-    tokens = tokenise_title("Seagate-2TB,SAS;HDD")
-    assert "seagate" in tokens
+    tokens = tokenise_title("Fabrikam-2TB,SAS;HDD")
+    assert "fabrikam" in tokens
     assert "2tb" in tokens
     assert "sas" in tokens
     assert "hdd" in tokens
@@ -83,11 +91,11 @@ def test_tokenise_passes_explicit_filler_overrides_config() -> None:
 
 def test_keyword_diff_surfaces_missing_high_freq() -> None:
     """Token in 100% of comps but missing from own → top candidate."""
-    own = "Seagate 2TB SAS HDD"
+    own = "Fabrikam 2TB SAS HDD"
     comps = [
-        "Seagate 2TB SAS Enterprise HDD",
-        "Seagate 2TB SAS Enterprise NAS HDD",
-        "Seagate 2TB SAS Enterprise Server HDD",
+        "Fabrikam 2TB SAS Enterprise HDD",
+        "Fabrikam 2TB SAS Enterprise NAS HDD",
+        "Fabrikam 2TB SAS Enterprise Server HDD",
     ]
     result = compute_keyword_diff(own, comps, frequency_threshold_pct=50.0)
     candidate_tokens = [c["token"] for c in result["candidates"]]
@@ -97,26 +105,26 @@ def test_keyword_diff_surfaces_missing_high_freq() -> None:
 
 def test_keyword_diff_drops_tokens_already_in_own() -> None:
     """Tokens already in own title are NOT recommended."""
-    own = "Seagate 2TB SAS Enterprise HDD"
-    comps = ["Seagate 2TB SAS Enterprise HDD"] * 3
+    own = "Fabrikam 2TB SAS Enterprise HDD"
+    comps = ["Fabrikam 2TB SAS Enterprise HDD"] * 3
     result = compute_keyword_diff(own, comps)
     candidate_tokens = [c["token"] for c in result["candidates"]]
-    assert "seagate" not in candidate_tokens
+    assert "fabrikam" not in candidate_tokens
     assert "enterprise" not in candidate_tokens
 
 
 def test_keyword_diff_drops_mandatory_keywords() -> None:
     """Phase 3.1.2 — mandatory_keywords excluded even at high freq."""
     own = "Cheap Drive Stuff"
-    comps = ["Seagate 2TB SAS Enterprise HDD"] * 5
+    comps = ["Fabrikam 2TB SAS Enterprise HDD"] * 5
     result = compute_keyword_diff(
         own,
         comps,
-        mandatory_keywords=["seagate"],  # mandatory anchor
+        mandatory_keywords=["fabrikam"],  # mandatory anchor
         frequency_threshold_pct=50.0,
     )
     candidate_tokens = [c["token"] for c in result["candidates"]]
-    assert "seagate" not in candidate_tokens
+    assert "fabrikam" not in candidate_tokens
     # other 100%-freq tokens still surface.
     assert "enterprise" in candidate_tokens or "sas" in candidate_tokens
 
@@ -125,16 +133,16 @@ def test_keyword_diff_threshold_filters() -> None:
     """Tokens below threshold are dropped."""
     own = "x"
     comps = [
-        "Seagate alpha",
-        "Seagate beta",
-        "Seagate gamma",
-        "Seagate delta",
-        "Seagate epsilon",
+        "Fabrikam alpha",
+        "Fabrikam beta",
+        "Fabrikam gamma",
+        "Fabrikam delta",
+        "Fabrikam epsilon",
     ]
     result = compute_keyword_diff(own, comps, frequency_threshold_pct=80.0)
     candidate_tokens = [c["token"] for c in result["candidates"]]
-    # 'seagate' = 100%, kept. alpha/beta/etc. = 20% each, dropped.
-    assert "seagate" in candidate_tokens
+    # 'fabrikam' = 100%, kept. alpha/beta/etc. = 20% each, dropped.
+    assert "fabrikam" in candidate_tokens
     assert "alpha" not in candidate_tokens
     assert "beta" not in candidate_tokens
 
@@ -155,7 +163,7 @@ def test_keyword_diff_ranks_by_score() -> None:
 
 
 def test_keyword_diff_empty_comps_returns_empty_candidates() -> None:
-    result = compute_keyword_diff("Seagate 2TB", [])
+    result = compute_keyword_diff("Fabrikam 2TB", [])
     assert result["candidates"] == []
     assert result["comps_analysed"] == 0
 
@@ -176,23 +184,23 @@ def test_keyword_diff_worked_example() -> None:
     Own listing missing 'enterprise' which appears in 4 of 5 comp titles (80%).
     Expected: enterprise surfaces as top candidate, mandatory anchors excluded.
     """
-    own = "Seagate ST2000NX0253 2TB SAS HDD 2.5"
+    own = "Fabrikam FBKMNX0253 2TB SAS HDD 2.5"
     comps = [
-        "Seagate ST2000NX0253 2TB SAS Enterprise 2.5 HDD",
-        "Seagate ST2000NX0253 2TB SAS Enterprise 2.5 HDD",
-        "Seagate ST2000NX0253 2TB SAS Enterprise 2.5 HDD",
-        "Seagate ST2000NX0253 2TB SAS Enterprise NAS 2.5 HDD",
-        "Seagate ST2000NX0253 2TB SAS 2.5 HDD",  # no 'enterprise' here
+        "Fabrikam FBKMNX0253 2TB SAS Enterprise 2.5 HDD",
+        "Fabrikam FBKMNX0253 2TB SAS Enterprise 2.5 HDD",
+        "Fabrikam FBKMNX0253 2TB SAS Enterprise 2.5 HDD",
+        "Fabrikam FBKMNX0253 2TB SAS Enterprise NAS 2.5 HDD",
+        "Fabrikam FBKMNX0253 2TB SAS 2.5 HDD",  # no 'enterprise' here
     ]
     result = compute_keyword_diff(
         own,
         comps,
-        mandatory_keywords=["Seagate", "ST2000NX0253", "2TB", "SAS", "HDD"],
+        mandatory_keywords=["Fabrikam", "FBKMNX0253", "2TB", "SAS", "HDD"],
         frequency_threshold_pct=50.0,
     )
     candidate_tokens = [c["token"] for c in result["candidates"]]
     assert "enterprise" in candidate_tokens
     # mandatory anchors excluded.
-    assert "seagate" not in candidate_tokens
-    assert "st2000nx0253" not in candidate_tokens
+    assert "fabrikam" not in candidate_tokens
+    assert "fbkmnx0253" not in candidate_tokens
     assert "2tb" not in candidate_tokens
