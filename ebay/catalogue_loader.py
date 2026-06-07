@@ -188,13 +188,21 @@ def load_listing_data() -> dict[str, Any]:
 
 @lru_cache(maxsize=1)
 def _load_public_config() -> dict[str, Any]:
-    """Load the public generic config (category-agnostic knobs only)."""
-    if not _PUBLIC_CONFIG_PATH.exists():
+    """Load the public generic config (category-agnostic knobs only).
+
+    Honours the ``EBAY_FILTER_CONFIG`` override so tests can swap the PUBLIC
+    base deterministically — exactly as ``browse._load_filter_config`` did
+    before the overlay merge. The private taxonomy overlay is read separately
+    from ``EBAY_LISTING_DATA_DIR`` (see :func:`_load_taxonomy_overlay`); a test
+    that needs custom series/taxonomy swaps the overlay, NOT this base.
+    """
+    path = Path(os.environ.get("EBAY_FILTER_CONFIG") or _PUBLIC_CONFIG_PATH)
+    if not path.exists():
         raise ListingDataError(
-            f"public config not found at {_PUBLIC_CONFIG_PATH}; the generic "
+            f"public config not found at {path}; the generic "
             "filler_words / quality / condition-equivalence knobs live here."
         )
-    with _PUBLIC_CONFIG_PATH.open() as fh:
+    with path.open() as fh:
         return yaml.safe_load(fh) or {}
 
 
