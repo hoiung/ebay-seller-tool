@@ -134,9 +134,9 @@ Fee config (`config/fees.yaml`) is loaded at server startup with required-sectio
 - `under_pricing` — Issue #13 Phase 4 detector knobs
 - `outlier_rejection` (Issue #14 Phase 4) — IQR fence config (enabled, method, multiplier, log_transform, min_pool_size, max_drop_frac, per_condition)
 
-Filter config (`config/pricing_and_content.yaml`) holds title + content + comp-filter knobs. Loaded by `ebay/browse.py::_load_filter_config` (`lru_cache(1)`). Tests override via `EBAY_FILTER_CONFIG` env var; call `ebay.browse.reset_filter_cache()` to drop the cache. Top-level keys:
-- `title.filler_words` / `preserved_phrases` / `mandatory_by_drive_class` — title generator + keyword-diff inputs
-- `comp_filter` (Issue #14) — three-layer apple-to-apples filter: `quality_thresholds` (Layer-1 binary + Layer-2 soft trigger), `quality_deductions` (Layer-2 amounts), `hard_reject_patterns` (4 Layer-1 regex categories), `caddy_mismatch_patterns`, `condition_equivalence` (numeric Phase 2.3 classes), `series_names` (Seagate HARD CONTRACT et al)
+Filter config (`config/pricing_and_content.yaml`) holds the **generic, product-neutral** title + content + comp-filter knobs. Loaded by `ebay/browse.py::_load_filter_config`, which delegates to `ebay.catalogue_loader.load_filter_config()` — the public base ⊕ a **private product/category taxonomy overlay** (loaded from `EBAY_LISTING_DATA_DIR`) deep-merged at runtime. Tests override the public base via `EBAY_FILTER_CONFIG`; call `ebay.browse.reset_filter_cache()` (the shared loader reset seam) to drop the cache. Top-level **public** keys:
+- `title.filler_words` — generic filler-phrase strip for title generation + keyword-diff (the product/series title taxonomy — preserved collocations + per-class mandatory keywords — loads from the private overlay)
+- `comp_filter` (Issue #14) — apple-to-apples filter: `quality_thresholds` (Layer-1 binary + Layer-2 soft trigger), `quality_deductions` (Layer-2 amounts), `hard_reject_patterns` (the two generic categories `broken_or_parts` + `bundle`; the storage-specific reject subsets + the series/accessory mismatch patterns load from the private overlay), `condition_equivalence` (numeric Phase 2.3 classes), `concentration`
   - **Issue #444 Part B**: `condition_equivalence` is now also read by the FETCH orchestrator (`_sync_find_competitor_prices`) to widen USED + OPENED sweeps to their equivalence classes (one Browse API call per cond_id, merge + dedupe by `item_id`). Score-side equivalence in `score_apple_to_apple` Dim 3 remains as defence-in-depth.
 
 ### Usage
@@ -153,7 +153,7 @@ upload_photos(
 ```python
 # Dry-run first — uses VerifyAddFixedPriceItem, no live listing created
 create_listing(
-    folder_path="/path/to/Hard Disks/2_5_inch/ST2000NX0253",
+    folder_path="/path/to/listing-files/FBKM-ALPHA-01",
     price=49.99,
     quantity=1,
     condition="Used",          # {New, Opened, Used, Used - Excellent}
@@ -163,7 +163,7 @@ create_listing(
 
 # Apply — real AddFixedPriceItem. UUID-idempotent: same folder = same UUID.
 create_listing(
-    folder_path="/path/to/Hard Disks/2_5_inch/ST2000NX0253",
+    folder_path="/path/to/listing-files/FBKM-ALPHA-01",
     price=49.99,
     quantity=1,
     condition="Used",
