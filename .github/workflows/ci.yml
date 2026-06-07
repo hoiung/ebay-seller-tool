@@ -76,6 +76,12 @@ jobs:
       - name: Secret detection (blocking)
         run: uv run python scripts/check-public-repo-secrets.py .
 
+      - name: Product-data oracle (blocking — ebay-seller-tool#45)
+        # The PUBLIC repo must ship zero product/category specifics. This SHAPE
+        # sweep fails the build if a real OEM/category identifier re-enters the
+        # tree. Complements the literal-identifier .secret-blocklist (hashed).
+        run: bash scripts/audit-no-product-data.sh
+
       - name: Commit-message secret scan — push events (blocking)
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
         env:
