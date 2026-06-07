@@ -53,10 +53,10 @@ classifier doesn't need a JSONL backfill):
 
     v2-deferred (write-only in v1; populated when available):
       mpn                              # part number for v2 cluster classifier
-      drive_type                       # "HDD" / "SSD" / "NIC" / etc.
-      product_line                     # "Series-Alpha" / "Series-Beta" / ...
+      drive_type                       # generic product-category label (set by the private overlay)
+      product_line                     # generic product-family label (set by the private overlay)
       condition_id                     # eBay condition ID (1000/1500/3000/...)
-      cond_name                        # short name ("New" / "Used" / ...)
+      cond_name                        # short condition name (e.g. New, Used)
       watchers                         # eBay watcher count (sparse in v1)
       sold_lifetime                    # cumulative sold across all-time
       rank_health_status               # qualitative health flag for cluster cls
