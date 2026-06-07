@@ -135,6 +135,7 @@ def test_create_listing_dry_run_calls_verify_not_add(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                     )
                 )
@@ -183,6 +184,7 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                     )
                 )
@@ -231,6 +233,7 @@ def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_pa
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                     )
                 )
@@ -283,6 +286,7 @@ def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> No
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                         best_offer_enabled=False,
                     )
@@ -326,6 +330,7 @@ def test_create_listing_uuid_replay_returns_existing_itemid(tmp_path: Path) -> N
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                     )
                 )
@@ -347,6 +352,7 @@ def test_create_listing_missing_photos_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
+            country_of_origin="China",
             dry_run=True,
             picture_urls=None,
         )
@@ -366,6 +372,7 @@ def test_create_listing_unknown_mpn_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
+            country_of_origin="China",
             dry_run=True,
         )
     )
@@ -386,6 +393,7 @@ def test_create_listing_invalid_condition_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Refurbished",  # not in CONDITION_MAP
             has_caddy=False,
+            country_of_origin="China",
             dry_run=True,
         )
     )
@@ -405,6 +413,7 @@ def test_create_listing_title_over_80_chars_fails_loudly(tmp_path: Path) -> None
             quantity=1,
             condition="Used",
             has_caddy=False,
+            country_of_origin="China",
             dry_run=True,
         )
     )
@@ -423,6 +432,7 @@ def test_create_listing_price_zero_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
+            country_of_origin="China",
             dry_run=True,
         )
     )
@@ -462,6 +472,7 @@ def test_create_listing_partial_upload_failure_preserves_uploaded_urls(
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                     )
                 )
@@ -508,6 +519,7 @@ def test_create_listing_return_shape_matches_update_listing_schema(
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                     )
                 )
@@ -530,6 +542,7 @@ def test_create_listing_rejects_non_directory(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
+            country_of_origin="China",
             dry_run=True,
         )
     )
@@ -562,6 +575,7 @@ def test_create_listing_uuid_cache_stable_across_calls(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                     )
                 )
@@ -572,6 +586,7 @@ def test_create_listing_uuid_cache_stable_across_calls(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                     )
                 )
@@ -606,6 +621,7 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                         description_html=html_a,
                     )
@@ -617,6 +633,7 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                         description_html=html_b,
                     )
@@ -656,6 +673,7 @@ def test_create_listing_transfer_rate_12g_from_title(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                     )
                 )
@@ -696,6 +714,7 @@ def test_create_listing_transfer_rate_3g_from_title(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=True,
                     )
                 )
@@ -738,6 +757,7 @@ def test_build_21_field_specifics_raises_on_missing_required() -> None:
             "MDL-A03",
             'Fabrikam 2TB 7200RPM 2.5" SATA III HDD',
             has_caddy=False,
+            country_of_origin="China",
             specs=broken,
         )
 
@@ -842,6 +862,7 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
+                        country_of_origin="China",
                         dry_run=False,
                     )
                 )
@@ -875,3 +896,85 @@ def test_update_listing_accepts_2750_used_excellent(tmp_path: Path) -> None:
     result = json.loads(raw)
     # We expect either a "not found" or a diff — NOT an "invalid condition_id" error
     assert "invalid condition_id" not in str(result)
+
+
+# ---- #44 Country of Origin: per-listing, label-authoritative, fail-loud ----
+
+
+def test_create_listing_country_of_origin_from_param(tmp_path: Path) -> None:
+    """The passed country_of_origin reaches the Country of Origin item-specific
+    (per-listing / label-authoritative), NOT a hardcoded 'China' (#44 AC1.2)."""
+    folder = _mk_product_folder(
+        tmp_path,
+        oem_model="MDL-A02",
+        title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SAS 12Gb/s HDD MDL-A02',
+    )
+    server._create_listing_uuid_cache.clear()
+    captured: dict = {}
+
+    def fake_exec(verb: str, *args, **kwargs):
+        data = args[0] if args else {}
+        if verb == "UploadSiteHostedPictures":
+            r = MagicMock()
+            r.reply.SiteHostedPictureDetails.FullURL = "https://i.ebayimg.com/p/$_57.JPG"
+            return r
+        if verb == "VerifyAddFixedPriceItem":
+            captured["payload"] = data
+            return _fake_verify_response()
+        raise AssertionError(verb)
+
+    with patch("server.execute_with_retry", side_effect=fake_exec):
+        with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
+            with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
+                _run(
+                    server.create_listing(
+                        folder_path=str(folder),
+                        price=49.99,
+                        quantity=1,
+                        condition="Used",
+                        has_caddy=False,
+                        country_of_origin="Thailand",
+                        dry_run=True,
+                    )
+                )
+
+    nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
+    coo = next(r for r in nvl if r["Name"] == "Country of Origin")
+    assert coo["Value"] == ["Thailand"]
+
+
+def test_create_listing_rejects_missing_country(tmp_path: Path) -> None:
+    """Anti-silent-default: create_listing fails loud when country_of_origin is
+    absent — the manufacture country is never defaulted (no hidden 'China') (#44 AC1.3)."""
+    folder = _mk_product_folder(
+        tmp_path,
+        oem_model="MDL-A02",
+        title='Fabrikam 2TB 7200RPM 2.5" SAS HDD MDL-A02',
+    )
+    server._create_listing_uuid_cache.clear()
+    raw = _run(
+        server.create_listing(
+            folder_path=str(folder),
+            price=49.99,
+            quantity=1,
+            condition="Used",
+            has_caddy=False,
+            dry_run=True,
+        )
+    )
+    body = json.loads(raw)
+    assert "country_of_origin required" in body.get("error", ""), body
+
+
+def test_build_21_field_specifics_raises_on_empty_country() -> None:
+    """Builder fails loud on empty/whitespace country (mirrors the required-spec
+    guard) — no silent default at the builder layer either (#44 AC1.3)."""
+    specs = dict(server.HDD_SPECS["MDL-A02"])
+    with pytest.raises(ValueError, match=r"country_of_origin is required"):
+        server._build_21_field_specifics(
+            "MDL-A02",
+            'Fabrikam 2TB 7200RPM 2.5" SAS HDD MDL-A02',
+            has_caddy=False,
+            specs=specs,
+            country_of_origin="   ",
+        )

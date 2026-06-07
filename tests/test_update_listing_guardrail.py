@@ -617,3 +617,28 @@ def test_update_listing_revise_payload_attaches_no_seller_profiles() -> None:
     assert "PaymentMethods" not in item
     # Only the price-change is present.
     assert item["StartPrice"] == "35.0"
+
+
+def test_update_listing_item_specifics_only_is_not_a_silent_noop() -> None:
+    """#44 Phase 2 — an item-specifics-only update must produce a real diff.
+
+    snapshot_listing previously omitted item_specifics, so compute_diff's
+    `"item_specifics" in before` guard was never true → an item-specifics-only
+    update_listing returned no_change and never sent ReviseFixedPriceItem (a
+    silent no-op). snapshot_listing now carries item_specifics, so the change
+    is detected. Regression guard: this asserts NOT no_change.
+    """
+    from server import update_listing
+
+    with patch("server.execute_with_retry", side_effect=[_fake_get_item("35.00")]):
+        result = _run(
+            update_listing(
+                item_id="999",
+                item_specifics={"Country of Origin": "Thailand"},
+                dry_run=True,
+            )
+        )
+
+    body = json.loads(result)
+    assert body.get("no_change") is not True, f"item-specifics-only update silently no-op'd: {body}"
+    assert "item_specifics" in body.get("diff", {}), body
