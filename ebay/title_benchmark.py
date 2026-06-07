@@ -51,11 +51,21 @@ def _load_pricing_and_content_config() -> dict[str, Any]:
     return _cached_config
 
 
-def _reset_cache_for_tests() -> None:
-    """Test hook to force re-load — clears the process-local cache AND the shared
-    loader caches (so a synthetic-overlay swap is seen on the next load)."""
+def _clear_local_cache() -> None:
+    """Reset hook (AC 2.2): drop this module's sorted-config cache so the shared
+    loader seam (:func:`ebay.catalogue_loader.reset_caches`) invalidates it."""
     global _cached_config
     _cached_config = None
+
+
+catalogue_loader.register_reset_hook(_clear_local_cache)
+
+
+def _reset_cache_for_tests() -> None:
+    """Test hook to force re-load — delegates to the shared loader reset seam
+    (:func:`ebay.catalogue_loader.reset_caches`), which clears the loader caches,
+    this module's sorted-config cache (registered above), AND ``ebay.browse``'s
+    compiled-pattern caches, so one call is seen across both consumers."""
     catalogue_loader.reset_caches()
 
 
