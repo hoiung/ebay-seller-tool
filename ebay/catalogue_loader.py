@@ -84,7 +84,7 @@ class ListingDataError(Exception):
 
 
 def _data_dir() -> Path:
-    raw = os.environ.get(_ENV_DIR)
+    raw = os.environ.get("EBAY_LISTING_DATA_DIR")  # _ENV_DIR — EBAY_* convention
     if not raw:
         raise ListingDataError(
             f"{_ENV_DIR} is not set. The public repo ships no product data; "
@@ -213,7 +213,7 @@ def _load_taxonomy_overlay() -> dict[str, Any]:
         must never degrade comp-filter to silently-permissive (a comp in one
         series wrongly matched against an own-listing in a different series).
     """
-    raw = os.environ.get(_ENV_DIR)
+    raw = os.environ.get("EBAY_LISTING_DATA_DIR")  # _ENV_DIR — EBAY_* convention
     if not raw:
         return {}
     data = _load_yaml_mapping(Path(raw) / TAXONOMY_FILENAME, TAXONOMY_SCHEMA)
