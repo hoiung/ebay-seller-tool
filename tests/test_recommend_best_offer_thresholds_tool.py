@@ -63,7 +63,7 @@ def _fake_item(price: str = "50.00") -> SimpleNamespace:
                 ReturnPolicy=None,
                 PictureDetails=None,
                 ItemSpecifics=SimpleNamespace(
-                    NameValueList=[SimpleNamespace(Name="Brand", Value="Seagate")]
+                    NameValueList=[SimpleNamespace(Name="Brand", Value="Fabrikam")]
                 ),
             )
         )
