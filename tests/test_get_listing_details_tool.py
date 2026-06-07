@@ -30,7 +30,7 @@ def _fake_item(item_id: str = "123") -> SimpleNamespace:
     """Minimal Item stub that listing_to_dict can serialise without attribute errors."""
     return SimpleNamespace(
         ItemID=item_id,
-        Title="Seagate 2TB Test Listing",
+        Title="Fabrikam 2TB Test Listing",
         SellingStatus=SimpleNamespace(
             CurrentPrice=SimpleNamespace(value="35.00", _currencyID="GBP"),
             QuantitySold="0",
