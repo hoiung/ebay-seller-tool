@@ -94,14 +94,6 @@ def test_condition_description_omitted_when_before_lacks_field() -> None:
 
 
 def test_item_specifics_unchanged_not_in_diff() -> None:
-    # NOTE: this `before` is hand-shaped with SCALAR values. The real snapshot
-    # path (snapshot_listing → listing_to_dict) produces LIST-wrapped values
-    # (e.g. {"Brand": ["Fabrikam"]}), so against a real snapshot an identical
-    # scalar-valued re-send still reports "changed" (a benign over-fire — the
-    # wire payload is built from `merged_specifics`, independent of this diff;
-    # the diff only gates whether to revise + a redundant revise is idempotent).
-    # The silent no-op #44 fixed (item_specifics absent from `before`) is the
-    # failure that mattered; this guard covers the scalar-equality case only.
     before = dict(_BEFORE)
     before["item_specifics"] = {"Brand": "Fabrikam", "Capacity": "2TB"}
     diff = compute_diff(
@@ -112,6 +104,38 @@ def test_item_specifics_unchanged_not_in_diff() -> None:
         item_specifics={"Brand": "Fabrikam", "Capacity": "2TB"},
     )
     assert "item_specifics" not in diff
+
+
+def test_item_specifics_identical_resend_list_snapshot_not_in_diff() -> None:
+    """#44 follow-up — the REAL snapshot path list-wraps values; a scalar re-send
+    of the SAME values must report no change (no spurious idempotent revise).
+    compute_diff normalises both sides + compares the merged result vs current."""
+    before = dict(_BEFORE)
+    before["item_specifics"] = {"Country of Origin": ["Thailand"], "Brand": ["Fabrikam"]}
+    # caller passes a scalar partial that matches live exactly
+    diff = compute_diff(
+        before,
+        title=None,
+        description_html=None,
+        price=None,
+        item_specifics={"Country of Origin": "Thailand"},
+    )
+    assert "item_specifics" not in diff
+
+
+def test_item_specifics_real_change_against_list_snapshot_in_diff() -> None:
+    """Counterpart — a genuine value change against the list-valued snapshot IS
+    detected (proves the normalisation didn't mask real changes)."""
+    before = dict(_BEFORE)
+    before["item_specifics"] = {"Country of Origin": ["China"], "Brand": ["Fabrikam"]}
+    diff = compute_diff(
+        before,
+        title=None,
+        description_html=None,
+        price=None,
+        item_specifics={"Country of Origin": "Thailand"},
+    )
+    assert "item_specifics" in diff
 
 
 def test_item_specifics_changed_in_diff() -> None:
