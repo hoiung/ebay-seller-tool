@@ -75,7 +75,7 @@ def tokenise_title(
 
     Steps:
       1. Lowercase + ASCII-fold (diacritics → base).
-      2. Replace preserved phrases ("enterprise capacity") with single
+      2. Replace preserved phrases ("northwind alpha") with single
          underscore-joined tokens before splitting.
       3. Strip filler phrases (word-bounded regex match).
       4. Split on non-alphanumeric (alphanumeric + underscore retained).
