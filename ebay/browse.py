@@ -49,14 +49,9 @@ import statistics
 from functools import lru_cache
 from typing import Any
 
-import yaml
-
+from ebay import catalogue_loader
 from ebay.oauth import get_browse_session, raise_for_ebay_error
 from ebay.stats import percentile
-
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DEFAULT_FILTER_CONFIG = os.path.join(_REPO_ROOT, "config", "pricing_and_content.yaml")
-
 
 # Issue #14 Phase 2.4 + Issue #444 Part B — Browse search uses single conditionId per call,
 # orchestrator loops over the equivalence class.
@@ -100,24 +95,30 @@ def _condition_id_for(condition: str) -> str:
     return _BROWSE_CONDITION_FILTERS[key]
 
 
-@lru_cache(maxsize=1)
 def _load_filter_config() -> dict[str, Any]:
-    """Load and cache pricing_and_content.yaml. Override via EBAY_FILTER_CONFIG env (tests)."""
-    path = os.environ.get("EBAY_FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"comp_filter config missing: {path} — expected at config/pricing_and_content.yaml"
-        )
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    if "comp_filter" not in data:
-        raise ValueError(f"{path}: missing 'comp_filter' top-level section (Issue #14)")
-    return data
+    """Public generic config + private taxonomy overlay, merged at runtime.
+
+    Delegates to the single private-data access layer
+    (:func:`ebay.catalogue_loader.load_filter_config`), which honours the
+    ``EBAY_FILTER_CONFIG`` override for the PUBLIC base and deep-merges the
+    private taxonomy overlay (series_names, caddy/storage patterns,
+    sibling_allowlist) from ``EBAY_LISTING_DATA_DIR``. Caching lives in the
+    loader; this wrapper keeps the ``comp_filter`` presence guard.
+    """
+    cfg = catalogue_loader.load_filter_config()
+    if "comp_filter" not in cfg:
+        raise ValueError("filter config missing 'comp_filter' top-level section (Issue #14)")
+    return cfg
 
 
 def reset_filter_cache() -> None:
-    """Clear cached filter config — tests that swap EBAY_FILTER_CONFIG call this."""
-    _load_filter_config.cache_clear()
+    """Clear cached filter config — tests that swap the config/overlay call this.
+
+    Routes through the shared loader reset seam (so a synthetic-overlay swap is
+    invalidated for browse AND title_benchmark in one call), then clears the
+    process-local compiled-pattern caches.
+    """
+    catalogue_loader.reset_caches()
     _compiled_hard_reject_patterns.cache_clear()
     _compiled_caddy_patterns.cache_clear()
 
