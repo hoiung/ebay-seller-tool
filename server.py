@@ -231,6 +231,7 @@ def _build_21_field_specifics(
     title: str,
     has_caddy: bool,
     specs: dict[str, str | None],
+    country_of_origin: str,
 ) -> dict[str, str | list[str]]:
     """Canonical 21-field ItemSpecifics per research §1.3.
 
@@ -241,12 +242,24 @@ def _build_21_field_specifics(
     `Transfer Rate` is title-authoritative per P3.5; the HDD_SPECS
     `transfer_rate` field exists as a catalogue reference and is NOT read
     here — title is the ground truth for 12G vs 6G vs 3G.
+
+    `Country of Origin` is label-authoritative — same doctrine as Transfer
+    Rate. Manufacture country varies per physical drive / production run for
+    the same MPN, so it is NEVER an MPN-keyed catalogue constant: it is
+    supplied per listing (read off this drive's label) via `country_of_origin`
+    and fails loud when absent — never silently defaulted to a single country.
     """
     missing = [k for k in _REQUIRED_SPEC_FIELDS if not specs.get(k)]
     if missing:
         raise ValueError(
             f"HDD_SPECS[{oem_model!r}] has empty/None required field(s): {missing}. "
             "Fix ebay/hdd_specs.py before creating listing."
+        )
+    if not country_of_origin or not country_of_origin.strip():
+        raise ValueError(
+            "country_of_origin is required and must be non-empty — read it from the "
+            "physical drive label (e.g. 'Thailand', 'Philippines', 'China'). "
+            "The manufacture country is never defaulted."
         )
     storage_format = "HDD with Caddy" if has_caddy else "HDD Only"
     specifics: dict[str, str | list[str]] = {
@@ -266,7 +279,7 @@ def _build_21_field_specifics(
         "Compatible With": "PC",
         "Features": ["Hot Swap", "24/7 Operation"],
         "Colour": "Silver",
-        "Country of Origin": "China",
+        "Country of Origin": country_of_origin.strip(),
         "EAN": "Does not apply",
         "Manufacturer Warranty": "See Item Description",
         "Unit Type": "Unit",
@@ -1110,6 +1123,7 @@ async def create_listing(
     dry_run: bool = True,
     picture_urls: list[str] | None = None,
     best_offer_enabled: bool = True,
+    country_of_origin: str | None = None,
 ) -> str:
     """Create an eBay UK fixed-price listing end-to-end from a product folder.
 
@@ -1142,6 +1156,11 @@ async def create_listing(
             thresholds derive from config/fees.yaml qty_tiers anchored on the
             break-even floor; sub-£2 listings enable the toggle without
             thresholds. Pass False only with explicit operator direction.
+        country_of_origin: Manufacture country read from THIS drive's physical
+            label (e.g. "Thailand", "Philippines", "China"). Required — the
+            tool fails loud if missing/empty. Never defaulted: manufacture
+            country varies per drive / production run for the same MPN, so it
+            must come from the label, not the catalogue.
 
     Returns:
         JSON — see module docstring for full return shape contract.
@@ -1162,6 +1181,13 @@ async def create_listing(
         return json.dumps({"error": "has_caddy must be bool"})
     if photo_paths is not None and not photo_paths:
         return json.dumps({"error": "photo_paths provided but empty"})
+    if not country_of_origin or not country_of_origin.strip():
+        return json.dumps(
+            {
+                "error": "country_of_origin required — read it from the drive label "
+                "(e.g. 'Thailand'); the manufacture country is never defaulted."
+            }
+        )
 
     condition_id = CONDITION_MAP[condition]
     oem_model = _extract_oem_model(folder_path)
@@ -1275,7 +1301,9 @@ async def create_listing(
         picture_urls = uploaded_urls
 
     # --- P3.5 21-field ItemSpecifics ---
-    item_specifics = _build_21_field_specifics(oem_model, title, has_caddy, specs)
+    item_specifics = _build_21_field_specifics(
+        oem_model, title, has_caddy, specs, country_of_origin
+    )
 
     # --- Best Offer (operator policy: ON for every new listing) ---
     # create_listing has no UI to opt out per-call except best_offer_enabled=False.
