@@ -14,7 +14,7 @@ import hashlib
 from ebay.listings import compute_diff
 
 _BEFORE = {
-    "title": "Seagate Exos 2TB",
+    "title": "Fabrikam Northwind Beta 2TB",
     "price": "35.00",
     "condition_id": "3000",
 }
@@ -28,13 +28,13 @@ def _desc_before(html: str) -> dict:
 
 
 def test_no_change_yields_empty_diff() -> None:
-    diff = compute_diff(dict(_BEFORE), title="Seagate Exos 2TB", description_html=None, price=35.0)
+    diff = compute_diff(dict(_BEFORE), title=_BEFORE["title"], description_html=None, price=35.0)
     assert diff == {}
 
 
 def test_title_change_detected() -> None:
     diff = compute_diff(dict(_BEFORE), title="New Title", description_html=None, price=None)
-    assert diff["title"] == {"before": "Seagate Exos 2TB", "after": "New Title"}
+    assert diff["title"] == {"before": "Fabrikam Northwind Beta 2TB", "after": "New Title"}
 
 
 def test_price_change_detected() -> None:
@@ -95,13 +95,13 @@ def test_condition_description_omitted_when_before_lacks_field() -> None:
 
 def test_item_specifics_unchanged_not_in_diff() -> None:
     before = dict(_BEFORE)
-    before["item_specifics"] = {"Brand": "Seagate", "Capacity": "2TB"}
+    before["item_specifics"] = {"Brand": "Fabrikam", "Capacity": "2TB"}
     diff = compute_diff(
         before,
         title=None,
         description_html=None,
         price=None,
-        item_specifics={"Brand": "Seagate", "Capacity": "2TB"},
+        item_specifics={"Brand": "Fabrikam", "Capacity": "2TB"},
     )
     assert "item_specifics" not in diff
 
@@ -111,7 +111,7 @@ def test_item_specifics_identical_resend_list_snapshot_not_in_diff() -> None:
     of the SAME values must report no change (no spurious idempotent revise).
     compute_diff normalises both sides + compares the merged result vs current."""
     before = dict(_BEFORE)
-    before["item_specifics"] = {"Country of Origin": ["Thailand"], "Brand": ["Seagate"]}
+    before["item_specifics"] = {"Country of Origin": ["Thailand"], "Brand": ["Fabrikam"]}
     # caller passes a scalar partial that matches live exactly
     diff = compute_diff(
         before,
@@ -127,7 +127,7 @@ def test_item_specifics_real_change_against_list_snapshot_in_diff() -> None:
     """Counterpart — a genuine value change against the list-valued snapshot IS
     detected (proves the normalisation didn't mask real changes)."""
     before = dict(_BEFORE)
-    before["item_specifics"] = {"Country of Origin": ["China"], "Brand": ["Seagate"]}
+    before["item_specifics"] = {"Country of Origin": ["China"], "Brand": ["Fabrikam"]}
     diff = compute_diff(
         before,
         title=None,
@@ -140,13 +140,13 @@ def test_item_specifics_real_change_against_list_snapshot_in_diff() -> None:
 
 def test_item_specifics_changed_in_diff() -> None:
     before = dict(_BEFORE)
-    before["item_specifics"] = {"Brand": "Seagate"}
+    before["item_specifics"] = {"Brand": "Fabrikam"}
     diff = compute_diff(
         before,
         title=None,
         description_html=None,
         price=None,
-        item_specifics={"Brand": "Seagate", "Capacity": "2TB"},
+        item_specifics={"Brand": "Fabrikam", "Capacity": "2TB"},
     )
     assert diff["item_specifics"] == {"before_count": 1, "after_count": 2}
 
@@ -157,7 +157,7 @@ def test_item_specifics_omitted_when_before_lacks_field() -> None:
         title=None,
         description_html=None,
         price=None,
-        item_specifics={"Brand": "Seagate"},
+        item_specifics={"Brand": "Fabrikam"},
     )
     assert "item_specifics" not in diff
 
