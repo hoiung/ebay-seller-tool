@@ -35,43 +35,44 @@ from ebay.listings import build_add_payload  # noqa: E402
 
 
 def _sample_specifics() -> dict[str, str | list[str]]:
-    """Canonical 21-field item-specifics block (research §1.3)."""
+    """Synthetic 20-key item-specifics block — proves the payload shape with NO
+    product data (the public repo ships none)."""
     return {
         "Brand": "Fabrikam",
-        "MPN": "MDL-A03",
-        "Model": "MDL-A03",
-        "Product Line": "Series-Alpha",
-        "Type": "Internal Hard Drive",
-        "Drive Type(s) Supported": "HDD",
-        "Storage Format": "HDD Only",
-        "Storage Capacity": "2TB",
-        "Interface": "SATA III",
-        "Form Factor": "2.5 in",
-        "Height": "15mm",
-        "Rotation Speed": "7200 RPM",
-        "Cache": "128 MB",
-        "Transfer Rate": "6G",
-        "Compatible With": "PC",
-        "Features": ["Hot Swap", "24/7 Operation"],
-        "Colour": "Silver",
-        "Country of Origin": "China",
-        "EAN": "Does not apply",
-        "Manufacturer Warranty": "See Item Description",
-        "Unit Type": "Unit",
+        "MPN": "FBKM-ALPHA-01",
+        "Model": "FBKM-ALPHA-01",
+        "Product Family": "Northwind Alpha",
+        "Widget Type": "Synthetic Widget",
+        "Medium Class": "Class-Z",
+        "Packaging": "Bare Unit",
+        "Capacity Spec": "2TB",
+        "Bus Spec": "Synthetic-Bus III",
+        "Body Size": "2.5 in",
+        "Spin Spec": "7200 RPM",
+        "Buffer Spec": "128 MB",
+        "Link Rate": "RATE-MID",
+        "Fits With": "Generic Host",
+        "Traits": ["Trait-Alpha", "Trait-Beta"],
+        "Shade": "Greyish",
+        "Origin Mark": "Atlantis",
+        "Barcode": "Does not apply",
+        "Cover Note": "See Item Description",
+        "Pack Unit": "Unit",
     }
 
 
 async def main() -> int:
     payload = build_add_payload(
-        title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+        title="Fabrikam Northwind Alpha 2TB 7200RPM 15mm Widget FBKM-ALPHA-01",
         description_html=(
             "<html><body><h1>Sample listing — issue #29 verification</h1></body></html>"
         ),
         price=49.99,
         quantity=1,
         condition_id=3000,
-        condition_description="SMART attributes within spec; no reallocated sectors.",
+        condition_description="Diagnostics within spec; no faults.",
         item_specifics=_sample_specifics(),
+        category_id="CONTRACT-CAT-0001",
         picture_urls=[
             "https://i.ebayimg.com/images/g/sample1/$_57.JPG",
             "https://i.ebayimg.com/images/g/sample2/$_57.JPG",
