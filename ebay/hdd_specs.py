@@ -209,4 +209,74 @@ HDD_SPECS: dict[str, dict[str, str | None]] = {
         "form_factor": "2.5 in",
         "height": "15mm",
     },
+    # --- 2026-06-07 NEW/sealed batch (HPE-rebadged enterprise pulls) ---
+    # Source: Seagate Constellation ES.3 datasheet DS1769.1-1210US (ST1000NM0033 =
+    # 1TB SATA 6Gb/s 7.2K, 128MB, 3.5", 512n). HPE option 657750-B21 / spare
+    # 657739-001 (MB1000GCWCV + MD1000GCWCV).
+    "ST1000NM0033": {
+        "brand": "Seagate",
+        "family": "Constellation ES.3",
+        "capacity": "1TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "128 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    # Source: Toshiba MG03ACA series product overview (MG03ACA100 = 1TB SATA
+    # 6Gb/s 7.2K, 64MiB, 3.5", 512n). HPE option 657750-B21 (HPE MB1000GDUNU).
+    "MG03ACA100": {
+        "brand": "Toshiba",
+        "family": "MG03 Series",
+        "capacity": "1TB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    # Source: WD RE4 datasheet 2178-771114 (WD5003ABYX = 500GB SATA 3Gb/s 7.2K,
+    # 64MB, 3.5"). HPE option 458928-B21 / spare 459319-001 (HPE MB0500EBNCR).
+    "WD5003ABYX": {
+        "brand": "Western Digital",
+        "family": "RE4",
+        "capacity": "500GB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "3G",
+        "cache": "64 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    # Source: Seagate Constellation ES Product Manual 100516232f (ST3500514NS =
+    # 500GB SATA 3Gb/s 7.2K, 32MB, 3.5", 512n). HP option 458928-B21 / spare
+    # 459319-001 (HP MB0500EAMZD, PartSurfer P/N 507631-001).
+    "ST3500514NS": {
+        "brand": "Seagate",
+        "family": "Constellation ES",
+        "capacity": "500GB",
+        "rpm": "7200 RPM",
+        "interface": "SATA",
+        "transfer_rate": "3G",
+        "cache": "32 MB",
+        "form_factor": "3.5 in",
+        "height": None,
+    },
+    # Source: Seagate Constellation.2 datasheet DS1719.4-1207 (ST9500620NS =
+    # 500GB SATA 6Gb/s 7.2K, 64MB, 2.5", 15mm z-height, 512n). HPE markets it as
+    # a 3G midline part; drive is natively 6Gb/s. HPE option 507750-B21 / spare
+    # 508035-001 (HPE MM0500EBKAE). 15mm height — needs the 15mm warning.
+    "ST9500620NS": {
+        "brand": "Seagate",
+        "family": "Constellation.2",
+        "capacity": "500GB",
+        "rpm": "7200 RPM",
+        "interface": "SATA III",
+        "transfer_rate": "6G",
+        "cache": "64 MB",
+        "form_factor": "2.5 in",
+        "height": "15mm",
+    },
 }

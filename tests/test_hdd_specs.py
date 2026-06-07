@@ -84,6 +84,11 @@ _EXPECTED_FAMILY = {
     "MG04ACA400N": "MG04 Series",
     "AL14SEB090N": "AL14SE",
     "HUC101030CSS600": "Ultrastar C10K600",
+    "ST1000NM0033": "Constellation ES.3",
+    "MG03ACA100": "MG03 Series",
+    "WD5003ABYX": "RE4",
+    "ST3500514NS": "Constellation ES",
+    "ST9500620NS": "Constellation.2",
 }
 
 
