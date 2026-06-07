@@ -84,6 +84,11 @@ _EXPECTED_FAMILY = {
     "MDL-A14": "Series-MGA",
     "MDL-A15": "MDL-A15",
     "MDL-A16": "Series-Zeta-C600",
+    "MDL-A17": "Series-Delta-3",
+    "MDL-A18": "Series-MGB",
+    "MDL-A19": "RE4",
+    "MDL-A20": "Series-Delta",
+    "MDL-A21": "Series-Delta-2",
 }
 
 
