@@ -76,7 +76,7 @@
 - `extract_shipping_details` (`listings.py:147-205`) — **does NOT emit `GlobalShipping`**. For Add, either extend this function (optional param) or build ShippingDetails inline in `build_add_payload`.
 - No `build_add_payload` or any `Add*` stub currently exists in `listings.py` — greenfield implementation.
 
-### 1.3 `AddFixedPriceItem` — required fields for UK HDD category 56083
+### 1.3 `AddFixedPriceItem` — required fields for the configured eBay category
 
 Minimum `Item` payload (verified against eBay API reference, ebaysdk-python samples, davidtsadler PHP SDK examples):
 
@@ -84,7 +84,7 @@ Minimum `Item` payload (verified against eBay API reference, ebaysdk-python samp
 |---|---|---|
 | `Title` | From listing HTML copy-block | ≤80 chars |
 | `Description` | From listing HTML body | CDATA-wrapped |
-| `PrimaryCategory.CategoryID` | `56083` | Fixed for HDDs UK |
+| `PrimaryCategory.CategoryID` | From the private listing-contract (`category_id`) | Configured per category, not hardcoded |
 | `StartPrice` | Caller-provided £ | String, `_currencyID="GBP"` |
 | `Country` | `GB` | Fixed |
 | `Currency` | `GBP` | Fixed |
@@ -99,7 +99,7 @@ Minimum `Item` payload (verified against eBay API reference, ebaysdk-python samp
 | `Quantity` | Caller-provided int ≥ 1 | **REQUIRED for Add** (unlike Revise) |
 | `ReturnPolicy` | `ReturnsNotAccepted` + `InternationalReturnsAcceptedOption=ReturnsNotAccepted` | Per-account policy |
 | `ShippingDetails` | Flat/free + `GlobalShipping=true` | See §1.5 |
-| `ItemSpecifics` | Full 21-field canonical set | **Brand + MPN REQUIRED for cat 56083** (error 21919303 if missing) |
+| `ItemSpecifics` | Full contract item-specifics set | **Brand + MPN REQUIRED by the configured category** (error 21919303 if missing) |
 | `SKU` | Optional, recommended | MPN-derived |
 | `UUID` | 32-char hex | **REQUIRED for idempotency** — see §1.8 |
 
@@ -112,7 +112,7 @@ Minimum `Item` payload (verified against eBay API reference, ebaysdk-python samp
 - `21919144` — rate-limit on Add
 - `21916664` — invalid PictureURL
 
-**Promoted Listings note** — NOT a field in `AddFixedPriceItem`. Post-create enrolment happens via separate Marketing API. A new listing will NOT auto-enrol unless an Account-level "Auto Ads" rule is active. Check Seller Hub → Marketing → Campaigns to verify nothing matches cat 56083.
+**Promoted Listings note** — NOT a field in `AddFixedPriceItem`. Post-create enrolment happens via separate Marketing API. A new listing will NOT auto-enrol unless an Account-level "Auto Ads" rule is active. Check Seller Hub → Marketing → Campaigns to verify nothing matches the configured category.
 
 **Verify dry-run** — `VerifyAddFixedPriceItem` exists. Identical payload. Returns `ItemID=0` + same `Errors` container as real Add + estimated `Fees`. Shares app-level daily quota (5,000/day). This is the production dry-run path.
 
@@ -206,7 +206,7 @@ Critical gap in `execute_with_retry` (`ebay/client.py:72-160`): **no idempotency
 
 **Rollback** — if verify shows wrong data, call `EndFixedPriceItem(ItemID, EndingReason="OtherListingError")`. Fee refunded if zero sales.
 
-**Fees (UK cat 56083, 2026)** — 1,000 free insertions per month. Typical HDD-seller volumes are deep within quota.
+**Fees (the configured UK category, 2026)** — 1,000 free insertions per month. Typical seller volumes are deep within quota.
 
 **Duplicate-listings policy** — enforced post-hoc by eBay's Cassini title-similarity check, not at Add-time. Mitigation: `GetMyeBaySelling` search by title/MPN before calling Add, to catch client-side accidental duplicates.
 
@@ -258,7 +258,7 @@ def preprocess_for_ebay(path: str) -> bytes:
 
 | # | Gap | Impact | Mitigation |
 |---|---|---|---|
-| G1 | Category 56083 authoritative required-aspects list not fetched live | May be missing eBay-required ItemSpecifics | Call `GetCategorySpecifics(CategoryID=56083, SiteID=3)` once at build time, cache the result, compare against the 21-field canonical set |
+| G1 | The configured category's authoritative required-aspects list not fetched live | May be missing eBay-required ItemSpecifics | Call the category-specifics API for the contract's `category_id` once at build time, cache the result, compare against the contract item-specifics set |
 | G2 | Exact UUID dedup window duration not documented by eBay | If retry happens beyond window, duplicate could still be created | Keep retry attempts short (current 15s deadline is well inside "a few days") |
 | G3 | Raw phone JPG vs cleaned artwork decision | Raw phone photos are 2.5-5.7 MB with EXIF and no cropping | Resolve by preprocessing (auto-crop, resize, re-encode, strip EXIF). Phone photo is the authoritative source; cleaned artwork optional via flag |
 | G4 | MPN → cache/series/height lookup table source | Without lookup, tool can't fully auto-populate non-label fields | Build `ebay/hdd_specs.py` seeded from existing live listings |
@@ -381,7 +381,7 @@ HDD_SPECS: dict[str, dict] = {
 }
 ```
 
-Keyed by OEM model (with `-Series-Beta` suffix for Fabrikam series variants). Provides the non-label fields (`cache`, `family`, `height`). Seed from existing live-listings corpus; extend per new MPN.
+Keyed by OEM model (with a `-VAR` suffix for series variants of a shared model). Provides the non-label fields (`cache`, `family`, `height`). The real catalogue is private (loaded via `EBAY_LISTING_DATA_DIR`); extend per new MPN.
 
 ### 3.6 Jinja2 description template
 
