@@ -54,7 +54,7 @@ def _fake_item(item_id: str = "123") -> SimpleNamespace:
         WatchCount="7",
         BestOfferCount="0",
         PrimaryCategory=SimpleNamespace(
-            CategoryID="56083", CategoryName="Internal Hard Disk Drives"
+            CategoryID="CONTRACT-CAT-0001", CategoryName="Example Synthetic Category"
         ),
     )
 
