@@ -94,6 +94,14 @@ def test_condition_description_omitted_when_before_lacks_field() -> None:
 
 
 def test_item_specifics_unchanged_not_in_diff() -> None:
+    # NOTE: this `before` is hand-shaped with SCALAR values. The real snapshot
+    # path (snapshot_listing → listing_to_dict) produces LIST-wrapped values
+    # (e.g. {"Brand": ["Fabrikam"]}), so against a real snapshot an identical
+    # scalar-valued re-send still reports "changed" (a benign over-fire — the
+    # wire payload is built from `merged_specifics`, independent of this diff;
+    # the diff only gates whether to revise + a redundant revise is idempotent).
+    # The silent no-op #44 fixed (item_specifics absent from `before`) is the
+    # failure that mattered; this guard covers the scalar-equality case only.
     before = dict(_BEFORE)
     before["item_specifics"] = {"Brand": "Fabrikam", "Capacity": "2TB"}
     diff = compute_diff(
