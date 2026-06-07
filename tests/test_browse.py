@@ -70,7 +70,7 @@ def test_competitor_prices_requires_part_number() -> None:
 
 def test_competitor_prices_invalid_condition() -> None:
     with pytest.raises(ValueError, match="Unknown condition"):
-        _run(browse.fetch_competitor_prices(part_number="ST2000NM", condition="BOGUS"))
+        _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01", condition="BOGUS"))
 
 
 def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,14 +85,14 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
         "itemSummaries": [
             {
                 "itemId": "1",
-                "title": "ST2000NM 2TB",
+                "title": "FBKM-ALPHA-01 2TB",
                 "price": {"value": "30.00", "currency": "GBP"},
                 "seller": {"username": "myownshop"},
                 "condition": "Used",
             },
             {
                 "itemId": "2",
-                "title": "ST2000NM 2TB",
+                "title": "FBKM-ALPHA-01 2TB",
                 "price": {"value": "40.00", "currency": "GBP"},
                 "seller": {"username": "othershop"},
                 "condition": "Used",
@@ -103,7 +103,7 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
     fake = _fake_browse_client_seq([payload_3000, payload_2750])
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
-            browse.fetch_competitor_prices(part_number="ST2000NM", condition="USED", limit=50)
+            browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01", condition="USED", limit=50)
         )
     assert result["count"] == 1
     assert result["listings"][0]["seller"] == "othershop"
@@ -113,7 +113,7 @@ def test_competitor_prices_excludes_own_seller(monkeypatch: pytest.MonkeyPatch) 
     assert call_3000.args[0] == "/buy/browse/v1/item_summary/search"
     params_3000 = call_3000.kwargs.get("params") or call_3000.args[1]
     params_2750 = call_2750.kwargs.get("params") or call_2750.args[1]
-    assert params_3000["q"] == "ST2000NM"
+    assert params_3000["q"] == "FBKM-ALPHA-01"
     assert "conditionIds:{3000}" in params_3000["filter"]
     assert "itemLocationCountry:{GB}" in params_3000["filter"]
     assert params_3000["limit"] == "50"
@@ -294,7 +294,7 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
         # Clean apple-to-apples comp (kept).
         {
             "itemId": "v1|good",
-            "title": "ST2000NX0253 2.5 SAS HDD",
+            "title": "FBKM-ALPHA-01 2.5 SAS HDD",
             "price": {"value": "30.00", "currency": "GBP"},
             "seller": {"username": "a", "feedbackPercentage": "99.5", "feedbackScore": 1000},
             "condition": "Used",
@@ -307,7 +307,7 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
         # Bundle reject (Layer-1 hard reject).
         {
             "itemId": "v1|bundle",
-            "title": "Lot of 10 ST2000NX0253 drives",
+            "title": "Lot of 10 FBKM-ALPHA-01 drives",
             "price": {"value": "150.00", "currency": "GBP"},
             "seller": {"username": "b", "feedbackPercentage": "99.0", "feedbackScore": 500},
             "condition": "Used",
@@ -318,7 +318,7 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
         # Broken-or-parts reject.
         {
             "itemId": "v1|parts",
-            "title": "ST2000NX0253 for parts",
+            "title": "FBKM-ALPHA-01 for parts",
             "price": {"value": "5.00", "currency": "GBP"},
             "seller": {"username": "c", "feedbackPercentage": "99.0", "feedbackScore": 500},
             "condition": "Used",
@@ -328,8 +328,8 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
         },
     ]
     own = {
-        "title": "ST2000NX0253 2.5 SAS HDD",
-        "specifics": {"MPN": ["ST2000NX0253"], "Form Factor": ['2.5"']},
+        "title": "FBKM-ALPHA-01 2.5 SAS HDD",
+        "specifics": {"MPN": ["FBKM-ALPHA-01"], "Form Factor": ['2.5"']},
         "condition_id": "3000",
         "condition_name": "Used",
     }
@@ -337,7 +337,7 @@ def test_competitor_prices_with_own_listing_surfaces_audit(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="ST2000NX0253",
+                part_number="FBKM-ALPHA-01",
                 condition="USED",
                 own_listing=own,
                 own_live_price=35.0,
@@ -378,7 +378,7 @@ def test_competitor_prices_without_own_listing_no_audit(
             "itemSummaries": [
                 {
                     "itemId": "1",
-                    "title": "ST2000 2.5 SAS",
+                    "title": "FBKM-ALPHA-01 2.5 SAS",
                     "price": {"value": "30.00", "currency": "GBP"},
                     "seller": {"username": "a"},
                     "condition": "Used",
@@ -387,7 +387,7 @@ def test_competitor_prices_without_own_listing_no_audit(
         }
     )
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        result = _run(browse.fetch_competitor_prices(part_number="ST2000"))
+        result = _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01"))
     assert "audit_flat" not in result
     assert "audit_verbose" not in result
     assert result["count"] == 1
@@ -483,8 +483,8 @@ def test_competitor_prices_small_n_percentiles(
 def _own_listing_min() -> dict:
     """Minimal own_listing for pipeline-mode tests that don't care about scoring."""
     return {
-        "title": "Test ST2000",
-        "specifics": {"MPN": ["ST2000"], "Form Factor": ['2.5"']},
+        "title": "Test FBKM-ALPHA-01",
+        "specifics": {"MPN": ["FBKM-ALPHA-01"], "Form Factor": ['2.5"']},
         "condition_id": "3000",
         "condition_name": "Used",
     }
@@ -494,7 +494,7 @@ def _comp_item(item_id: str | None, price: float, condition_id: str = "3000") ->
     """Make a Browse-API-shaped competitor item with an explicit conditionId."""
     return {
         "itemId": item_id,
-        "title": f"ST2000 comp {item_id}",
+        "title": f"FBKM-ALPHA-01 comp {item_id}",
         "price": {"value": str(price), "currency": "GBP"},
         "seller": {
             "username": f"seller-{item_id}",
@@ -521,7 +521,7 @@ def test_competitor_prices_used_fetches_equivalence_class(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="ST2000",
+                part_number="FBKM-ALPHA-01",
                 condition="USED",
                 own_listing=_own_listing_min(),
                 own_live_price=35.0,
@@ -568,7 +568,7 @@ def test_competitor_prices_dedupe_across_conditions(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="ST2000",
+                part_number="FBKM-ALPHA-01",
                 condition="USED",
                 own_listing=_own_listing_min(),
                 own_live_price=30.0,
@@ -601,7 +601,7 @@ def test_competitor_prices_opened_fetches_equivalence_class(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="ST2000",
+                part_number="FBKM-ALPHA-01",
                 condition="OPENED",
                 own_listing=own,
                 own_live_price=55.0,
@@ -626,7 +626,7 @@ def test_competitor_prices_new_remains_single_call(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="ST2000",
+                part_number="FBKM-ALPHA-01",
                 condition="NEW",
                 own_listing=own,
                 own_live_price=85.0,
@@ -648,7 +648,7 @@ def test_competitor_prices_for_parts_unmapped_class_falls_back_to_single(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="ST2000",
+                part_number="FBKM-ALPHA-01",
                 condition="FOR_PARTS",
                 own_listing=own,
                 own_live_price=10.0,
@@ -684,7 +684,7 @@ comp_filter:
 
     fake = _fake_browse_client_seq([{"itemSummaries": [_comp_item("x1", 30.0, "3000")]}])
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        result = _run(browse.fetch_competitor_prices(part_number="ST2000", condition="USED"))
+        result = _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01", condition="USED"))
     assert fake.get.call_count == 1
     params = fake.get.call_args.kwargs.get("params") or fake.get.call_args.args[1]
     assert "conditionIds:{3000}" in params["filter"]
@@ -710,7 +710,7 @@ def test_competitor_prices_currency_safety_across_calls(
     with patch("ebay.browse.get_browse_session", return_value=fake):
         mixed_pat = r"mixed currencies.*GBP.*USD|mixed currencies.*USD.*GBP"
         with pytest.raises(ValueError, match=mixed_pat):
-            _run(browse.fetch_competitor_prices(part_number="ST2000", condition="USED"))
+            _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01", condition="USED"))
 
 
 def test_competitor_prices_partial_failure_fail_fast(
@@ -726,7 +726,7 @@ def test_competitor_prices_partial_failure_fail_fast(
     client.__exit__.return_value = False
     with patch("ebay.browse.get_browse_session", return_value=client):
         with pytest.raises(Exception):  # noqa: B017 — raise_for_ebay_error wraps; any exception OK
-            _run(browse.fetch_competitor_prices(part_number="ST2000", condition="USED"))
+            _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01", condition="USED"))
     # Both calls dispatched; second crashed so no partial result returned
     assert client.get.call_count == 2
 
@@ -767,7 +767,7 @@ comp_filter:
     ]
     fake = _fake_browse_client_seq(payloads)
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        result = _run(browse.fetch_competitor_prices(part_number="ST2000", condition="NEW"))
+        result = _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01", condition="NEW"))
     # YAML override expanded NEW to 3 calls (1000 + 1500 + 2000)
     assert fake.get.call_count == 3
     params_seq = [c.kwargs.get("params") or c.args[1] for c in fake.get.call_args_list]
@@ -776,3 +776,47 @@ comp_filter:
     assert any("conditionIds:{1500}" in f for f in filters)
     assert any("conditionIds:{2000}" in f for f in filters)
     assert result["count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Issue #45 AC 2.5 — taxonomy overlay fail-loud (closes the silent-permissive gap)
+# ---------------------------------------------------------------------------
+
+
+def test_overlay_fail_loud_when_env_set_but_file_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """AC 2.5 — EBAY_LISTING_DATA_DIR is SET but the taxonomy file is absent →
+    RAISE, never silently degrade comp-filter to permissive (a comp in one
+    series wrongly matched against an own-listing in a DIFFERENT series).
+    """
+    from ebay import catalogue_loader
+
+    # Point at an empty dir that has NO series-taxonomy.yaml — the overlay was
+    # *meant* to load (env set) but cannot.
+    monkeypatch.setenv("EBAY_LISTING_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("EBAY_FILTER_CONFIG", raising=False)
+    catalogue_loader.reset_caches()
+    with pytest.raises(catalogue_loader.ListingDataError):
+        browse._load_filter_config()
+    catalogue_loader.reset_caches()
+
+
+def test_overlay_fail_loud_generic_only_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC 2.5 — EBAY_LISTING_DATA_DIR UNSET → documented generic-only mode: the
+    merged config carries NO series_names (rather than a silent ``series_names=[]``
+    that a naive ``.get(key, []) or []`` would have produced). No raise.
+    """
+    from ebay import catalogue_loader
+
+    monkeypatch.delenv("EBAY_LISTING_DATA_DIR", raising=False)
+    monkeypatch.delenv("EBAY_FILTER_CONFIG", raising=False)
+    catalogue_loader.reset_caches()
+    cfg = browse._load_filter_config()
+    # generic-only: the public config holds no taxonomy, the overlay returned {}.
+    assert "series_names" not in cfg.get("comp_filter", {})
+    assert "preserved_phrases" not in cfg.get("title", {})
+    catalogue_loader.reset_caches()
