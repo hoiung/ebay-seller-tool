@@ -1,6 +1,6 @@
 """Issue #444 Part B — AP #18 sample invocation for the equivalence-class loop.
 
-Live eBay Browse API call against HUS724020AL (or any --part-number override),
+Live eBay Browse API call against FBKM-ALPHA-04 (or any --part-number override),
 demonstrates the new orchestrator dispatches ONE call per equivalence-class
 member (USED → 3000 + 2750), surfaces per-condition raw counts in audit_verbose,
 and compares the merged percentile band against the pre-fix single-call baseline.
@@ -10,7 +10,7 @@ PREREQUISITES:
   - /tmp/ebay-listings-live.json present (run skill's fetch_listings.py first)
 
 USAGE:
-  uv run python scripts/sample_invocation_issue444.py [--part-number HUS724020AL]
+  uv run python scripts/sample_invocation_issue444.py [--part-number FBKM-ALPHA-04]
 
 OUTPUT:
   Stdout: human-readable summary with per-condition counts, kept pool size,
@@ -129,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--part-number",
-        default="HUS724020AL",
-        help="MPN to sample (default: HUS724020AL — Issue #14 motivating example).",
+        default="FBKM-ALPHA-04",
+        help="MPN to sample (default: FBKM-ALPHA-04 — Issue #14 motivating example).",
     )
     parser.add_argument(
         "--listings",
