@@ -124,7 +124,7 @@ def test_full_workflow_chain_underpriced_listing(
     """Whole-chain plumbing test: underpriced own listing flows through all 8 helpers.
 
     Setup:
-      - Own listing: MDL-A03, £20.00, 2 photos, no Best Offer, 14d return
+      - Own listing: FBKM-ALPHA-01, £20.00, 2 photos, no Best Offer, 14d return
       - 6 clean comps in £28-£40 range, all top-rated, all 30d returns
       - Own price below p25 → A signal True
 
@@ -141,11 +141,11 @@ def test_full_workflow_chain_underpriced_listing(
     snap_path = tmp_path / "snap.jsonl"
     monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(snap_path))
 
-    # 1. Browse API response — 6 clean comps for MDL-A03.
+    # 1. Browse API response — 6 clean comps for FBKM-ALPHA-01.
     comp_items = [
         _comp_payload(
             item_id=f"v1|comp{i}",
-            title=f"MDL-A03 2.5 SAS Enterprise HDD {i}TB Server",
+            title=f"FBKM-ALPHA-01 2.5 SAS Enterprise HDD {i}TB Server",
             price=p,
             age_days=ages[i],
             top_rated=True,
@@ -161,10 +161,10 @@ def test_full_workflow_chain_underpriced_listing(
 
     own_listing = {
         "item_id": "999",
-        "title": "MDL-A03 2.5 SAS HDD",
+        "title": "FBKM-ALPHA-01 2.5 SAS HDD",
         "price": "20.00",
         "specifics": {
-            "MPN": ["MDL-A03"],
+            "MPN": ["FBKM-ALPHA-01"],
             "Form Factor": ['2.5"'],
         },
         "condition_id": "3000",
@@ -179,7 +179,7 @@ def test_full_workflow_chain_underpriced_listing(
 
     # 2. Browse + filter chain.
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        comps = _run(browse.fetch_competitor_prices(part_number="MDL-A03"))
+        comps = _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01"))
 
     assert comps["count"] == 6
     # Verify Phase 1 extensions present.
@@ -241,14 +241,14 @@ def test_full_workflow_chain_underpriced_listing(
     diff = compute_keyword_diff(
         own_listing["title"],
         [c["title"] for c in fresh],
-        mandatory_keywords=["Fabrikam", "MDL-A03", "2TB", "SAS", "HDD"],
+        mandatory_keywords=["Fabrikam", "FBKM-ALPHA-01", "2TB", "SAS", "HDD"],
         frequency_threshold_pct=50.0,
     )
     candidate_tokens = {c["token"] for c in diff["candidates"]}
     assert "enterprise" in candidate_tokens
     assert "server" in candidate_tokens
     # mandatory anchors not recommended.
-    assert "MDL-A03" not in candidate_tokens
+    assert "fbkm-alpha-01" not in candidate_tokens
 
     # 8. Snapshot — emit analysis_baseline event.
     append_snapshot(
@@ -287,7 +287,7 @@ def test_full_workflow_chain_underpriced_below_p25(
     comp_items = [
         _comp_payload(
             item_id=f"v1|c{i}",
-            title=f"MDL-A03 2.5 SAS Enterprise HDD {i}",
+            title=f"FBKM-ALPHA-01 2.5 SAS Enterprise HDD {i}",
             price=p,
         )
         for i, p in enumerate([35.0, 40.0, 45.0, 50.0])
@@ -295,14 +295,14 @@ def test_full_workflow_chain_underpriced_below_p25(
     fake = _fake_browse_client(_build_comp_summary(comp_items))
     own_listing = {
         "item_id": "777",
-        "title": "MDL-A03 SAS HDD",
-        "specifics": {"MPN": ["MDL-A03"], "Form Factor": ['2.5"']},
+        "title": "FBKM-ALPHA-01 SAS HDD",
+        "specifics": {"MPN": ["FBKM-ALPHA-01"], "Form Factor": ['2.5"']},
         "condition_id": "3000",
         "condition_name": "Used",
     }
 
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        comps = _run(browse.fetch_competitor_prices(part_number="MDL-A03"))
+        comps = _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01"))
 
     clean = browse.filter_clean_competitors(own_listing, comps["listings"], threshold=0.6)
     pcts = _percentiles([c["price"] for c in clean])
@@ -329,7 +329,7 @@ def test_full_workflow_chain_overpriced_listing(
     comp_items = [
         _comp_payload(
             item_id=f"v1|c{i}",
-            title=f"MDL-A03 2.5 SAS Enterprise HDD {i}",
+            title=f"FBKM-ALPHA-01 2.5 SAS Enterprise HDD {i}",
             price=p,
         )
         for i, p in enumerate([28.0, 30.0, 32.0, 35.0, 38.0])
@@ -337,14 +337,14 @@ def test_full_workflow_chain_overpriced_listing(
     fake = _fake_browse_client(_build_comp_summary(comp_items))
     own_listing = {
         "item_id": "555",
-        "title": "MDL-A03 SAS HDD",
-        "specifics": {"MPN": ["MDL-A03"], "Form Factor": ['2.5"']},
+        "title": "FBKM-ALPHA-01 SAS HDD",
+        "specifics": {"MPN": ["FBKM-ALPHA-01"], "Form Factor": ['2.5"']},
         "condition_id": "3000",
         "condition_name": "Used",
     }
 
     with patch("ebay.browse.get_browse_session", return_value=fake):
-        comps = _run(browse.fetch_competitor_prices(part_number="MDL-A03"))
+        comps = _run(browse.fetch_competitor_prices(part_number="FBKM-ALPHA-01"))
 
     clean = browse.filter_clean_competitors(own_listing, comps["listings"], threshold=0.6)
     pcts = _percentiles([c["price"] for c in clean])
@@ -374,13 +374,13 @@ def test_audit_verbose_raw_count_per_condition_id_propagates_through_pipeline(
     monkeypatch.setenv("EBAY_SNAPSHOT_PATH", str(tmp_path / "snap.jsonl"))
 
     cond_3000_items = [
-        _comp_payload(item_id=f"v1|c3k{i}", title=f"MDL-A03 2.5 SAS HDD {i}", price=p)
+        _comp_payload(item_id=f"v1|c3k{i}", title=f"FBKM-ALPHA-01 2.5 SAS HDD {i}", price=p)
         for i, p in enumerate([28.0, 30.0, 32.0])
     ]
     cond_2750_items = [
         _comp_payload(
             item_id=f"v1|c275k{j}",
-            title=f"MDL-A03 2.5 SAS HDD - Excellent {j}",
+            title=f"FBKM-ALPHA-01 2.5 SAS HDD - Excellent {j}",
             price=p,
         )
         for j, p in enumerate([26.0, 27.0])
@@ -403,8 +403,8 @@ def test_audit_verbose_raw_count_per_condition_id_propagates_through_pipeline(
 
     own_listing = {
         "item_id": "AUDIT-PROP",
-        "title": "MDL-A03 SAS HDD",
-        "specifics": {"MPN": ["MDL-A03"], "Form Factor": ['2.5"']},
+        "title": "FBKM-ALPHA-01 SAS HDD",
+        "specifics": {"MPN": ["FBKM-ALPHA-01"], "Form Factor": ['2.5"']},
         "condition_id": "3000",
         "condition_name": "Used",
     }
@@ -412,7 +412,7 @@ def test_audit_verbose_raw_count_per_condition_id_propagates_through_pipeline(
     with patch("ebay.browse.get_browse_session", return_value=client):
         result = _run(
             browse.fetch_competitor_prices(
-                part_number="MDL-A03",
+                part_number="FBKM-ALPHA-01",
                 condition="USED",
                 own_listing=own_listing,
                 own_live_price=30.0,
