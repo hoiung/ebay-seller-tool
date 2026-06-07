@@ -56,7 +56,7 @@ def _comp_result(
 
 
 def _item_full(
-    mpn: str = "EG0300FBDBR",
+    mpn: str = "FBKM-ZZZ-99",
     condition: str = "Used",
     watch_count: int = 7,
     quantity_available: int = 3,
@@ -305,12 +305,12 @@ def test_wrong_direction_propagates_mpn_to_api_kwarg() -> None:
                 item_id="999",
                 old_price=25.0,
                 new_price=35.0,
-                item_full=_item_full(mpn="ST2000NX0253"),
+                item_full=_item_full(mpn="FBKM-ALPHA-01"),
             )
         )
 
     mock_comps.assert_called_once()
-    assert mock_comps.call_args.kwargs.get("part_number") == "ST2000NX0253", (
+    assert mock_comps.call_args.kwargs.get("part_number") == "FBKM-ALPHA-01", (
         f"MPN must propagate as part_number=; got {mock_comps.call_args.kwargs!r}"
     )
     # condition propagation also asserted to lock the kwarg surface.
