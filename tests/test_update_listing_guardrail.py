@@ -18,7 +18,7 @@ def _fake_get_item(price: str = "35.00") -> SimpleNamespace:
         reply=SimpleNamespace(
             Item=SimpleNamespace(
                 ItemID="999",
-                Title="Seagate 2TB",
+                Title="Fabrikam 2TB",
                 SellingStatus=SimpleNamespace(
                     CurrentPrice=SimpleNamespace(value=price, _currencyID="GBP"),
                     QuantitySold="1",
@@ -47,8 +47,8 @@ def _fake_get_item(price: str = "35.00") -> SimpleNamespace:
                 PictureDetails=None,
                 ItemSpecifics=SimpleNamespace(
                     NameValueList=[
-                        SimpleNamespace(Name="Brand", Value="Seagate"),
-                        SimpleNamespace(Name="MPN", Value="ST2000NM"),
+                        SimpleNamespace(Name="Brand", Value="Fabrikam"),
+                        SimpleNamespace(Name="MPN", Value="FBKM-ALPHA-01"),
                     ]
                 ),
             )
