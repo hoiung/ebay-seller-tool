@@ -238,9 +238,7 @@ def test_build_add_payload_cdata_wraps_description() -> None:
 def test_build_add_payload_features_list_preserved() -> None:
     payload = _minimal()
     features_row = next(
-        row
-        for row in payload["Item"]["ItemSpecifics"]["NameValueList"]
-        if row["Name"] == "Traits"
+        row for row in payload["Item"]["ItemSpecifics"]["NameValueList"] if row["Name"] == "Traits"
     )
     assert features_row["Value"] == ["Trait-Alpha", "Trait-Beta"]
 
