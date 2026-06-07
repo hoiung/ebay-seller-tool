@@ -56,7 +56,7 @@ def _fake_item(price: str = "50.00") -> SimpleNamespace:
                 ConditionID="3000",
                 ConditionDisplayName="Used",
                 PrimaryCategory=SimpleNamespace(
-                    CategoryID="56083", CategoryName="Internal Hard Disk Drives"
+                    CategoryID="CONTRACT-CAT-0001", CategoryName="Example Synthetic Category"
                 ),
                 Description="d",
                 ShippingDetails=None,
