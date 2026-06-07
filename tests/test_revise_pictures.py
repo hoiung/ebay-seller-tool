@@ -62,7 +62,7 @@ def _fake_get_item(photos: list[str] | None = None) -> SimpleNamespace:
                 ConditionID="3000",
                 ConditionDisplayName="Used",
                 PrimaryCategory=SimpleNamespace(
-                    CategoryID="56083", CategoryName="Internal Hard Disk Drives"
+                    CategoryID="CONTRACT-CAT-0001", CategoryName="Example Synthetic Category"
                 ),
                 Description="desc",
                 ShippingDetails=SimpleNamespace(
