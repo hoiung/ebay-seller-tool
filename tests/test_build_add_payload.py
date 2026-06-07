@@ -6,29 +6,30 @@ import pytest
 
 from ebay.listings import build_add_payload
 
-# Canonical 21-field ItemSpecifics sample (research §1.3)
+# Synthetic 20-key ItemSpecifics sample — build_add_payload is generic; this is
+# the dict it serialises, so the contents are SYNTHETIC (no product data). The
+# only keys the builder cares about are Brand + MPN + a >=20-key floor.
 SPECIFICS_21 = {
-    "Brand": "Seagate",
-    "MPN": "ST2000NX0253",
-    "Model": "ST2000NX0253",
-    "Product Line": "Enterprise Capacity",
-    "Type": "Internal Hard Drive",
-    "Drive Type(s) Supported": "HDD",
-    "Storage Format": "HDD Only",
-    "Storage Capacity": "2TB",
-    "Interface": "SATA III",
-    "Form Factor": "2.5 in",
-    "Height": "15mm",
-    "Rotation Speed": "7200 RPM",
-    "Cache": "128 MB",
-    "Transfer Rate": "6G",
-    "Compatible With": "PC",
-    "Features": ["Hot Swap", "24/7 Operation"],
-    "Colour": "Silver",
-    "Country of Origin": "China",
-    "EAN": "Does not apply",
-    "Manufacturer Warranty": "See Item Description",
-    "Unit Type": "Unit",
+    "Brand": "Fabrikam",
+    "MPN": "FBKM-ALPHA-01",
+    "Model": "FBKM-ALPHA-01",
+    "Product Family": "Northwind Alpha",
+    "Widget Type": "Synthetic Widget",
+    "Medium Class": "Class-Z",
+    "Packaging": "Bare Unit",
+    "Capacity Spec": "2TB",
+    "Bus Spec": "Synthetic-Bus III",
+    "Body Size": "2.5 in",
+    "Spin Spec": "7200 RPM",
+    "Buffer Spec": "128 MB",
+    "Link Rate": "RATE-MID",
+    "Fits With": "Generic Host",
+    "Traits": ["Trait-Alpha", "Trait-Beta"],
+    "Shade": "Greyish",
+    "Origin Mark": "Atlantis",
+    "Barcode": "Does not apply",
+    "Cover Note": "See Item Description",
+    "Pack Unit": "Unit",
 }
 
 VALID_UUID = "ABCDEF0123456789ABCDEF0123456789"
@@ -36,13 +37,14 @@ VALID_UUID = "ABCDEF0123456789ABCDEF0123456789"
 
 def _minimal(**overrides: object) -> dict:
     base = {
-        "title": 'Seagate Enterprise Capacity 2TB 7200RPM 15mm 2.5" SATA III HDD ST2000NX0253',
-        "description_html": "<html><body><h1>Drive</h1></body></html>",
+        "title": "Fabrikam Northwind Alpha 2TB 7200RPM 15mm Widget FBKM-ALPHA-01",
+        "description_html": "<html><body><h1>Widget</h1></body></html>",
         "price": 49.99,
         "quantity": 1,
         "condition_id": 3000,
-        "condition_description": "SMART attributes within spec; no reallocated sectors.",
+        "condition_description": "Diagnostics within spec; no faults.",
         "item_specifics": dict(SPECIFICS_21),
+        "category_id": "CONTRACT-CAT-0001",
         "picture_urls": [
             "https://i.ebayimg.com/images/g/abc/$_57.JPG",
             "https://i.ebayimg.com/images/g/def/$_57.JPG",
@@ -115,7 +117,7 @@ def test_build_add_payload_full_payload_shape() -> None:
     assert item["PostalCode"] == "CV1 1AN"  # EBAY_SELLER_POSTCODE from conftest
     assert item["Country"] == "GB"
     assert item["Currency"] == "GBP"
-    assert item["PrimaryCategory"]["CategoryID"] == "56083"
+    assert item["PrimaryCategory"]["CategoryID"] == "CONTRACT-CAT-0001"
     assert item["ListingType"] == "FixedPriceItem"
     assert item["ListingDuration"] == "GTC"
     assert item["DispatchTimeMax"] == "3"
@@ -206,7 +208,7 @@ def test_build_add_payload_missing_mpn_raises_with_field_name() -> None:
 
 
 def test_build_add_payload_too_few_specifics_raises() -> None:
-    specs = {"Brand": "Seagate", "MPN": "ST2000NX0253"}
+    specs = {"Brand": "Fabrikam", "MPN": "FBKM-ALPHA-01"}
     # Only 2 keys — well below 20
     with pytest.raises(ValueError, match=r"at least 20 keys"):
         _minimal(item_specifics=specs)
@@ -238,9 +240,9 @@ def test_build_add_payload_features_list_preserved() -> None:
     features_row = next(
         row
         for row in payload["Item"]["ItemSpecifics"]["NameValueList"]
-        if row["Name"] == "Features"
+        if row["Name"] == "Traits"
     )
-    assert features_row["Value"] == ["Hot Swap", "24/7 Operation"]
+    assert features_row["Value"] == ["Trait-Alpha", "Trait-Beta"]
 
 
 def test_build_add_payload_custom_location_details_override_env() -> None:

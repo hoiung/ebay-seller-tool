@@ -99,7 +99,7 @@ def test_create_listing_multi_qty_warns_when_visuals_below_3(tmp_path: Path, mon
 
     import server
 
-    folder = tmp_path / "ST2000NX0253"
+    folder = tmp_path / "FBKM-ALPHA-01"
     folder.mkdir()
     # Phone-camera label photo (1 IMG, qualifies as label)
     label_path = folder / "IMG20260427120000.jpg"
@@ -133,7 +133,7 @@ def test_create_listing_multi_qty_warns_when_visuals_below_3(tmp_path: Path, mon
                 quantity=3,
                 condition="Used",
                 has_caddy=False,
-                country_of_origin="China",
+                country_of_origin="Atlantis",
                 dry_run=True,
             )
         )
@@ -154,7 +154,7 @@ def test_create_listing_qty_one_no_visual_warning(tmp_path: Path) -> None:
 
     import server
 
-    folder = tmp_path / "ST2000NX0253"
+    folder = tmp_path / "FBKM-ALPHA-01"
     folder.mkdir()
     (folder / "IMG20260427120000.jpg").write_bytes(b"\xff\xd8\xff")
     (folder / "visual-W461.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -183,7 +183,7 @@ def test_create_listing_qty_one_no_visual_warning(tmp_path: Path) -> None:
                 quantity=1,
                 condition="Used",
                 has_caddy=False,
-                country_of_origin="China",
+                country_of_origin="Atlantis",
                 dry_run=True,
             )
         )
@@ -201,7 +201,7 @@ def test_create_listing_dry_run_distinguishes_label_and_visual_counts(tmp_path: 
 
     import server
 
-    folder = tmp_path / "ST2000NX0253"
+    folder = tmp_path / "FBKM-ALPHA-01"
     folder.mkdir()
     # 2 IMG label photos
     (folder / "IMG20260427120000.jpg").write_bytes(b"\xff\xd8\xff")
@@ -235,7 +235,7 @@ def test_create_listing_dry_run_distinguishes_label_and_visual_counts(tmp_path: 
                 quantity=1,
                 condition="Used",
                 has_caddy=False,
-                country_of_origin="China",
+                country_of_origin="Atlantis",
                 dry_run=True,
             )
         )
@@ -255,7 +255,7 @@ def test_create_listing_explicit_paths_no_classification(tmp_path: Path) -> None
 
     import server
 
-    folder = tmp_path / "ST2000NX0253"
+    folder = tmp_path / "FBKM-ALPHA-01"
     folder.mkdir()
     # Operator-supplied path (not from glob)
     operator_path = folder / "custom.jpg"
@@ -285,7 +285,7 @@ def test_create_listing_explicit_paths_no_classification(tmp_path: Path) -> None
                 quantity=1,
                 condition="Used",
                 has_caddy=False,
-                country_of_origin="China",
+                country_of_origin="Atlantis",
                 photo_paths=[str(operator_path)],
                 dry_run=True,
             )
