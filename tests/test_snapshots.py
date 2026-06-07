@@ -242,9 +242,9 @@ def _sample_weekly_snapshot_payload() -> dict:
         "data_quality_caveat": "post-#29-toggle-window",
         "applied_at": None,
         # v2-deferred
-        "mpn": "ST2000NX0253",
+        "mpn": "FBKM-ALPHA-01",
         "drive_type": "HDD",
-        "product_line": "Enterprise Capacity",
+        "product_line": "Northwind Alpha",
         "condition_id": 3000,
         "cond_name": "Used",
         "watchers": 0,
