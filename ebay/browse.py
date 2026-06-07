@@ -666,7 +666,7 @@ def filter_low_quality_competitors(
         # Stub #18 — mpn_mismatch hard-reject. Browse API has no native MPN
         # parameter, so we filter client-side: if own MPN(s) are known and
         # NONE appear in the comp title, the comp is for a different SKU
-        # (e.g. ST2000NX0253 vs ST2000NX0403 — same family, different firmware).
+        # (e.g. FBKM-ALPHA-01 vs FBKM-ALPHA-03 — same family, different firmware).
         # Sibling-allowlist provides escape hatch for legitimate cross-MPN pairs.
         if own_mpns and not _comp_title_has_own_or_sibling_mpn(
             title_upper, own_mpns, sibling_allowlist
