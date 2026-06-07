@@ -14,7 +14,7 @@ import hashlib
 from ebay.listings import compute_diff
 
 _BEFORE = {
-    "title": "Fabrikam Series-Beta 2TB",
+    "title": "Fabrikam Northwind Beta 2TB",
     "price": "35.00",
     "condition_id": "3000",
 }
@@ -28,13 +28,13 @@ def _desc_before(html: str) -> dict:
 
 
 def test_no_change_yields_empty_diff() -> None:
-    diff = compute_diff(dict(_BEFORE), title="Fabrikam Series-Beta 2TB", description_html=None, price=35.0)
+    diff = compute_diff(dict(_BEFORE), title=_BEFORE["title"], description_html=None, price=35.0)
     assert diff == {}
 
 
 def test_title_change_detected() -> None:
     diff = compute_diff(dict(_BEFORE), title="New Title", description_html=None, price=None)
-    assert diff["title"] == {"before": "Fabrikam Series-Beta 2TB", "after": "New Title"}
+    assert diff["title"] == {"before": "Fabrikam Northwind Beta 2TB", "after": "New Title"}
 
 
 def test_price_change_detected() -> None:
