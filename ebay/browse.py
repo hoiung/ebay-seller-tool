@@ -114,13 +114,14 @@ def _load_filter_config() -> dict[str, Any]:
 def reset_filter_cache() -> None:
     """Clear cached filter config — tests that swap the config/overlay call this.
 
-    Routes through the shared loader reset seam (so a synthetic-overlay swap is
-    invalidated for browse AND title_benchmark in one call), then clears the
-    process-local compiled-pattern caches.
+    Thin wrapper over the shared loader reset seam
+    (:func:`ebay.catalogue_loader.reset_caches`), which invalidates the loader
+    caches AND every consumer cache registered with it — this module's compiled-
+    pattern caches (registered at import, below) and ``ebay.title_benchmark``'s
+    sorted-config cache — so one call reflects a synthetic-overlay swap across
+    browse AND title_benchmark.
     """
     catalogue_loader.reset_caches()
-    _compiled_hard_reject_patterns.cache_clear()
-    _compiled_caddy_patterns.cache_clear()
 
 
 @lru_cache(maxsize=1)
@@ -144,6 +145,17 @@ def _compiled_caddy_patterns() -> list[re.Pattern[str]]:
     cfg = _load_filter_config()
     raw = cfg.get("comp_filter", {}).get("caddy_mismatch_patterns", []) or []
     return [re.compile(p, re.IGNORECASE) for p in raw]
+
+
+def _clear_compiled_pattern_caches() -> None:
+    """Reset hook (AC 2.2): drop this module's compiled-regex caches so the
+    shared loader seam (:func:`ebay.catalogue_loader.reset_caches`) invalidates
+    them along with the loader + title_benchmark caches."""
+    _compiled_hard_reject_patterns.cache_clear()
+    _compiled_caddy_patterns.cache_clear()
+
+
+catalogue_loader.register_reset_hook(_clear_compiled_pattern_caches)
 
 
 def _own_seller_lower() -> str | None:
