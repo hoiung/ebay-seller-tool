@@ -3,11 +3,21 @@
 # Single home for non-pricing-math title configuration. Pricing math (floor
 # defaults, fees, postage) lives in config/fees.yaml — kept separate because
 # that's the established home for fee-calculation knobs.
+#
+# CATEGORY-AGNOSTIC (#45): this file holds ONLY generic, product-neutral knobs.
+# The competitor-recognition taxonomy (product/series names, title preserved
+# collocations, mandatory-keyword-by-class map, accessory/storage mismatch
+# regexes, the sibling cross-SKU allowlist, and the storage-specific
+# hard-reject subsets) lives in the PRIVATE overlay `series-taxonomy.yaml`,
+# loaded at runtime and deep-merged onto this base by
+# `ebay.catalogue_loader.load_filter_config()`. The public repo ships NO
+# product/category taxonomy — see that overlay's schema for the key layout.
 
 title:
   # Filler words that buyers do NOT search by — strip from titles to free up
   # character budget. Per round-2 F-B research. Each entry is matched as a
-  # word-bounded phrase (case-insensitive) before tokenisation.
+  # word-bounded phrase (case-insensitive) before tokenisation. Generic
+  # marketing fluff — product-neutral, so it stays public.
   filler_words:
     - "100% new"
     - "fast shipping"
@@ -35,49 +45,6 @@ title:
     - "bulk"
     - "wholesale"
 
-  # Preserved 2-3-grams. These collocations are kept as single tokens during
-  # tokenisation so "Enterprise Capacity" doesn't decompose into two unrelated
-  # tokens. Lower-case form; tokeniser matches case-insensitively.
-  preserved_phrases:
-    - "enterprise capacity"
-    - "iron wolf"
-    - "iron wolf pro"
-    - "skyhawk ai"
-    - "barracuda pro"
-    - "hot swap"
-    - "self encrypting"
-
-  # Mandatory keyword categories per drive class (from the private skill's
-  # "Title Rules" canonical). The category NAMES below are the contract — the
-  # orchestrator resolves each category to a literal token using the listing's
-  # specifics dict (e.g. Brand → "Seagate") and passes that resolved list as
-  # `mandatory_keywords` to compute_keyword_diff.
-  mandatory_by_drive_class:
-    3.5_inch_sata:
-      - Brand
-      - Capacity
-      - Interface
-      - "Form Factor (3.5\")"
-      - RPM
-      - Series name
-      - MPN
-    2.5_inch_sata:
-      - Brand
-      - Capacity
-      - Interface
-      - "Form Factor (2.5\")"
-      - RPM
-      - Series name
-      - MPN
-    sas:
-      - HPE
-      - Capacity
-      - SAS
-      - Speed
-      - RPM
-      - "Form Factor"
-      - "B21 part number"
-
 # Issue #14 — apple-to-apples competitor filter quality. Three-layer pipeline
 # driven by Browse-API quality signals + price-outlier guard. Layer-1 binary
 # hard rejects only for unambiguous junk; seller-quality signals demoted to
@@ -98,25 +65,19 @@ comp_filter:
     returns_within_days: 0.05
     top_rated: 0.05
 
+  # Generic, product-neutral hard-reject categories only. The storage-specific
+  # accessory / form-factor reject subsets are in the private overlay and
+  # merged in at runtime.
   hard_reject_patterns:
     broken_or_parts:
       - '\b(for parts(\s+(or|and)\s+(not\s+)?(working|repair))?|spares?\s+(or|and)?\s*repair|as[\s-]?is|untested|not\s+(working|tested|fully\s+tested)|defective|faulty|bad\s+sectors?|fail(ed|ing|ure))\b'
-    external_or_wrong_form_factor:
-      - '\b(external\s+(enclosure|drive|hard\s+drive|hdd|usb)|usb\s+(3\.0|3\.1|hard\s+drive|hdd)|portable\s+(drive|hdd)|nas\s+enclosure|drive\s+enclosure|usb\s+caddy|backup\s+plus)\b'
-    wrong_category:
-      - '\b(raid\s+(card|controller)|hba\s+(card|controller)|controller\s+card|sas\s+expander|backplane|interposer|sled|caddy\s+only|tray\s+only|bracket\s+only|screws?\s+only)\b'
     bundle:
       - '\b(\d+\s*[x×]\s*(hdd|ssd|drive|disk)|lot\s+of\s+\d+|\d+\s*[-\s]?(pack|pcs?|pieces?|units?)|(joblot|job\s*lot|bundle|set\s+of\s+\d+)|x\s*\d+\s+(drives?|disks?|hdds?))\b'
-
-  # Phase 3.1 — caddy mismatch hard-reject patterns. Triggered ONLY when
-  # own_listing has caddy (title contains "+Caddy", or specifics["Features"]
-  # contains "Hot Swap"/"Caddy", or has_caddy=True at runtime).
-  caddy_mismatch_patterns:
-    - '\b(no\s+caddy|without\s+caddy|w/o\s+caddy|sans\s+caddy|caddy\s+not\s+included|bare\s+drive|drive\s+only)\b'
 
   # Phase 2.3 — numeric conditionId equivalence classes. Comp passes Dim-3
   # condition match when comp.condition_id is in the equivalence set of own's.
   # 7000 (For parts) intentionally excluded — never apple-to-apples for working stock.
+  # Generic eBay condition-ID semantics — product-neutral, stays public.
   condition_equivalence:
     "1000":                    # New — strict
       - "1000"
@@ -137,34 +98,3 @@ comp_filter:
   concentration:
     threshold_pct: 0.40
     min_pool_size: 4
-
-  # Stub #18 — sibling-MPN allowlist for cross-SKU comp-pool acceptance.
-  # Default: empty → ANY own.MPN absent from comp.title is hard-rejected as
-  # mpn_mismatch. Add legitimate variant pairs (e.g. 4Kn ↔ 512e of same family)
-  # as a bidirectional allowlist when their pricing tracks together.
-  # Schema: {own_mpn: [accepted_sibling_mpn_1, accepted_sibling_mpn_2, ...]}.
-  # Note: allowlist is one-directional in storage but symmetric expansion is
-  # the intended use — add entries on BOTH sides of the pair to guarantee
-  # query-direction independence (see browse._comp_title_has_own_or_sibling_mpn).
-  sibling_allowlist: {}
-
-  # Phase 3.2 — series names that distinguish SKUs (Seagate HARD CONTRACT et al).
-  # When own_listing.title contains one of these, comp title MUST contain the
-  # SAME series (case-insensitive) or be hard-rejected.
-  series_names:
-    - "enterprise capacity"   # vs Exos — Seagate HARD CONTRACT per SKILL.md:112-126
-    - "exos"
-    - "iron wolf"
-    - "iron wolf pro"
-    - "barracuda"
-    - "barracuda pro"
-    - "skyhawk"
-    - "skyhawk ai"
-    - "ironwolf"              # Seagate spells both ways
-    - "ultrastar"             # HGST family
-    - "deskstar"              # HGST consumer
-    - "travelstar"            # HGST 2.5"
-    - "gold"                  # WD enterprise
-    - "red"                   # WD NAS
-    - "red pro"               # WD NAS pro
-    - "purple"                # WD surveillance
