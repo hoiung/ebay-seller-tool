@@ -48,7 +48,7 @@ def _fake_get_item(price: str = "35.00") -> SimpleNamespace:
                 ItemSpecifics=SimpleNamespace(
                     NameValueList=[
                         SimpleNamespace(Name="Brand", Value="Fabrikam"),
-                        SimpleNamespace(Name="MPN", Value="MDL-A24"),
+                        SimpleNamespace(Name="MPN", Value="FBKM-ALPHA-01"),
                     ]
                 ),
             )
