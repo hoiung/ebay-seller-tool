@@ -30,9 +30,9 @@ from ebay.browse import (
 
 def _own(**overrides) -> dict:
     base = {
-        "title": "Fabrikam MDL-A03 2TB Series-Alpha 2.5 SAS HDD",
+        "title": "Fabrikam FBKM-ALPHA-01 2TB Northwind Alpha 2.5 SAS HDD",
         "specifics": {
-            "MPN": ["MDL-A03"],
+            "MPN": ["FBKM-ALPHA-01"],
             "Form Factor": ['2.5"'],
         },
         "condition_id": "3000",
@@ -46,7 +46,7 @@ def _comp(**overrides) -> dict:
     creation = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     base = {
         "item_id": "v1|c1",
-        "title": "MDL-A03 2.5 SAS Series-Alpha HDD",
+        "title": "FBKM-ALPHA-01 2.5 SAS Northwind Alpha HDD",
         "price": 35.00,
         "condition": "Used",
         "condition_id": "3000",
@@ -88,10 +88,10 @@ def test_image_binary_intermittent_omission_kept() -> None:
 def test_regex_broken_or_parts() -> None:
     """1.5.2 — Phase 1.3 broken_or_parts regex hard-rejects."""
     titles = [
-        "MDL-A03 for parts",
-        "MDL-A03 spares or repair",
-        "MDL-A03 untested faulty",
-        "MDL-A03 not working",
+        "FBKM-ALPHA-01 for parts",
+        "FBKM-ALPHA-01 spares or repair",
+        "FBKM-ALPHA-01 untested faulty",
+        "FBKM-ALPHA-01 not working",
     ]
     comps = [_comp(item_id=str(i), title=t) for i, t in enumerate(titles)]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=_own())
@@ -100,11 +100,11 @@ def test_regex_broken_or_parts() -> None:
 
 
 def test_regex_external_or_wrong_form_factor() -> None:
-    """1.5.2 — external/USB/portable enclosures hard-rejected."""
+    """1.5.2 — external/portable wrong-form-factor hard-rejected (synthetic overlay pattern)."""
     titles = [
-        "MDL-A03 external hard drive USB 3.0",
-        "Backup Plus portable HDD 2TB",
-        "drive enclosure caddy",
+        "FBKM-ALPHA-01 external widget unit",
+        "portable widget 2TB",
+        "external widget storage device",
     ]
     comps = [_comp(item_id=str(i), title=t) for i, t in enumerate(titles)]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=_own())
@@ -113,11 +113,11 @@ def test_regex_external_or_wrong_form_factor() -> None:
 
 
 def test_regex_wrong_category() -> None:
-    """1.5.2 — RAID controllers / caddies-only / brackets hard-rejected."""
+    """1.5.2 — wrong-category accessories hard-rejected (synthetic overlay pattern)."""
     titles = [
-        "Dell PERC H730 RAID controller card",
-        "HPE caddy only no drive",
-        "Drive sled bracket only",
+        "widget controller card",
+        "Fabrikam widget bracket only",
+        "widget controller expander",
     ]
     comps = [_comp(item_id=str(i), title=t) for i, t in enumerate(titles)]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=_own())
@@ -176,14 +176,14 @@ def test_lot_token_alone_known_gap() -> None:
 
 
 def test_kit_false_positive_avoidance() -> None:
-    """1.5.4 — single-drive listings with 'caddy kit' / 'mounting kit' etc. NOT rejected.
+    """1.5.4 — single-drive listings with 'sleeve kit' / 'mounting kit' etc. NOT rejected.
 
     Old _BUNDLE_KEYWORDS treated bare 'kit' as bundle marker. New bundle regex
-    requires explicit count tokens — 'caddy kit' on a single-drive listing
+    requires explicit count tokens — 'sleeve kit' on a single-drive listing
     survives Layer-1.
     """
     survivors, audit = filter_low_quality_competitors(
-        [_comp(title="Litware 2TB drive with caddy kit")],
+        [_comp(title="Fabrikam 2TB drive with sleeve kit")],
         own_listing=None,  # disable own-aware checks
     )
     assert len(survivors) == 1
@@ -216,7 +216,7 @@ def test_regex_pattern_cache_identity() -> None:
 
 def test_filter_perf_bench_100_comps_under_50ms() -> None:
     """1.3.1 — 100-comp pool through filter must complete in <50ms (cache hit)."""
-    comps = [_comp(item_id=str(i), title=f"MDL-A03 listing {i}") for i in range(100)]
+    comps = [_comp(item_id=str(i), title=f"FBKM-ALPHA-01 listing {i}") for i in range(100)]
     # Warm the cache.
     filter_low_quality_competitors(comps, own_listing=_own())
     start = time.perf_counter()
@@ -280,8 +280,8 @@ def test_condition_equivalence_for_parts_excluded() -> None:
 
 def test_caddy_match_own_with_caddy_comp_silent_kept() -> None:
     """3.3.1 — own has +Caddy, comp silent on caddy → kept (unknown, not penalised at L1)."""
-    own = _own(title="MDL-A03 +Caddy 2.5 SAS")
-    comps = [_comp(title="MDL-A03 2.5 SAS HDD")]  # no caddy/no-caddy mention
+    own = _own(title="FBKM-ALPHA-01 +Caddy 2.5 SAS")
+    comps = [_comp(title="FBKM-ALPHA-01 2.5 SAS HDD")]  # no caddy/no-caddy mention
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert audit["dropped_reasons"] == {}
@@ -289,8 +289,8 @@ def test_caddy_match_own_with_caddy_comp_silent_kept() -> None:
 
 def test_caddy_mismatch_own_with_caddy_comp_no_caddy_dropped() -> None:
     """3.3.2 — own has +Caddy + comp says 'no caddy' → caddy_mismatch hard reject."""
-    own = _own(title="MDL-A03 +Caddy 2.5 SAS")
-    comps = [_comp(title="MDL-A03 bare drive no caddy")]
+    own = _own(title="FBKM-ALPHA-01 +Caddy 2.5 SAS")
+    comps = [_comp(title="FBKM-ALPHA-01 bare unit")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 0
     assert audit["dropped_reasons"]["caddy_mismatch"] == 1
@@ -301,26 +301,26 @@ def test_caddy_own_no_caddy_state_irrelevant() -> None:
 
     Use generic own title (no series name) to isolate caddy logic from series logic.
     """
-    own = _own(title="Generic 2TB SAS HDD MDL-A03")  # no +Caddy, no series
-    comps = [_comp(title="MDL-A03 bare drive no caddy")]
+    own = _own(title="Generic 2TB SAS HDD FBKM-ALPHA-01")  # no +Caddy, no series
+    comps = [_comp(title="FBKM-ALPHA-01 bare unit")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert audit["dropped_reasons"] == {}
 
 
-def test_series_name_mismatch_series-beta_vs_enterprise_capacity() -> None:
-    """3.3.4 — own='Series-Alpha' + comp='Series-Beta' same MPN → series_mismatch hard reject."""
-    own = _own(title="Fabrikam MDL-A03 2TB Series-Alpha 2.5 SAS")
-    comps = [_comp(title="Fabrikam MDL-A03 Series-Beta 2TB 2.5 SAS")]
+def test_series_name_mismatch_distinct_series() -> None:
+    """3.3.4 — own series A + comp series B (same MPN) → series_mismatch hard reject."""
+    own = _own(title="Fabrikam FBKM-ALPHA-01 2TB Northwind Alpha 2.5 SAS")
+    comps = [_comp(title="Fabrikam FBKM-ALPHA-01 Northwind Beta 2TB 2.5 SAS")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 0
     assert audit["dropped_reasons"]["series_mismatch"] == 1
 
 
 def test_series_name_match_same_series_pass() -> None:
-    """3.3.5 — own='Series-Alpha' + comp='Series-Alpha' → pass."""
-    own = _own(title="Fabrikam MDL-A03 2TB Series-Alpha 2.5 SAS")
-    comps = [_comp(title="Fabrikam MDL-A03 Series-Alpha 2TB 2.5 SAS")]
+    """3.3.5 — own='Northwind Alpha' + comp='Northwind Alpha' → pass."""
+    own = _own(title="Fabrikam FBKM-ALPHA-01 2TB Northwind Alpha 2.5 SAS")
+    comps = [_comp(title="Fabrikam FBKM-ALPHA-01 Northwind Alpha 2TB 2.5 SAS")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert audit["dropped_reasons"] == {}
@@ -328,8 +328,8 @@ def test_series_name_match_same_series_pass() -> None:
 
 def test_series_name_no_own_series_default_pass() -> None:
     """3.3.6 — own has no series name → comp's series doesn't drive Layer-1 reject."""
-    own = _own(title="Generic 2TB SAS HDD MDL-A03")  # no series name
-    comps = [_comp(title="Fabrikam Series-Beta MDL-A03 2TB 2.5 SAS")]
+    own = _own(title="Generic 2TB SAS HDD FBKM-ALPHA-01")  # no series name
+    comps = [_comp(title="Fabrikam Northwind Beta FBKM-ALPHA-01 2TB 2.5 SAS")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert audit["dropped_reasons"] == {}
@@ -339,12 +339,12 @@ def test_caddy_detection_features_specifics() -> None:
     """3.1 — own.specifics['Features'] contains 'Caddy' → own_has_caddy=True."""
     own = _own(
         specifics={
-            "MPN": ["MDL-A03"],
+            "MPN": ["FBKM-ALPHA-01"],
             "Form Factor": ['2.5"'],
             "Features": ["Caddy", "Hot Swap"],
         }
     )
-    comps = [_comp(title="MDL-A03 bare drive no caddy")]
+    comps = [_comp(title="FBKM-ALPHA-01 bare unit")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert audit["dropped_reasons"]["caddy_mismatch"] == 1
 
@@ -352,7 +352,7 @@ def test_caddy_detection_features_specifics() -> None:
 def test_caddy_detection_has_caddy_runtime_arg() -> None:
     """3.1 — own.has_caddy=True (runtime arg) → caddy detection active."""
     own = _own(has_caddy=True)
-    comps = [_comp(title="MDL-A03 without caddy")]
+    comps = [_comp(title="FBKM-ALPHA-01 without sleeve")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert audit["dropped_reasons"]["caddy_mismatch"] == 1
 
@@ -363,14 +363,14 @@ def test_caddy_detection_has_caddy_runtime_arg() -> None:
 
 
 def test_mpn_mismatch_dropped_when_own_mpn_absent_from_title() -> None:
-    """Stub #18 canonical case: own=MDL-A04, comp=MDL-A03. Different
+    """Stub #18 canonical case: own=FBKM-ALPHA-03, comp=FBKM-ALPHA-01. Different
     SKUs (different firmware/label) — must not pool as same comp set."""
     own = _own(
-        title="Fabrikam MDL-A04 2TB 2.5 SAS HDD",
-        specifics={"MPN": ["MDL-A04"], "Form Factor": ['2.5"']},
+        title="Fabrikam FBKM-ALPHA-03 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["FBKM-ALPHA-03"], "Form Factor": ['2.5"']},
     )
     comps = [
-        _comp(title="MDL-A03 Fabrikam 2TB 2.5 SAS HDD"),
+        _comp(title="FBKM-ALPHA-01 Fabrikam 2TB 2.5 SAS HDD"),
     ]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 0
@@ -378,18 +378,18 @@ def test_mpn_mismatch_dropped_when_own_mpn_absent_from_title() -> None:
 
 
 def test_mpn_match_kept_when_own_mpn_in_comp_title() -> None:
-    """own=MDL-A03, comp title contains it → kept."""
-    own = _own()  # MPN=MDL-A03
-    comps = [_comp(title="MDL-A03 Fabrikam Series-Alpha 2TB 2.5 SAS")]
+    """own=FBKM-ALPHA-01, comp title contains it → kept."""
+    own = _own()  # MPN=FBKM-ALPHA-01
+    comps = [_comp(title="FBKM-ALPHA-01 Fabrikam Northwind Alpha 2TB 2.5 SAS")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert "mpn_mismatch" not in audit["dropped_reasons"]
 
 
 def test_mpn_mismatch_case_insensitive_match() -> None:
-    """own=MDL-A03 matches comp title 'MDL-A03' (lowercase) — case-insensitive."""
+    """own=FBKM-ALPHA-01 matches comp title 'fbkm-alpha-01' (lowercase) — case-insensitive."""
     own = _own()
-    comps = [_comp(title="Fabrikam MDL-A03 Series-Alpha 2tb 2.5 sas hdd used")]
+    comps = [_comp(title="fabrikam fbkm-alpha-01 northwind alpha 2tb 2.5 sas hdd used")]
     survivors, _ = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
 
@@ -402,7 +402,7 @@ def test_mpn_mismatch_skipped_when_own_has_no_mpn() -> None:
         title="Generic 2TB SAS HDD",
         specifics={"Form Factor": ['2.5"']},  # no MPN key
     )
-    comps = [_comp(title="MDL-A03 Fabrikam 2TB SAS HDD")]
+    comps = [_comp(title="FBKM-ALPHA-01 Fabrikam 2TB SAS HDD")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert "mpn_mismatch" not in audit["dropped_reasons"]
@@ -411,10 +411,10 @@ def test_mpn_mismatch_skipped_when_own_has_no_mpn() -> None:
 def test_mpn_mismatch_multi_mpn_any_match_keeps() -> None:
     """own.MPN=[A, B], comp title has B → kept (ANY-of match)."""
     own = _own(
-        title="Fabrikam MDL-A04 2TB 2.5 SAS HDD",
-        specifics={"MPN": ["MDL-A04", "MDL-A02"], "Form Factor": ['2.5"']},
+        title="Fabrikam FBKM-ALPHA-03 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["FBKM-ALPHA-03", "FBKM-ALPHA-03-VAR"], "Form Factor": ['2.5"']},
     )
-    comps = [_comp(title="MDL-A02 Fabrikam 2TB 2.5 SAS HDD")]
+    comps = [_comp(title="FBKM-ALPHA-03-VAR Fabrikam 2TB 2.5 SAS HDD")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert len(survivors) == 1
     assert "mpn_mismatch" not in audit["dropped_reasons"]
@@ -429,14 +429,14 @@ def test_mpn_mismatch_sibling_allowlist_keeps_cross_sku() -> None:
     # Inject a temporary sibling-allowlist by patching the cached config dict.
     cfg = _load_filter_config()
     original = cfg["comp_filter"].get("sibling_allowlist", {})
-    cfg["comp_filter"]["sibling_allowlist"] = {"MDL-A04": ["MDL-A03"]}
+    cfg["comp_filter"]["sibling_allowlist"] = {"FBKM-ALPHA-03": ["FBKM-ALPHA-01"]}
     try:
-        # Avoid series-name interference: use a title without "Series-Alpha"
+        # Avoid series-name interference: use a title without "Northwind Alpha"
         own = _own(
-            title="Fabrikam MDL-A04 2TB 2.5 SAS HDD",
-            specifics={"MPN": ["MDL-A04"], "Form Factor": ['2.5"']},
+            title="Fabrikam FBKM-ALPHA-03 2TB 2.5 SAS HDD",
+            specifics={"MPN": ["FBKM-ALPHA-03"], "Form Factor": ['2.5"']},
         )
-        comps = [_comp(title="MDL-A03 Fabrikam 2TB SAS HDD")]
+        comps = [_comp(title="FBKM-ALPHA-01 Fabrikam 2TB SAS HDD")]
         survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
         assert len(survivors) == 1
         assert "mpn_mismatch" not in audit["dropped_reasons"]
@@ -526,13 +526,13 @@ def test_run_comp_filter_pipeline_surfaces_concentration() -> None:
     # Use an own without series-name to avoid filter dropping the comps;
     # focus the test on concentration computation, not filter behaviour.
     own = _own(
-        title="Fabrikam MDL-A03 2TB 2.5 SAS HDD",  # no Series-Alpha / Series-Beta
-        specifics={"MPN": ["MDL-A03"], "Form Factor": ['2.5"']},
+        title="Fabrikam FBKM-ALPHA-01 2TB 2.5 SAS HDD",  # no Northwind Alpha / Northwind Beta
+        specifics={"MPN": ["FBKM-ALPHA-01"], "Form Factor": ['2.5"']},
     )
     comps = [
         _comp(
             item_id=f"v1|{i}",
-            title=f"MDL-A03 unit {i} 2.5 SAS HDD",
+            title=f"FBKM-ALPHA-01 listing {i} 2.5 SAS HDD",
             seller="alice" if i < 4 else "bob",
         )
         for i in range(6)
@@ -547,10 +547,10 @@ def test_run_comp_filter_pipeline_surfaces_concentration() -> None:
 def test_mpn_mismatch_empty_allowlist_default_drops() -> None:
     """Default config has empty sibling_allowlist → no escape hatch, drops."""
     own = _own(
-        title="Fabrikam MDL-A04 2TB 2.5 SAS HDD",
-        specifics={"MPN": ["MDL-A04"], "Form Factor": ['2.5"']},
+        title="Fabrikam FBKM-ALPHA-03 2TB 2.5 SAS HDD",
+        specifics={"MPN": ["FBKM-ALPHA-03"], "Form Factor": ['2.5"']},
     )
-    comps = [_comp(title="MDL-A03 Fabrikam 2TB SAS HDD")]
+    comps = [_comp(title="FBKM-ALPHA-01 Fabrikam 2TB SAS HDD")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
     assert audit["dropped_reasons"]["mpn_mismatch"] == 1
     assert len(survivors) == 0
@@ -626,7 +626,7 @@ def test_drop_outlier_method_none_pass_through() -> None:
 def test_pipeline_audit_flat_seven_keys() -> None:
     """5.1 — flat audit dict has the documented user-facing keys (concentration
     added per Stub #19)."""
-    comps = [_comp(item_id=str(i), title=f"MDL-A03 listing {i}") for i in range(8)]
+    comps = [_comp(item_id=str(i), title=f"FBKM-ALPHA-01 listing {i}") for i in range(8)]
     _, audit_flat, _ = run_comp_filter_pipeline(
         comps,
         own_listing=_own(),
@@ -668,7 +668,7 @@ def test_pipeline_audit_json_serialisable() -> None:
     server.py:1687 does json.dumps(result) — non-serialisable values crash.
     No re.Pattern, no set, no numpy.float64 leaking through.
     """
-    comps = [_comp(item_id=str(i), title=f"MDL-A03 listing {i}") for i in range(6)]
+    comps = [_comp(item_id=str(i), title=f"FBKM-ALPHA-01 listing {i}") for i in range(6)]
     _, audit_flat, audit_verbose = run_comp_filter_pipeline(
         comps,
         own_listing=_own(),
@@ -701,41 +701,31 @@ def test_pipeline_zero_comps_after_filter() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_series_name_word_boundary_no_false_positive_red_label() -> None:
-    """L2-H BUG 2 regression: 'Red Label' in own title must NOT trigger 'red' series match.
+def test_series_name_word_boundary_no_false_positive_substring() -> None:
+    """L2-H BUG 2 regression: a series name must NOT match as a substring inside a
+    larger word — word-boundary matching prevents a false-positive series cull.
 
-    Bare-substring match of 'red' in 'Red Label' would have culled the entire
-    comp pool via false-positive series_mismatch. Word-boundary match prevents.
+    Synthetic mirror of the original bare-word case: the series ``northwind alpha``
+    must NOT match inside the superstring ``Northwind Alphanumeric`` (no word
+    boundary after ``alpha``), so own resolves to NO series and the comp — which
+    carries the matching MPN — survives instead of being wrongly culled.
     """
-    own = _own(title="Sealed Box - Red Label Tape Drive MDL-A03")
-    comps = [_comp(title="MDL-A03 2.5 SAS HDD")]
-    survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
-    # 'red' alone in own title shouldn't trigger series_mismatch on a non-Litware comp.
-    # NOTE: own title also contains 'Red Label' (word-boundary). 'red' as the
-    # Litware Red NAS series only fires on titles like 'Litware Red 4TB' — NOT on
-    # 'Red Label' which is a different word in context. Word-boundary still
-    # matches the bare token 'Red' as a word — true. The fix here is broader:
-    # series detection requires word-boundary BUT the user must accept that
-    # listings literally containing 'red' as a word will still match series 'red'.
-    # This regression test asserts the comp survives because 'red' is in own
-    # title → series='red' → comp must contain 'red' too. comp doesn't, drop.
-    # The REAL fix is documenting that bare-word series like 'red' are inherently
-    # ambiguous; users with non-Litware-Red titles should phrase to avoid the word.
-    # For this test: confirm word-boundary behaviour is in effect.
-    # 'redacted' in own title would NOT match series 'red' (word-boundary).
-    own_redacted = _own(title="Redacted listing MDL-A03")
-    survivors2, audit2 = filter_low_quality_competitors(
-        [_comp(title="MDL-A03 2.5 SAS HDD")], own_listing=own_redacted
+    own_superstring = _own(title="Northwind Alphanumeric Label FBKM-ALPHA-01")
+    survivors, audit = filter_low_quality_competitors(
+        [_comp(title="FBKM-ALPHA-01 2.5 SAS HDD")], own_listing=own_superstring
     )
-    assert len(survivors2) == 1, "word-boundary should NOT match 'red' inside 'Redacted'"
+    assert len(survivors) == 1, (
+        "word-boundary should NOT match series 'northwind alpha' inside 'Northwind Alphanumeric'"
+    )
 
 
 def test_series_name_word_boundary_substring_no_match() -> None:
-    """L2-H BUG 2: own series 'series-beta' must NOT match comp title 'series-betakeleton' (substring trap)."""
-    own = _own(title="MDL-A03 Series-Beta 2TB 2.5 SAS")
-    comps = [_comp(title="MDL-A03 series-betakeleton custom drive 2.5")]
+    """L2-H BUG 2: own series 'northwind beta' must NOT match comp title
+    'northwindbetacustom' (substring trap) — comp lacks the bounded series phrase."""
+    own = _own(title="FBKM-ALPHA-01 Northwind Beta 2TB 2.5 SAS")
+    comps = [_comp(title="FBKM-ALPHA-01 northwindbetacustom drive 2.5")]
     survivors, audit = filter_low_quality_competitors(comps, own_listing=own)
-    # comp doesn't have 'series-beta' as standalone word — word-boundary check should drop it
+    # comp doesn't have 'northwind beta' as a standalone phrase — word-boundary drops it.
     assert audit["dropped_reasons"].get("series_mismatch") == 1
 
 
@@ -822,7 +812,7 @@ def test_lone_supplier_verdict_when_browse_returns_zero() -> None:
     with patch("ebay.browse.get_browse_session", return_value=fake_client):
         result = asyncio.run(
             browse.fetch_competitor_prices(
-                part_number="MDL-A03", condition="USED", own_listing=own
+                part_number="FBKM-ALPHA-01", condition="USED", own_listing=own
             )
         )
     assert result.get("verdict") == "LONE_SUPPLIER"
@@ -843,7 +833,7 @@ def test_thin_pool_verdict_when_kept_between_1_and_3() -> None:
     raw_items = [
         {
             "itemId": f"v1|good{i}",
-            "title": f"MDL-A03 Series-Alpha 2.5 SAS HDD listing {i}",
+            "title": f"FBKM-ALPHA-01 Northwind Alpha 2.5 SAS HDD listing {i}",
             "price": {"value": "30.00", "currency": "GBP"},
             "seller": {
                 "username": f"seller_{i}",
@@ -875,7 +865,7 @@ def test_thin_pool_verdict_when_kept_between_1_and_3() -> None:
     with patch("ebay.browse.get_browse_session", return_value=fake_client):
         result = asyncio.run(
             browse.fetch_competitor_prices(
-                part_number="MDL-A03", condition="USED", own_listing=own
+                part_number="FBKM-ALPHA-01", condition="USED", own_listing=own
             )
         )
     assert result.get("verdict") == "THIN_POOL"
@@ -895,7 +885,7 @@ def test_normal_pool_no_verdict_surfaced() -> None:
     raw_items = [
         {
             "itemId": f"v1|good{i}",
-            "title": f"MDL-A03 Series-Alpha 2.5 SAS HDD listing {i}",
+            "title": f"FBKM-ALPHA-01 Northwind Alpha 2.5 SAS HDD listing {i}",
             "price": {"value": str(30 + i), "currency": "GBP"},
             "seller": {
                 "username": f"seller_{i}",
@@ -927,7 +917,7 @@ def test_normal_pool_no_verdict_surfaced() -> None:
     with patch("ebay.browse.get_browse_session", return_value=fake_client):
         result = asyncio.run(
             browse.fetch_competitor_prices(
-                part_number="MDL-A03", condition="USED", own_listing=own
+                part_number="FBKM-ALPHA-01", condition="USED", own_listing=own
             )
         )
     assert "verdict" not in result
@@ -950,7 +940,7 @@ def test_all_filtered_verdict_literal() -> None:
     raw_items = [
         {
             "itemId": f"v1|p{i}",
-            "title": f"MDL-A03 for parts spares {i}",
+            "title": f"FBKM-ALPHA-01 for parts spares {i}",
             "price": {"value": "20.00", "currency": "GBP"},
             "seller": {"username": f"s{i}", "feedbackPercentage": "99.9", "feedbackScore": 1000},
             "condition": "Used",
@@ -977,7 +967,7 @@ def test_all_filtered_verdict_literal() -> None:
     with patch("ebay.browse.get_browse_session", return_value=fake_client):
         result = asyncio.run(
             browse.fetch_competitor_prices(
-                part_number="MDL-A03", condition="USED", own_listing=own
+                part_number="FBKM-ALPHA-01", condition="USED", own_listing=own
             )
         )
     assert result.get("verdict") == "ALL_FILTERED"
@@ -1033,7 +1023,7 @@ def test_pipeline_outlier_enabled_vs_disabled_p25_p75_shift() -> None:
         comps.append(
             {
                 "item_id": f"c{i}",
-                "title": f"MDL-A03 listing {i}",
+                "title": f"FBKM-ALPHA-01 listing {i}",
                 "price": p,
                 "condition": "Used",
                 "condition_id": "3000",
@@ -1049,7 +1039,7 @@ def test_pipeline_outlier_enabled_vs_disabled_p25_p75_shift() -> None:
         )
 
     # Use own without series name to isolate the outlier stage from L1 series-mismatch.
-    own_no_series = _own(title="MDL-A03 2.5 SAS HDD")
+    own_no_series = _own(title="FBKM-ALPHA-01 2.5 SAS HDD")
     enabled_kept, enabled_audit, _ = run_comp_filter_pipeline(
         comps,
         own_listing=own_no_series,
