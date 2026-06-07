@@ -10,6 +10,17 @@ reinstate any module-level Trading-API call.
 """
 
 import os
+from pathlib import Path
+
+# Point the loader at the SYNTHETIC example data set so the public suite is
+# deterministic regardless of any real EBAY_LISTING_DATA_DIR a developer may
+# have exported (the public repo ships no product data — see
+# ebay/catalogue_loader.py). Forced (not setdefault) so test assertions on the
+# synthetic contract never see a developer's real overlay. Fail-loud tests that
+# need the env UNSET use monkeypatch.delenv.
+os.environ["EBAY_LISTING_DATA_DIR"] = str(
+    Path(__file__).resolve().parent.parent / "ebay" / "listing_data.example"
+)
 
 os.environ.setdefault("EBAY_APP_ID", "test-app-id")
 os.environ.setdefault("EBAY_CERT_ID", "test-cert-id")
