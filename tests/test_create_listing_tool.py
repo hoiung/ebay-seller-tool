@@ -34,9 +34,7 @@ def _mk_product_folder(
         photo.write_bytes(buf.getvalue())
 
     # Synthesise listing-<suffix>.html with a copy-block title row
-    resolved_title = (
-        title or f'Fabrikam Widget {oem_model}'
-    )
+    resolved_title = title or f"Fabrikam Widget {oem_model}"
     html = f"""<html><body>
 <div class="copy-block">
 Title: {resolved_title}
@@ -165,7 +163,7 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Widget FBKM-ALPHA-01',
+                title="Fabrikam Widget FBKM-ALPHA-01",
                 qty=1,
                 condition_id=3000,
                 photos=2,
@@ -214,7 +212,7 @@ def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_pa
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Widget FBKM-ALPHA-01',
+                title="Fabrikam Widget FBKM-ALPHA-01",
                 qty=1,
                 condition_id=3000,
                 photos=2,
@@ -267,7 +265,7 @@ def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> No
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Widget FBKM-ALPHA-01',
+                title="Fabrikam Widget FBKM-ALPHA-01",
                 qty=1,
                 condition_id=3000,
                 photos=2,
@@ -311,7 +309,7 @@ def test_create_listing_uuid_replay_returns_existing_itemid(tmp_path: Path) -> N
             return _fake_add_response("777777777", duplicate=True)
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Widget FBKM-ALPHA-01',
+                title="Fabrikam Widget FBKM-ALPHA-01",
                 qty=1,
                 condition_id=3000,
                 photos=2,
@@ -502,7 +500,7 @@ def test_create_listing_return_shape_matches_update_listing_schema(
             return _fake_add_response("123")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Widget FBKM-ALPHA-01',
+                title="Fabrikam Widget FBKM-ALPHA-01",
                 qty=1,
                 condition_id=3000,
                 photos=2,
@@ -847,7 +845,7 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
             return _fake_add_response("123")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Widget FBKM-ALPHA-01',
+                title="Fabrikam Widget FBKM-ALPHA-01",
                 qty=1,
                 condition_id=3000,
                 photos=1,
@@ -911,7 +909,7 @@ def test_create_listing_country_of_origin_from_param(tmp_path: Path) -> None:
     folder = _mk_product_folder(
         tmp_path,
         oem_model="CTSO-PERF-01",
-        title='Fabrikam Widget CTSO-PERF-01',
+        title="Fabrikam Widget CTSO-PERF-01",
     )
     server._create_listing_uuid_cache.clear()
     captured: dict = {}
@@ -953,7 +951,7 @@ def test_create_listing_rejects_missing_country(tmp_path: Path) -> None:
     folder = _mk_product_folder(
         tmp_path,
         oem_model="CTSO-PERF-01",
-        title='Fabrikam Widget CTSO-PERF-01',
+        title="Fabrikam Widget CTSO-PERF-01",
     )
     server._create_listing_uuid_cache.clear()
     raw = _run(
