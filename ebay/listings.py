@@ -388,10 +388,20 @@ def compute_diff(
                 "after": condition_description,
             }
     if item_specifics is not None and "item_specifics" in before:
-        if item_specifics != before.get("item_specifics"):
+        # The live snapshot list-wraps every value ({"Brand": ["Seagate"]}) while
+        # callers may pass scalars ({"Brand": "Seagate"}), and update_listing
+        # applies a PARTIAL merge over current specifics. So compare the MERGED
+        # result against current, both normalised to list-valued — a re-send of
+        # values identical to live reports no change (not a spurious idempotent
+        # revise), while a real value change or added field is detected.
+        before_specs = before.get("item_specifics") or {}
+        before_norm = {k: (v if isinstance(v, list) else [v]) for k, v in before_specs.items()}
+        incoming_norm = {k: (v if isinstance(v, list) else [v]) for k, v in item_specifics.items()}
+        merged = {**before_norm, **incoming_norm}
+        if merged != before_norm:
             diff["item_specifics"] = {
-                "before_count": len(before.get("item_specifics") or {}),
-                "after_count": len(item_specifics),
+                "before_count": len(before_norm),
+                "after_count": len(merged),
             }
     return diff
 
