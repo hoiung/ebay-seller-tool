@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import os
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,22 @@ TAXONOMY_FILENAME = "series-taxonomy.yaml"
 CATALOGUE_SCHEMA = "listing-catalogue-v1"
 CONTRACT_SCHEMA = "listing-contract-v1"
 TAXONOMY_SCHEMA = "series-taxonomy-v1"
+
+# Reset-hook registry (AC 2.2 shared seam). Consumers that keep their OWN
+# process-local derived caches on top of the loader (``ebay.browse``'s compiled
+# regex caches, ``ebay.title_benchmark``'s sorted-config cache) register a
+# clear-callback here at import time. ``reset_caches()`` invokes them all, so a
+# single call to the shared seam invalidates EVERY listing-data-derived cache —
+# without this low-level loader importing its higher-level consumers (no layering
+# inversion; each module keeps ownership of its own cache-clearing logic).
+_RESET_HOOKS: list[Callable[[], None]] = []
+
+
+def register_reset_hook(hook: Callable[[], None]) -> None:
+    """Register a consumer cache-clear callback invoked by :func:`reset_caches`."""
+    if hook not in _RESET_HOOKS:
+        _RESET_HOOKS.append(hook)
+
 
 # The public generic config lives in the repo; the private overlay is merged
 # onto it at runtime (Phase 2). This path is category-AGNOSTIC — it holds only
@@ -264,11 +281,17 @@ def reset_caches() -> None:
     """Shared reset seam (AC 0.5 + AC 2.2).
 
     Invalidates EVERY cache that reads private listing data so tests can swap
-    the example data / overlay deterministically. ``ebay.browse`` and
-    ``ebay.title_benchmark`` both route their resets through this one function.
+    the example data / overlay deterministically: the loader's own ``lru_cache``
+    layers PLUS every consumer-registered process-local cache (``ebay.browse``'s
+    compiled-pattern caches, ``ebay.title_benchmark``'s sorted-config cache) via
+    the reset-hook registry. ``ebay.browse`` and ``ebay.title_benchmark`` both
+    route their resets through this one function, so a single call here fully
+    invalidates BOTH consumers (not just the loader layer).
     """
     _load_catalogue.cache_clear()
     _load_contract.cache_clear()
     _load_public_config.cache_clear()
     _load_taxonomy_overlay.cache_clear()
     load_filter_config.cache_clear()
+    for hook in _RESET_HOOKS:
+        hook()
