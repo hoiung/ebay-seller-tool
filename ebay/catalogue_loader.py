@@ -45,9 +45,7 @@ TAXONOMY_SCHEMA = "series-taxonomy-v1"
 # The public generic config lives in the repo; the private overlay is merged
 # onto it at runtime (Phase 2). This path is category-AGNOSTIC — it holds only
 # generic knobs (filler words, quality thresholds, condition equivalence).
-_PUBLIC_CONFIG_PATH = (
-    Path(__file__).resolve().parent.parent / "config" / "pricing_and_content.yaml"
-)
+_PUBLIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pricing_and_content.yaml"
 
 # Required sub-keys every catalogue row must carry. The SHAPE is generic (this
 # is a public contract); the VALUES are private. ``height`` may be ``None``
@@ -106,8 +104,7 @@ def _load_yaml_mapping(path: Path, expected_schema: str) -> dict[str, Any]:
         raise ListingDataError(f"malformed YAML at {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise ListingDataError(
-            f"schema: top-level of {path} must be a mapping "
-            f"(got {type(data).__name__})"
+            f"schema: top-level of {path} must be a mapping (got {type(data).__name__})"
         )
     if data.get("schema") != expected_schema:
         raise ListingDataError(
@@ -140,19 +137,14 @@ def _load_contract() -> dict[str, Any]:
     data = _load_yaml_mapping(_data_dir() / CONTRACT_FILENAME, CONTRACT_SCHEMA)
     for required in _REQUIRED_CONTRACT_KEYS:
         if required not in data:
-            raise ListingDataError(
-                f"schema: {CONTRACT_FILENAME} missing required key {required!r}"
-            )
+            raise ListingDataError(f"schema: {CONTRACT_FILENAME} missing required key {required!r}")
     specifics = data["item_specifics"]
     if not isinstance(specifics, list) or not specifics:
-        raise ListingDataError(
-            "schema: contract 'item_specifics' must be a non-empty list"
-        )
+        raise ListingDataError("schema: contract 'item_specifics' must be a non-empty list")
     for idx, field in enumerate(specifics):
         if not isinstance(field, dict) or "name" not in field or "source" not in field:
             raise ListingDataError(
-                f"schema: contract item_specifics[{idx}] must be a mapping with "
-                "'name' and 'source'"
+                f"schema: contract item_specifics[{idx}] must be a mapping with 'name' and 'source'"
             )
     transfer_rate = data["transfer_rate"]
     if not isinstance(transfer_rate, dict) or "default" not in transfer_rate:
@@ -160,13 +152,16 @@ def _load_contract() -> dict[str, Any]:
             "schema: contract 'transfer_rate' must be a mapping with a 'default'"
         )
     storage_format = data["storage_format"]
-    if not isinstance(storage_format, dict) or not {
-        "with_caddy",
-        "without_caddy",
-    } <= storage_format.keys():
+    if (
+        not isinstance(storage_format, dict)
+        or not {
+            "with_caddy",
+            "without_caddy",
+        }
+        <= storage_format.keys()
+    ):
         raise ListingDataError(
-            "schema: contract 'storage_format' must define 'with_caddy' and "
-            "'without_caddy'"
+            "schema: contract 'storage_format' must define 'with_caddy' and 'without_caddy'"
         )
     return data
 
@@ -244,11 +239,7 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
     """
     merged = copy.deepcopy(base)
     for key, value in overlay.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge(merged[key], value)
         else:
             merged[key] = copy.deepcopy(value)
