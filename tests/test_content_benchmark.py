@@ -16,7 +16,7 @@ def _own(**overrides) -> dict:
     """Build a representative own_listing dict (matches listing_to_dict shape)."""
     base = {
         "specifics": {
-            "MPN": ["ST2000NX0253"],
+            "MPN": ["FBKM-ALPHA-01"],
             "Form Factor": ['2.5"'],
         },
         "condition_id": "3000",
@@ -31,7 +31,7 @@ def _own(**overrides) -> dict:
 
 def _comp(
     *,
-    title: str = 'ST2000NX0253 2.5" SAS HDD',
+    title: str = 'FBKM-ALPHA-01 2.5" SAS HDD',
     condition: str = "Used",
     condition_id: str | None = "3000",
     age_days: int = 30,
@@ -80,13 +80,13 @@ def test_score_bundle_keyword_no_score_impact() -> None:
     a comp with all 4 structural dims passing scores 1.0 regardless of caddy
     text in the title.
     """
-    score = score_apple_to_apple(_own(), _comp(title='ST2000NX0253 with caddy 2.5"'))
+    score = score_apple_to_apple(_own(), _comp(title='FBKM-ALPHA-01 with caddy 2.5"'))
     assert score == 1.0
 
 
 def test_score_form_factor_mismatch() -> None:
     """Comp is 3.5" not 2.5" → FF dim fails → 0.75."""
-    score = score_apple_to_apple(_own(), _comp(title="ST2000NX0253 3.5 SAS"))
+    score = score_apple_to_apple(_own(), _comp(title="FBKM-ALPHA-01 3.5 SAS"))
     assert score == 0.75
 
 
@@ -162,8 +162,8 @@ def test_filter_clean_keeps_only_above_threshold() -> None:
     own = _own()
     comps = [
         _comp(),  # 1.0
-        _comp(title="ST2000NX0253 with caddy 2.5"),  # 1.0 (bundle dim removed Phase 1.6)
-        _comp(title="ST2000NX0253 3.5 SAS"),  # MPN+Cond+age, no FF → 0.75
+        _comp(title="FBKM-ALPHA-01 with caddy 2.5"),  # 1.0 (bundle dim removed Phase 1.6)
+        _comp(title="FBKM-ALPHA-01 3.5 SAS"),  # MPN+Cond+age, no FF → 0.75
         _comp(title="generic 3.5 SAS", condition="New", condition_id="1000"),  # 0.25
     ]
     kept = filter_clean_competitors(own, comps, threshold=0.6)
