@@ -16,35 +16,31 @@ canonical, so suggesting them adds noise.
 
 from __future__ import annotations
 
+import copy
 import re
 import unicodedata
-from pathlib import Path
 from typing import Any
 
-import yaml
+from ebay import catalogue_loader
 
-_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "pricing_and_content.yaml"
 _TITLE_CHAR_LIMIT = 80  # eBay title character cap.
 
 _cached_config: dict[str, Any] | None = None
 
 
 def _load_pricing_and_content_config() -> dict[str, Any]:
-    """Load + cache the title knobs YAML. Re-reads if file missing on first call.
+    """Public generic config + private taxonomy overlay, merged at runtime.
 
-    Filler words and preserved phrases are pre-sorted (longest first) at load
-    time so `tokenise_title` doesn't re-sort on every call.
+    Delegates to :func:`ebay.catalogue_loader.load_filter_config` (the single
+    private-data access layer) and works on a deep copy, so the longest-first
+    sort of ``filler_words`` (public) + ``preserved_phrases`` (private overlay)
+    does NOT mutate the loader's shared cached object that ``ebay.browse`` also
+    reads. Cached process-locally so ``tokenise_title`` doesn't re-sort per call.
     """
     global _cached_config
     if _cached_config is not None:
         return _cached_config
-    if not _CONFIG_PATH.exists():
-        raise FileNotFoundError(
-            f"config/pricing_and_content.yaml not found at {_CONFIG_PATH}; "
-            "title benchmarking requires it for filler_words + preserved_phrases."
-        )
-    with open(_CONFIG_PATH) as f:
-        cfg = yaml.safe_load(f) or {}
+    cfg = copy.deepcopy(catalogue_loader.load_filter_config())
     title_section = cfg.get("title") or {}
     fillers = title_section.get("filler_words") or []
     preserved = title_section.get("preserved_phrases") or []
@@ -56,9 +52,11 @@ def _load_pricing_and_content_config() -> dict[str, Any]:
 
 
 def _reset_cache_for_tests() -> None:
-    """Test hook to force re-load (e.g. when tests stub config path)."""
+    """Test hook to force re-load — clears the process-local cache AND the shared
+    loader caches (so a synthetic-overlay swap is seen on the next load)."""
     global _cached_config
     _cached_config = None
+    catalogue_loader.reset_caches()
 
 
 def _ascii_fold(s: str) -> str:
