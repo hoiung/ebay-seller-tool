@@ -17,7 +17,7 @@ UUID_RE = re.compile(r"^[0-9A-F]{32}$")
 
 def _mk_product_folder(
     tmp_path: Path,
-    oem_model: str = "MDL-A03",
+    oem_model: str = "FBKM-ALPHA-01",
     num_photos: int = 2,
     html_suffix: str = "used",
     title: str | None = None,
@@ -35,7 +35,7 @@ def _mk_product_folder(
 
     # Synthesise listing-<suffix>.html with a copy-block title row
     resolved_title = (
-        title or f'Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD {oem_model}'
+        title or f'Fabrikam Widget {oem_model}'
     )
     html = f"""<html><body>
 <div class="copy-block">
@@ -87,8 +87,8 @@ def _fake_getitem_response(
     r.reply.Item.SellingStatus.CurrentPrice.value = "49.99"
     r.reply.Item.SellingStatus.CurrentPrice._currencyID = "GBP"
     r.reply.Item.ListingDetails.ViewItemURL = "https://www.ebay.co.uk/itm/9999"
-    r.reply.Item.PrimaryCategory.CategoryID = "56083"
-    r.reply.Item.PrimaryCategory.CategoryName = "Internal Hard Disk Drives"
+    r.reply.Item.PrimaryCategory.CategoryID = "CONTRACT-CAT-0001"
+    r.reply.Item.PrimaryCategory.CategoryName = "Example Synthetic Category"
     r.reply.Item.SubTitle = None
     nvl = [
         MagicMock(Name="Brand", Value=brand),
@@ -135,7 +135,7 @@ def test_create_listing_dry_run_calls_verify_not_add(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                     )
                 )
@@ -165,11 +165,11 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                title='Fabrikam Widget FBKM-ALPHA-01',
                 qty=1,
                 condition_id=3000,
                 photos=2,
-                mpn="MDL-A03",
+                mpn="FBKM-ALPHA-01",
                 brand="Fabrikam",
             )
         raise AssertionError(f"unexpected verb {verb}")
@@ -184,7 +184,7 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                     )
                 )
@@ -214,11 +214,11 @@ def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_pa
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                title='Fabrikam Widget FBKM-ALPHA-01',
                 qty=1,
                 condition_id=3000,
                 photos=2,
-                mpn="MDL-A03",
+                mpn="FBKM-ALPHA-01",
                 brand="Fabrikam",
             )
         raise AssertionError(f"unexpected verb {verb}")
@@ -233,7 +233,7 @@ def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_pa
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                     )
                 )
@@ -267,11 +267,11 @@ def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> No
             return _fake_add_response("123456789")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                title='Fabrikam Widget FBKM-ALPHA-01',
                 qty=1,
                 condition_id=3000,
                 photos=2,
-                mpn="MDL-A03",
+                mpn="FBKM-ALPHA-01",
                 brand="Fabrikam",
             )
         raise AssertionError(f"unexpected verb {verb}")
@@ -286,7 +286,7 @@ def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> No
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                         best_offer_enabled=False,
                     )
@@ -311,11 +311,11 @@ def test_create_listing_uuid_replay_returns_existing_itemid(tmp_path: Path) -> N
             return _fake_add_response("777777777", duplicate=True)
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                title='Fabrikam Widget FBKM-ALPHA-01',
                 qty=1,
                 condition_id=3000,
                 photos=2,
-                mpn="MDL-A03",
+                mpn="FBKM-ALPHA-01",
                 brand="Fabrikam",
             )
         raise AssertionError(f"unexpected verb {verb}")
@@ -330,7 +330,7 @@ def test_create_listing_uuid_replay_returns_existing_itemid(tmp_path: Path) -> N
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                     )
                 )
@@ -352,7 +352,7 @@ def test_create_listing_missing_photos_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             dry_run=True,
             picture_urls=None,
         )
@@ -363,7 +363,7 @@ def test_create_listing_missing_photos_fails_loudly(tmp_path: Path) -> None:
 
 
 def test_create_listing_unknown_mpn_fails_loudly(tmp_path: Path) -> None:
-    folder = _mk_product_folder(tmp_path, oem_model="MDL-SENTINEL")
+    folder = _mk_product_folder(tmp_path, oem_model="NOPE-MODEL-99")
 
     raw = _run(
         server.create_listing(
@@ -372,15 +372,17 @@ def test_create_listing_unknown_mpn_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             dry_run=True,
         )
     )
     result = json.loads(raw)
     assert "error" in result
     assert "Unknown MPN" in result["error"]
-    assert "MDL-SENTINEL" in result["error"]
-    assert "hdd_specs.py" in result["error"]
+    assert "NOPE-MODEL-99" in result["error"]
+    # error references the private data source/env, never a public in-repo file
+    assert "EBAY_LISTING_DATA_DIR" in result["error"]
+    assert "hdd_specs" not in result["error"]
 
 
 def test_create_listing_invalid_condition_fails_loudly(tmp_path: Path) -> None:
@@ -393,7 +395,7 @@ def test_create_listing_invalid_condition_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Refurbished",  # not in CONDITION_MAP
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             dry_run=True,
         )
     )
@@ -413,7 +415,7 @@ def test_create_listing_title_over_80_chars_fails_loudly(tmp_path: Path) -> None
             quantity=1,
             condition="Used",
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             dry_run=True,
         )
     )
@@ -432,7 +434,7 @@ def test_create_listing_price_zero_fails_loudly(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             dry_run=True,
         )
     )
@@ -472,7 +474,7 @@ def test_create_listing_partial_upload_failure_preserves_uploaded_urls(
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                     )
                 )
@@ -500,11 +502,11 @@ def test_create_listing_return_shape_matches_update_listing_schema(
             return _fake_add_response("123")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SATA III HDD MDL-A03',
+                title='Fabrikam Widget FBKM-ALPHA-01',
                 qty=1,
                 condition_id=3000,
                 photos=2,
-                mpn="MDL-A03",
+                mpn="FBKM-ALPHA-01",
                 brand="Fabrikam",
             )
         raise AssertionError(verb)
@@ -519,7 +521,7 @@ def test_create_listing_return_shape_matches_update_listing_schema(
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                     )
                 )
@@ -542,7 +544,7 @@ def test_create_listing_rejects_non_directory(tmp_path: Path) -> None:
             quantity=1,
             condition="Used",
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             dry_run=True,
         )
     )
@@ -575,7 +577,7 @@ def test_create_listing_uuid_cache_stable_across_calls(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                     )
                 )
@@ -586,7 +588,7 @@ def test_create_listing_uuid_cache_stable_across_calls(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                     )
                 )
@@ -609,8 +611,8 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
             return _fake_verify_response()
         raise AssertionError(verb)
 
-    html_a = '<div class="copy-block">Variant A Title One MDL-A03</div><h1>x</h1>'
-    html_b = '<div class="copy-block">Variant B Title Two Low Hours MDL-A03</div><h1>x</h1>'
+    html_a = '<div class="copy-block">Variant A Title One FBKM-ALPHA-01</div><h1>x</h1>'
+    html_b = '<div class="copy-block">Variant B Title Two Low Hours FBKM-ALPHA-01</div><h1>x</h1>'
     with patch("server.execute_with_retry", side_effect=fake_exec):
         with patch("ebay.photos.execute_with_retry", side_effect=fake_exec):
             with patch("server.UPLOAD_RATE_LIMIT_SLEEP_SECONDS", 0):
@@ -621,7 +623,7 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                         description_html=html_a,
                     )
@@ -633,7 +635,7 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                         description_html=html_b,
                     )
@@ -643,11 +645,11 @@ def test_create_listing_distinct_titles_get_distinct_uuids(tmp_path: Path) -> No
 
 
 def test_create_listing_transfer_rate_12g_from_title(tmp_path: Path) -> None:
-    """Title authoritative for Transfer Rate per P3.5."""
+    """Title is authoritative for the transfer rate (contract-mapped token)."""
     folder = _mk_product_folder(
         tmp_path,
-        oem_model="MDL-A02",  # SAS 12G drive in HDD_SPECS
-        title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SAS 12Gb/s HDD MDL-A02',
+        oem_model="CTSO-PERF-01",
+        title="Fabrikam Widget fastbus CTSO-PERF-01",
     )
     server._create_listing_uuid_cache.clear()
     captured: dict = {}
@@ -673,22 +675,22 @@ def test_create_listing_transfer_rate_12g_from_title(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                     )
                 )
 
     nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
-    tr_row = next(r for r in nvl if r["Name"] == "Transfer Rate")
-    assert tr_row["Value"] == ["12G"]
+    tr_row = next(r for r in nvl if r["Name"] == "Link Rate")
+    assert tr_row["Value"] == ["RATE-HI"]
 
 
 def test_create_listing_transfer_rate_3g_from_title(tmp_path: Path) -> None:
-    """SATA II / 3Gb/s in title → Transfer Rate = 3G (P3.5 branch coverage)."""
+    """A low-rate token in the title → the contract's low rate (branch coverage)."""
     folder = _mk_product_folder(
         tmp_path,
-        oem_model="MDL-A03",
-        title='Fabrikam Enterprise 2TB 7200RPM 15mm 2.5" SATA II HDD MDL-A03',
+        oem_model="FBKM-ALPHA-01",
+        title="Fabrikam Widget slowbus FBKM-ALPHA-01",
     )
     server._create_listing_uuid_cache.clear()
     captured: dict = {}
@@ -714,19 +716,19 @@ def test_create_listing_transfer_rate_3g_from_title(tmp_path: Path) -> None:
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=True,
                     )
                 )
 
     nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
-    tr_row = next(r for r in nvl if r["Name"] == "Transfer Rate")
-    assert tr_row["Value"] == ["3G"]
+    tr_row = next(r for r in nvl if r["Name"] == "Link Rate")
+    assert tr_row["Value"] == ["RATE-LO"]
 
 
 def test_create_listing_glob_case_insensitive_JPG(tmp_path: Path) -> None:
     """_glob_label_photos discovers both .jpg and .JPG (iPhone naming)."""
-    folder = tmp_path / "MDL-A03"
+    folder = tmp_path / "FBKM-ALPHA-01"
     folder.mkdir()
     for name in ("IMG20260420090000.jpg", "IMG20260420090001.JPG"):
         im = Image.new("RGB", (100, 100), (200, 100, 50))
@@ -739,26 +741,28 @@ def test_create_listing_glob_case_insensitive_JPG(tmp_path: Path) -> None:
     assert any(p.endswith(".JPG") for p in found)
 
 
-def test_build_21_field_specifics_raises_on_missing_required() -> None:
-    """Fail-Fast: HDD_SPECS with a None required field fails loud (no silent '')."""
+def test_build_item_specifics_raises_on_missing_required() -> None:
+    """Fail-Fast: a catalogue row with a None required field fails loud (no silent '')."""
+    contract = server.load_listing_data()["contract"]
     broken = {
         "brand": None,
-        "family": "Series-Alpha",
+        "family": "Northwind Alpha",
         "capacity": "2TB",
         "rpm": "7200 RPM",
-        "interface": "SATA III",
-        "transfer_rate": "6G",
+        "interface": "Synthetic-Bus III",
+        "transfer_rate": "RATE-MID",
         "cache": "128 MB",
         "form_factor": "2.5 in",
         "height": "15mm",
     }
     with pytest.raises(ValueError, match=r"empty/None required field"):
-        server._build_21_field_specifics(
-            "MDL-A03",
-            'Fabrikam 2TB 7200RPM 2.5" SATA III HDD',
+        server._build_item_specifics(
+            "FBKM-ALPHA-01",
+            "Fabrikam Widget",
             has_caddy=False,
-            country_of_origin="China",
+            country_of_origin="Atlantis",
             specs=broken,
+            contract=contract,
         )
 
 
@@ -771,10 +775,10 @@ _WORKSHEET = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>x</title>
 <style>body{font-family:Arial}</style></head>
 <body>
-<h1>Fabrikam Series-Alpha 2TB <span class="condition-badge">USED</span></h1>
+<h1>Fabrikam Widget <span class="condition-badge">USED</span></h1>
 <p class="note">STANDARD POOL listing. low-hours file is listing-used-low-poh.html.</p>
 <h2>Title <span class="note">(paste into eBay title field)</span></h2>
-<div class="copy-block">Fabrikam Series-Alpha 2TB 7200RPM 2.5" SATA III HDD MDL-A03</div>
+<div class="copy-block">Fabrikam Widget FBKM-ALPHA-01</div>
 <h2>Item Specifics <span class="note">(eBay item specifics fields)</span></h2>
 <table><tr><th>Field</th><th>Value</th></tr><tr><td>Brand</td><td>Fabrikam</td></tr></table>
 <h2>Description <span class="note">(paste into eBay description editor)</span></h2>
@@ -822,7 +826,7 @@ def test_extract_description_body_fallback_strips_chrome_and_scaffolding() -> No
 def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> None:
     """End-to-end: the AddFixedPriceItem payload must carry the listing body
     and NONE of the worksheet scaffolding (regression for the verbatim-publish bug)."""
-    folder = tmp_path / "MDL-A03"
+    folder = tmp_path / "FBKM-ALPHA-01"
     folder.mkdir()
     im = Image.new("RGB", (400, 300), (10, 100, 200))
     buf = BytesIO()
@@ -843,11 +847,11 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
             return _fake_add_response("123")
         if verb == "GetItem":
             return _fake_getitem_response(
-                title='Fabrikam Series-Alpha 2TB 7200RPM 2.5" SATA III HDD MDL-A03',
+                title='Fabrikam Widget FBKM-ALPHA-01',
                 qty=1,
                 condition_id=3000,
                 photos=1,
-                mpn="MDL-A03",
+                mpn="FBKM-ALPHA-01",
                 brand="Fabrikam",
             )
         raise AssertionError(verb)
@@ -862,7 +866,7 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
                         quantity=1,
                         condition="Used",
                         has_caddy=False,
-                        country_of_origin="China",
+                        country_of_origin="Atlantis",
                         dry_run=False,
                     )
                 )
@@ -870,7 +874,7 @@ def test_create_listing_publishes_body_only_not_worksheet(tmp_path: Path) -> Non
     result = json.loads(raw)
     assert result["success"] is True
     # Title still derives from the worksheet copy-block.
-    assert "MDL-A03" in result["after"]["title"]
+    assert "FBKM-ALPHA-01" in result["after"]["title"]
     # Published description = body only, no scaffolding.
     desc = captured["Item"]["Description"]
     assert "warning-title" in desc
@@ -902,12 +906,12 @@ def test_update_listing_accepts_2750_used_excellent(tmp_path: Path) -> None:
 
 
 def test_create_listing_country_of_origin_from_param(tmp_path: Path) -> None:
-    """The passed country_of_origin reaches the Country of Origin item-specific
-    (per-listing / label-authoritative), NOT a hardcoded 'China' (#44 AC1.2)."""
+    """The passed country_of_origin reaches the contract's country item-specific
+    (per-listing / label-authoritative), NOT a hardcoded default (#44 AC1.2)."""
     folder = _mk_product_folder(
         tmp_path,
-        oem_model="MDL-A02",
-        title='Fabrikam Series-Alpha 2TB 7200RPM 15mm 2.5" SAS 12Gb/s HDD MDL-A02',
+        oem_model="CTSO-PERF-01",
+        title='Fabrikam Widget CTSO-PERF-01',
     )
     server._create_listing_uuid_cache.clear()
     captured: dict = {}
@@ -939,17 +943,17 @@ def test_create_listing_country_of_origin_from_param(tmp_path: Path) -> None:
                 )
 
     nvl = captured["payload"]["Item"]["ItemSpecifics"]["NameValueList"]
-    coo = next(r for r in nvl if r["Name"] == "Country of Origin")
+    coo = next(r for r in nvl if r["Name"] == "Origin Mark")
     assert coo["Value"] == ["Thailand"]
 
 
 def test_create_listing_rejects_missing_country(tmp_path: Path) -> None:
     """Anti-silent-default: create_listing fails loud when country_of_origin is
-    absent — the manufacture country is never defaulted (no hidden 'China') (#44 AC1.3)."""
+    absent — the manufacture country is never defaulted (no hidden 'Atlantis') (#44 AC1.3)."""
     folder = _mk_product_folder(
         tmp_path,
-        oem_model="MDL-A02",
-        title='Fabrikam 2TB 7200RPM 2.5" SAS HDD MDL-A02',
+        oem_model="CTSO-PERF-01",
+        title='Fabrikam Widget CTSO-PERF-01',
     )
     server._create_listing_uuid_cache.clear()
     raw = _run(
@@ -966,15 +970,17 @@ def test_create_listing_rejects_missing_country(tmp_path: Path) -> None:
     assert "country_of_origin required" in body.get("error", ""), body
 
 
-def test_build_21_field_specifics_raises_on_empty_country() -> None:
+def test_build_item_specifics_raises_on_empty_country() -> None:
     """Builder fails loud on empty/whitespace country (mirrors the required-spec
     guard) — no silent default at the builder layer either (#44 AC1.3)."""
-    specs = dict(server.HDD_SPECS["MDL-A02"])
+    data = server.load_listing_data()
+    specs = dict(data["catalogue"]["CTSO-PERF-01"])
     with pytest.raises(ValueError, match=r"country_of_origin is required"):
-        server._build_21_field_specifics(
-            "MDL-A02",
-            'Fabrikam 2TB 7200RPM 2.5" SAS HDD MDL-A02',
+        server._build_item_specifics(
+            "CTSO-PERF-01",
+            "Fabrikam Widget CTSO-PERF-01",
             has_caddy=False,
             specs=specs,
             country_of_origin="   ",
+            contract=data["contract"],
         )
