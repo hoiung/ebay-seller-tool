@@ -75,7 +75,7 @@ def _fake_get_item(photos: list[str] | None = None) -> SimpleNamespace:
                 ReturnPolicy=None,
                 PictureDetails=pic_details,
                 ItemSpecifics=SimpleNamespace(
-                    NameValueList=[SimpleNamespace(Name="Brand", Value="Seagate")]
+                    NameValueList=[SimpleNamespace(Name="Brand", Value="Fabrikam")]
                 ),
             )
         )
