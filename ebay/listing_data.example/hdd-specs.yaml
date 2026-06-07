@@ -1,0 +1,74 @@
+# SYNTHETIC example catalogue — NOT real product data.
+#
+# This file exists so the PUBLIC test suite + CI can exercise the generic
+# loader/builder without any product/category specifics. Every token here is
+# fabricated (Fabrikam / Northwind / Contoso are placeholder names) and is
+# chosen NOT to match the forward-prevention oracle's OEM-shape regexes or any
+# real series name. The real catalogue lives in the private ebay-ops repo and
+# is pointed at by EBAY_LISTING_DATA_DIR at runtime.
+#
+# Shape coverage (asserted by tests): a height=null row, a high-link-rate
+# archetype, a base/-VAR sibling pair with DIFFERENT families, and two rows
+# sharing one family.
+schema: listing-catalogue-v1
+catalogue:
+  FBKM-ALPHA-01:
+    brand: Fabrikam
+    family: Northwind Alpha
+    capacity: 2TB
+    rpm: 7200 RPM
+    interface: Synthetic-Bus III
+    transfer_rate: RATE-MID
+    cache: 128 MB
+    form_factor: 2.5 in
+    height: 15mm
+  FBKM-ALPHA-03:
+    brand: Fabrikam
+    family: Northwind Alpha
+    capacity: 2TB
+    rpm: 7200 RPM
+    interface: Synthetic-Bus III
+    transfer_rate: RATE-MID
+    cache: 128 MB
+    form_factor: 2.5 in
+    height: 15mm
+  FBKM-ALPHA-03-VAR:
+    brand: Fabrikam
+    family: Northwind Gamma
+    capacity: 2TB
+    rpm: 7200 RPM
+    interface: Synthetic-Bus III
+    transfer_rate: RATE-MID
+    cache: 128 MB
+    form_factor: 2.5 in
+    height: 15mm
+  FBKM-BETA-01:
+    brand: Fabrikam
+    family: Northwind Beta
+    capacity: 4TB
+    rpm: 7200 RPM
+    interface: Synthetic-Bus
+    transfer_rate: RATE-MID
+    cache: 128 MB
+    form_factor: 3.5 in
+    height: null
+  FBKM-BETA-02:
+    brand: Fabrikam
+    family: Northwind Beta
+    capacity: 3TB
+    rpm: 7200 RPM
+    interface: Synthetic-Bus
+    transfer_rate: RATE-MID
+    cache: 64 MB
+    form_factor: 3.5 in
+    height: null
+  CTSO-PERF-01:
+    brand: Contoso
+    family: Contoso Performance
+    capacity: 1.2TB
+    rpm: 10000 RPM
+    interface: Synthetic-SAS
+    transfer_rate: RATE-HI
+    cache: 128 MB
+    form_factor: 2.5 in
+    height: 15mm
