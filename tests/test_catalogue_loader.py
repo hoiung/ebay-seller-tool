@@ -149,3 +149,47 @@ def test_loader_caches_and_reset_isolates(monkeypatch, tmp_path):
     swapped = cl.load_listing_data()["catalogue"]
     assert swapped is not first
     assert set(swapped) == {"ONLY-ROW"}
+
+
+def test_register_reset_hook_invoked_by_reset_caches():
+    """reset_caches() invokes every registered consumer hook, and registration is
+    idempotent (AC 2.2 shared-seam registry — guards against the for-hook loop or
+    a consumer registration being silently dropped)."""
+    saved = list(cl._RESET_HOOKS)
+    calls: list[int] = []
+    try:
+        cl.register_reset_hook(lambda: calls.append(1))
+        cl.reset_caches()
+        assert calls == [1], "registered hook was not invoked by reset_caches()"
+        # idempotent: re-registering the same callable does not double-add
+        hook = cl._RESET_HOOKS[-1]
+        before = len(cl._RESET_HOOKS)
+        cl.register_reset_hook(hook)
+        assert len(cl._RESET_HOOKS) == before
+    finally:
+        cl._RESET_HOOKS[:] = saved
+
+
+def test_reset_caches_clears_browse_compiled_pattern_caches():
+    """AC 2.2 — the single shared seam invalidates ebay.browse's compiled-pattern
+    lru_caches (the browse→title_benchmark direction the round-2 Ralph fix closed)."""
+    from ebay import browse
+
+    browse._compiled_hard_reject_patterns()
+    browse._compiled_caddy_patterns()
+    assert browse._compiled_hard_reject_patterns.cache_info().currsize == 1
+    assert browse._compiled_caddy_patterns.cache_info().currsize == 1
+    cl.reset_caches()
+    assert browse._compiled_hard_reject_patterns.cache_info().currsize == 0
+    assert browse._compiled_caddy_patterns.cache_info().currsize == 0
+
+
+def test_reset_caches_clears_title_benchmark_config():
+    """AC 2.2 — the single shared seam invalidates ebay.title_benchmark's
+    sorted-config cache (the title_benchmark→browse direction the fix closed)."""
+    from ebay import title_benchmark
+
+    title_benchmark._load_pricing_and_content_config()
+    assert title_benchmark._cached_config is not None
+    cl.reset_caches()
+    assert title_benchmark._cached_config is None
