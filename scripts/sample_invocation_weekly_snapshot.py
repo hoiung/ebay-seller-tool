@@ -121,9 +121,9 @@ def _payload_for(idx: int) -> dict:
         "data_quality_caveat": "post-#29-toggle-window" if idx < 6 else None,
         "applied_at": None,
         # v2-deferred (write-only in v1; populate to verify round-trip)
-        "mpn": f"ST{2000 + idx}NX0253",
-        "drive_type": "HDD",
-        "product_line": "Series-Alpha",
+        "mpn": f"FBKM-ALPHA-{idx:02d}",
+        "drive_type": "Widget",
+        "product_line": "Northwind Alpha",
         "condition_id": 3000,
         "cond_name": "Used",
         "watchers": idx % 3,
