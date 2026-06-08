@@ -41,6 +41,55 @@ OEM_SHAPE='(\bST[0-9]{3,4}[A-Z0-9]{4,8}\b|\bMB[0-9]{4}G[A-Z]{2,5}\b|\bEG[0-9]{4}
 # (d) HPE option / spare part numbers (NNNNNN-B21 / NNNNNN-001). Case-sensitive.
 HPE_PARTS='\b[0-9]{6}-(B21|001)\b'
 
+# (e) Series names. Unlike (a)-(d) these have NO detectable SHAPE (they are
+#     arbitrary product-line words), so they cannot be embedded here as literals
+#     without re-leaking the seller's product range into this PUBLIC script
+#     (issue #45 "taxonomy-private"). Instead they are sourced at RUNTIME from the
+#     private taxonomy: when EBAY_LISTING_DATA_DIR is set (the operator's
+#     data-aware env, or a CI with the private data provisioned), anchored series
+#     patterns are derived from series-taxonomy.yaml and swept. When it is unset
+#     (a bare public clone / vanilla public CI) the series class is SKIPPED with a
+#     documented notice — the shape sweep still runs and series literals are also
+#     recorded in the hashed .secret-blocklist. Bare common-colour series
+#     (red/gold/purple) are anchored to a vendor prefix to avoid a false-positive
+#     bomb (AC 5.1(d)).
+SERIES_PATTERN=""
+_taxo="${EBAY_LISTING_DATA_DIR:-}/series-taxonomy.yaml"
+if [[ -n "${EBAY_LISTING_DATA_DIR:-}" && -f "$_taxo" ]]; then
+  SERIES_PATTERN=$(python3 - "$_taxo" <<'PY'
+import sys, re
+
+try:
+    import yaml
+
+    data = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception:
+    sys.exit(0)
+tax = data.get("taxonomy", {}) or {}
+# ONLY series_names (the product-IDENTITY list). preserved_phrases is a
+# tokenisation aid that also carries GENERIC feature tokens ("hot swap",
+# "self encrypting") which legitimately appear in category-agnostic public code
+# (feature detection) — sourcing them would false-positive on generic machinery.
+names = list((tax.get("comp_filter", {}) or {}).get("series_names", []) or [])
+# Generic colour words — anchor to a vendor prefix so bare "red"/"gold" in prose
+# does not false-positive (AC 5.1(d)); the full OEM model shapes cover the drives.
+COLOUR = {"red", "gold", "purple"}
+pats, seen = [], set()
+for raw in names:
+    s = str(raw).strip().lower()
+    if not s or s in seen:
+        continue
+    seen.add(s)
+    toks = s.split()
+    if toks and toks[0] in COLOUR:
+        pats.append(r"\bwd\s+" + r"\s+".join(re.escape(t) for t in toks) + r"\b")
+    else:
+        pats.append(r"\b" + r"\s+".join(re.escape(t) for t in toks) + r"\b")
+print("|".join(pats))
+PY
+)
+fi
+
 HITS=0
 # scan <label> <case-insensitive: i|""> <pattern>
 scan() {
@@ -62,6 +111,14 @@ scan "category-id+name" "i" "$GENERIC_PATTERNS"
 scan "interface-tokens" "i" "$INTERFACE_PATTERNS"
 scan "oem-part-shape" "" "$OEM_SHAPE"
 scan "hpe-part-shape" "" "$HPE_PARTS"
+if [[ -n "$SERIES_PATTERN" ]]; then
+  scan "series-name" "i" "($SERIES_PATTERN)"
+else
+  echo "audit-no-product-data: NOTE — series-name sweep SKIPPED (EBAY_LISTING_DATA_DIR" \
+       "unset or taxonomy absent); shape sweep only. Series literals are recorded in the" \
+       "hashed .secret-blocklist; set EBAY_LISTING_DATA_DIR to enable the runtime-sourced" \
+       "series sweep."
+fi
 
 if [[ "$HITS" -ne 0 ]]; then
   echo "audit-no-product-data: FAIL — product/category identifiers found in the PUBLIC tree." >&2
