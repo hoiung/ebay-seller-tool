@@ -553,7 +553,7 @@ def _own_series_name(own_listing: dict[str, Any] | None) -> str | None:
     Word-boundary matching prevents bare English words like ``"red"`` and ``"gold"``
     from false-positive-matching titles such as ``"Sealed Box - Red Label"``. Returns
     the canonical lower-case form from ``comp_filter.series_names``. Longest match
-    wins (e.g. ``"iron wolf pro"`` beats ``"iron wolf"``).
+    wins (e.g. ``"northwind beta pro"`` beats ``"northwind beta"``).
     """
     if not own_listing:
         return None
