@@ -82,6 +82,21 @@ jobs:
         # tree. Complements the literal-identifier .secret-blocklist (hashed).
         run: bash scripts/audit-no-product-data.sh
 
+      - name: Product-data oracle — negative test (AC 5.1 — must FAIL on a planted token)
+        # Asserts the oracle actually trips: plant a known category-id token and
+        # confirm a non-zero exit, then clean up. The token is ASSEMBLED at
+        # runtime so this workflow file does not itself trip the oracle above.
+        run: |
+          cat="560"; cat="${cat}83"
+          printf 'planted category %s leak\n' "$cat" > _oracle_negtest.tmp.md
+          if bash scripts/audit-no-product-data.sh; then
+            rm -f _oracle_negtest.tmp.md
+            echo "::error::oracle negative test FAILED — it passed despite a planted identifier"
+            exit 1
+          fi
+          rm -f _oracle_negtest.tmp.md
+          echo "oracle negative test OK — exits non-zero on a planted identifier"
+
       - name: Commit-message secret scan — push events (blocking)
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
         env:
