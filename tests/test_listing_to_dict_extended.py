@@ -8,7 +8,7 @@ from ebay.listings import listing_to_dict
 def _build_item(**overrides):
     base = SimpleNamespace(
         ItemID="12345",
-        Title="Fabrikam Enterprise 2TB",
+        Title="Fabrikam Northwind Alpha 2TB",
         SellingStatus=SimpleNamespace(
             CurrentPrice=SimpleNamespace(value="35.00", _currencyID="GBP"),
             QuantitySold="3",
