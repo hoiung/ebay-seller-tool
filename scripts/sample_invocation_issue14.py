@@ -2,7 +2,7 @@
 
 Runs the new 3-layer comp-filter pipeline against live eBay data and reports
 BEFORE-vs-AFTER percentile drift for the 4 problem pools identified in Stage 1
-F-E (HPE 1TB SAS, HPE Fabrikam 4TB, HPE Contoso 4TB, HPE Wingtip 3TB).
+F-E (HPE 1TB SAS, HPE Fabrikam 4TB, HPE Contoso 4TB, HPE Fabrikam 3TB).
 
 Two modes:
 
