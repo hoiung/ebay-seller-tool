@@ -106,7 +106,7 @@ def tokenise_title(
 
     # 2. preserved phrases — replace with underscore-joined token to survive
     #    the splitter intact. Lists from the config loader are pre-sorted
-    #    longest-first ("series-eta-pro" before "series-eta"); caller-passed
+    #    longest-first ("northwind beta pro" before "northwind beta"); caller-passed
     #    lists are sorted here defensively.
     for phrase in sorted(preserved_phrases, key=len, reverse=True):
         phrase_lc = phrase.lower()
