@@ -126,7 +126,7 @@ for row in cat.values():
         continue
     seen.add(b)
     # Word-boundary + case-insensitive (applied by the caller's scan -i). Multi-word
-    # brands ("Litware") collapse internal whitespace to \s+.
+    # multi-word brands collapse internal whitespace to \s+.
     pats.append(r"\b" + r"\s+".join(re.escape(t) for t in b.split()) + r"\b")
 print("|".join(pats))
 PY
