@@ -6,14 +6,18 @@
 # tree. It is the SHAPE sweep — it catches new/unlisted identifiers by PATTERN.
 #
 # Token set embedded here (SHAPES + generic markers ONLY — this script must not
-# itself leak our inventory, so it carries NO plaintext model or series literals;
-# the exhaustive literal model/series list lives in the PRIVATE ebay-ops companion
-# record, and the literal-identifier match is delegated to the hashed
-# .secret-blocklist per AC 5.3):
+# itself leak our inventory, so it carries NO plaintext model, series, or brand
+# literals; the exhaustive literal model/series/brand list lives in the PRIVATE
+# ebay-ops companion record, and the literal-identifier match is delegated to the
+# hashed .secret-blocklist per AC 5.3):
 #   (a) the generic eBay category id 56083 + the full category NAME phrase
 #   (b) interface-key tokens (anchored: 'sata ii' must NOT match 'sata iii')
 #   (c) OEM part-number SHAPE regexes (vendor-prefixed — the FORM, not a model)
 #   (d) HPE option/spare part-number SHAPE
+# Two further classes have NO detectable shape and are sourced at RUNTIME from the
+# private data dir (EBAY_LISTING_DATA_DIR), skipped-with-notice when it is unset:
+#   (e) series names      (series-taxonomy.yaml comp_filter.series_names)
+#   (f) manufacturer brands (hdd-specs.yaml catalogue.*.brand)
 #
 # Usage:  bash scripts/audit-no-product-data.sh      # exit 0 = clean, 1 = leak
 set -uo pipefail
@@ -90,6 +94,45 @@ PY
 )
 fi
 
+# (f) Manufacturer brand names. Like the series class (e), these have NO
+#     detectable SHAPE (Fabrikam / Contoso / etc. are arbitrary words), so they
+#     cannot be embedded here as literals without naming the manufacturers the
+#     seller stocks (issue #45 "no product specifics at all"). Sourced at RUNTIME
+#     from the private catalogue (hdd-specs.yaml `brand:` column) when
+#     EBAY_LISTING_DATA_DIR is set; SKIPPED with a notice when unset — the same
+#     degraded contract as the series sweep. NOT added to the hashed
+#     .secret-blocklist: bare manufacturer words are common tokens, so a global
+#     commit-message / issue-body scan on them is a false-positive bomb (issue #45
+#     research §75) — the env-gated working-tree sweep here is the correct guard.
+BRAND_PATTERN=""
+_specs="${EBAY_LISTING_DATA_DIR:-}/hdd-specs.yaml"
+if [[ -n "${EBAY_LISTING_DATA_DIR:-}" && -f "$_specs" ]]; then
+  BRAND_PATTERN=$(python3 - "$_specs" <<'PY'
+import sys, re
+
+try:
+    import yaml
+
+    data = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception:
+    sys.exit(0)
+cat = data.get("catalogue", {}) or {}
+pats, seen = [], set()
+for row in cat.values():
+    if not isinstance(row, dict):
+        continue
+    b = str(row.get("brand", "")).strip().lower()
+    if not b or b in seen:
+        continue
+    seen.add(b)
+    # Word-boundary + case-insensitive (applied by the caller's scan -i). Multi-word
+    # brands ("Litware") collapse internal whitespace to \s+.
+    pats.append(r"\b" + r"\s+".join(re.escape(t) for t in b.split()) + r"\b")
+print("|".join(pats))
+PY
+)
+fi
+
 HITS=0
 # scan <label> <case-insensitive: i|""> <pattern>
 scan() {
@@ -111,13 +154,23 @@ scan "category-id+name" "i" "$GENERIC_PATTERNS"
 scan "interface-tokens" "i" "$INTERFACE_PATTERNS"
 scan "oem-part-shape" "" "$OEM_SHAPE"
 scan "hpe-part-shape" "" "$HPE_PARTS"
+SKIPPED=()
 if [[ -n "$SERIES_PATTERN" ]]; then
   scan "series-name" "i" "($SERIES_PATTERN)"
 else
-  echo "audit-no-product-data: NOTE — series-name sweep SKIPPED (no series patterns" \
-       "available: EBAY_LISTING_DATA_DIR unset, taxonomy absent, or series_names empty);" \
-       "shape sweep only. Series literals are recorded in the hashed .secret-blocklist; set" \
-       "EBAY_LISTING_DATA_DIR to enable the runtime-sourced series sweep."
+  SKIPPED+=("series-name")
+fi
+if [[ -n "$BRAND_PATTERN" ]]; then
+  scan "brand-name" "i" "($BRAND_PATTERN)"
+else
+  SKIPPED+=("brand-name")
+fi
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+  echo "audit-no-product-data: NOTE — runtime-sourced sweep(s) SKIPPED [${SKIPPED[*]}]" \
+       "(no patterns available: EBAY_LISTING_DATA_DIR unset, the private catalogue/taxonomy" \
+       "absent, or the source list empty); shape sweep only. Series literals are also recorded" \
+       "in the hashed .secret-blocklist; set EBAY_LISTING_DATA_DIR to the private ebay-ops data" \
+       "dir to enable the runtime-sourced series + brand sweeps."
 fi
 
 if [[ "$HITS" -ne 0 ]]; then
