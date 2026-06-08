@@ -114,10 +114,10 @@ scan "hpe-part-shape" "" "$HPE_PARTS"
 if [[ -n "$SERIES_PATTERN" ]]; then
   scan "series-name" "i" "($SERIES_PATTERN)"
 else
-  echo "audit-no-product-data: NOTE — series-name sweep SKIPPED (EBAY_LISTING_DATA_DIR" \
-       "unset or taxonomy absent); shape sweep only. Series literals are recorded in the" \
-       "hashed .secret-blocklist; set EBAY_LISTING_DATA_DIR to enable the runtime-sourced" \
-       "series sweep."
+  echo "audit-no-product-data: NOTE — series-name sweep SKIPPED (no series patterns" \
+       "available: EBAY_LISTING_DATA_DIR unset, taxonomy absent, or series_names empty);" \
+       "shape sweep only. Series literals are recorded in the hashed .secret-blocklist; set" \
+       "EBAY_LISTING_DATA_DIR to enable the runtime-sourced series sweep."
 fi
 
 if [[ "$HITS" -ne 0 ]]; then
