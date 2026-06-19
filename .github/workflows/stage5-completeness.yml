@@ -36,7 +36,7 @@ jobs:
       contains(github.event.comment.body, 'Stage 5 (Post-Implementation Review) complete')
     steps:
       - name: Checkout dotfiles canonical (gate script + helpers live here)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: hoiung/dotfiles
           ref: master
@@ -61,7 +61,7 @@ jobs:
       # post-sign-off replay).
       - name: Checkout actor (consumer) repo (D1-D4 source — #493 AC 2.9)
         if: github.event.repository.name != 'dotfiles'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # No 'repository' arg = default to github.repository = actor repo.
           # Path matches drain-check's --repo <slug> resolution so
