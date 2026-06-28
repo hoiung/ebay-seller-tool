@@ -23,7 +23,7 @@
 - **AP #11 Stopping vs Applying**: when an audit surfaces a documented violation, RUN the full process (false-positive sweep then apply). Don't stop to ask permission for fixes the standards already mandate. Don't apply without the sweep.
 - **AP #12 No Observability**: every component needs structured logs, metrics, and audit trails AT WRITE TIME. Not after the first incident.
 - **AP #13 "Proceed" ≠ "Bypass Process"**: when the user says okay / proceed / yes / go ahead, that means **proceed using the full standard process** — not skip the sweeps, gates, Ralph reviews, or guardrails. User authorisation never bypasses workflow.
-- **AP #17 Keep Going Until Done**: do NOT stop mid-work to ask permission, wait for user confirmation, or "check in". Phase checkpoints post a comment to the Issue and CONTINUE. Stop ONLY for: (a) context at 80%+ of model window, (b) irreversible destructive action needing user consent (force-push, rm -rf, DROP TABLE, branch deletion), (c) genuinely stuck after investigation (not a first-response-to-friction reflex), (d) task complete. Warn at 70%, keep working until 80%. The 1M window exists to be used.
+- **AP #17 Keep Going Until Done**: do NOT stop mid-work to ask permission, wait for user confirmation, or "check in". Phase checkpoints post a comment to the Issue and CONTINUE. Stop ONLY for: (a) context approaching ~50% remaining (~500K of 1M / ~100K of 200K) — on long/multi-phase work the agent AUTO-runs `/handover` + compact + CONTINUE (does not wait for the operator); never operate below 50% remaining; near-completion exemption: ~2-3 turns from done at ~51% → finish, (b) irreversible destructive action needing user consent (force-push, rm -rf, DROP TABLE, branch deletion), (c) genuinely stuck after investigation (not a first-response-to-friction reflex), (d) task complete. Compaction is a CONTINUATION mechanism, not premature stopping.
 - **AP #16 Monitor, Don't Fire-and-Forget**: every script / command / subprocess / test / deployment / commit / push you launch must be verified end-to-end (tail logs, check exit code, verify output, confirm side effects). "Started" is not "done". For `run_in_background`, poll BashOutput. Be the user's eyes and ears, not just their executioner. If you cannot answer "what happened?" with specifics, you fired and forgot — go check NOW.
 - **AP #18 Sample Invocation Validates Workflow**: for any change touching pipeline / backtest / SL1 / SL2 / orchestration / CLI-wiring / cross-module function-arg propagation — run an actual end-to-end sample invocation (real CLI, real DB, small liquid basket 8 tickers) BEFORE closing. Unit + smoke tests are necessary but NOT sufficient. Mocks that accept `**kwargs` silently discard params and do NOT prove propagation — assert `call_args.kwargs[...]` explicitly. Stage 4 Verification Loop mandatory gate. See STANDARDS.md "Testing Priority — Workflow Validation Gate".
 - **Per-Stage Feedback Capture** (canonical: STANDARDS.md §Per-Stage Feedback Capture). Write `dotfiles/SST3-metrics/leader-feedback/feedback-<repo>-<issue>.md` `## Stage N` block at each `/Leader` stage close. For a NEW file, copy the write-time template `dotfiles/SST3/templates/leader-feedback-template.md` (canonical frontmatter + `## Stage N — <Title>` H2 headings + 10 fields) — never hand-roll the structure; a bare `## Stage N` heading is rejected by the strict parser (the dotfiles#486/#488 contention class). 10 fields per stage (model / worked / didnt / why / improvement / improvement_status / evidence / friction / rule_self_caught / rule_user_caught). Channel rule (forward-preference-blocklist enforced via pre-commit hook `sst3-metrics-feedback-present`): feedback files MUST NOT contain `prefers / always / from now on / default ON / going forward` phrasing — that's auto-memory's channel; attribution wording (`operator flagged`, `user pointed out`) is FINE.
@@ -34,14 +34,14 @@
 
 **Context Window**: 1M tokens (Opus 4.6/Sonnet 4.6), 200K (Haiku 4.5)
 **Content Budget**: ~42K tokens (STANDARDS.md + CLAUDE.md + Issue loaded at session start)
-**Handover at**: 80% of model window (800K for 1M, 160K for Haiku) — STOP threshold, not routine. Warn at 70%. Keep working until 80%.
+**Handover at**: ~50% remaining (~500K of 1M / ~100K of 200K) — on long/multi-phase work the agent AUTO-runs `/handover` + compact + CONTINUE; never operate below 50% remaining (near-completion exemption: ~2-3 turns from done at ~51% → finish).
 **Issue Header**: `## Solo Assignment (SST3 Automated)`
 **Branch**: `solo/issue-{number}-{description}` (commit per file, no PR)
 **Merge**: Direct merge to main after Ralph Review passes (BEFORE user review - protects work)
 
 ### Execution Guardrails (Built-in)
 
-Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (70%+ warn, 80%+ STOP) → post-compact re-read → verification loop until clean → user-review-checklist.md.
+Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (on long work, auto-`/handover` + compact + continue when remaining nears ~50%; never below 50% remaining) → post-compact re-read → verification loop until clean → user-review-checklist.md.
 
 ### Branch Safety (CRITICAL — DO NOT VIOLATE)
 
@@ -96,7 +96,7 @@ See: `../dotfiles/SST3/reference/research-reference-guide.md` for complete guide
 ### 5-Stage Workflow (ORDER-DEPENDENT — no skipping, no reordering)
 ```
 Stage 1: Research — subagent swarm → main agent writes /tmp (findings + gaps + plan)
-Stage 2: Issue Creation — main agent from /tmp, illustrations, compact breaks, quality mantras verbatim
+Stage 2: Issue Creation — main agent from /tmp, illustrations, phase checkpoints, quality mantras verbatim
 Stage 3: Triple-Check — subagents verify scope vs audit = 100%, chat history, dead code
 Stage 4: Implementation — main agent implements, Verification Loop, Ralph Review, merge, user-review-checklist
 Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, quality scan, regression tests + completeness gate (Layer A pre-flight `bash SST3/scripts/leader-stage5-completeness-check.sh <issue>` + Layer B post-flight failsafe `.github/workflows/stage5-completeness.yml`; both mandatory, neither replaces the other; #460 W4)
