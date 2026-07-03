@@ -10,6 +10,7 @@ the mock does not accept **kwargs and cannot silently discard fields.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -170,11 +171,18 @@ def test_fetch_seller_transactions_days_out_of_range() -> None:
 
 
 def test_fetch_listing_feedback_happy_path() -> None:
+    # Clock-independent: fetch_listing_feedback filters entries older than
+    # (now - days) via a now-relative cutoff, so CommentTime is derived from
+    # now (well inside the 90-day window) rather than a hardcoded absolute date
+    # that rots out of the window as real time passes.
+    recent_comment_time = (datetime.now(timezone.utc) - timedelta(days=10)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
     fb_array = SimpleNamespace(
         FeedbackDetail=SimpleNamespace(
             CommentingUser="buyer1",
             CommentText="Fast delivery",
-            CommentTime="2026-04-01T10:00:00Z",
+            CommentTime=recent_comment_time,
             CommentType="Positive",
             ItemAsDescribed="5",
             CommunicationRating="5",
