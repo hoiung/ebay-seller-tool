@@ -217,32 +217,29 @@ GENERIC_SECRET_PATTERNS: List[Dict] = [
     },
 ]
 
+# A Windows path reaches a repo in three separator styles and all three must be
+# caught: `\` (copied out of Explorer, the form an operator actually pastes),
+# `\\` (the same string after a JSON/Python escape), and `/`. These patterns used
+# to match only the escaped and forward-slash forms, so the raw single-backslash
+# paste passed the scanner clean on a public repo (Issue #559).
+_SEP = r"[\\/]{1,2}"
+
+
+def _private_path(pattern: str, message: str) -> Dict:
+    return {
+        "pattern": re.compile(pattern),
+        "message": message,
+        "fix": "Use environment variable or relative path",
+    }
+
+
 PRIVATE_PATH_PATTERNS: List[Dict] = [
-    {
-        "pattern": re.compile(r"/mnt/[a-z]/[Uu]sers/"),
-        "message": "WSL Windows user path detected",
-        "fix": "Use environment variable or relative path",
-    },
-    {
-        "pattern": re.compile(r"(?:C:\\\\Users\\\\|C:/Users/)"),
-        "message": "Windows user path detected",
-        "fix": "Use environment variable or relative path",
-    },
-    {
-        "pattern": re.compile(r"My Drive/"),
-        "message": "Google Drive path detected",
-        "fix": "Use environment variable or relative path",
-    },
-    {
-        "pattern": re.compile(r"Google Drive/"),
-        "message": "Google Drive path detected",
-        "fix": "Use environment variable or relative path",
-    },
-    {
-        "pattern": re.compile(r"OneDrive/"),
-        "message": "OneDrive path detected",
-        "fix": "Use environment variable or relative path",
-    },
+    _private_path(r"/mnt/[a-z]/[Uu]sers/", "WSL Windows user path detected"),
+    # Any drive letter, not just C: -- a second drive is still the operator's box.
+    _private_path(rf"[A-Za-z]:{_SEP}[Uu]sers{_SEP}", "Windows user path detected"),
+    _private_path(rf"My Drive{_SEP}", "Google Drive path detected"),
+    _private_path(rf"Google Drive{_SEP}", "Google Drive path detected"),
+    _private_path(rf"OneDrive{_SEP}", "OneDrive path detected"),
 ]
 
 # Placeholder values that should NOT trigger GENERIC_SECRET findings
