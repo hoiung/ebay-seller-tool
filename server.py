@@ -2430,9 +2430,13 @@ async def recommend_best_offer_thresholds(
     OAuth available). Standalone — call against any item_id, not gated by
     analyse_listing's recommended_action.
 
-    Operator workflow: receive recommendation → call update_listing(
-    item_id, best_offer_enabled=True, best_offer_auto_accept_gbp=auto_accept_gbp,
-    best_offer_auto_decline_gbp=auto_decline_gbp) to apply.
+    ADVISORY ONLY — do NOT write the returned values onto the listing. The
+    output previews what the autonomous responder will do for the given
+    quantity. eBay-side auto-accept/decline prices must stay NULL: eBay's
+    threshold has no quantity dimension and is evaluated before the responder
+    polls, so setting one installs a second accept authority that can take a
+    single-unit offer at the bulk tier (2026-08-19; 8 listings were cleared).
+    Apply with update_listing(item_id, best_offer_enabled=True) only.
 
     Issue #16: defaults shifted from 0.88/0.72 hardcoded to None so the MCP
     tool surface agrees with the autonomous responder by default — both
