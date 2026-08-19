@@ -1072,3 +1072,56 @@ def test_per_fire_env_stats_emits_4_keys_exactly_once(
     # processed=0 because pending was mocked empty; pins the counter
     # initialisation contract (no off-by-one from a missing reset).
     assert "processed=0" in line, f"processed should be 0 when pending is empty; line: {line}"
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-19 — OnCalendar cadence source. The unit moved from the
+# OnBootSec+OnUnitActiveSec monotonic pair to a wall-clock OnCalendar schedule
+# after the monotonic timer left itself with no next elapse for 7 days. The
+# cadence reader keyed solely on OnUnitActiveSec=, so the move silently
+# degraded the per-fire cadence_min stats line to its default.
+# ---------------------------------------------------------------------------
+
+
+def test_read_systemd_cadence_minutes_reads_oncalendar_step(tmp_path) -> None:
+    """Repeating OnCalendar minute step is the cadence when OnUnitActiveSec is absent."""
+    timer_file = tmp_path / "cal.timer"
+    timer_file.write_text("[Timer]\nOnCalendar=*:00/30\nPersistent=true\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        assert rbo._read_systemd_cadence_minutes() == 30
+
+
+def test_read_systemd_cadence_minutes_reads_normalized_oncalendar_step(tmp_path) -> None:
+    """systemd's normalized form (*-*-* *:00/30:00) parses to the same step."""
+    timer_file = tmp_path / "cal_norm.timer"
+    timer_file.write_text("[Timer]\nOnCalendar=*-*-* *:00/30:00\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        assert rbo._read_systemd_cadence_minutes() == 30
+
+
+def test_read_systemd_cadence_minutes_oncalendar_step_is_not_hardcoded_30(tmp_path) -> None:
+    """A different step returns that step — proves the value is read, not defaulted.
+
+    Without this the OnCalendar branch would be indistinguishable from the
+    fallback, since the production cadence and the fallback are both 30.
+    """
+    timer_file = tmp_path / "cal15.timer"
+    timer_file.write_text("[Timer]\nOnCalendar=*:00/15\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        assert rbo._read_systemd_cadence_minutes() == 15
+
+
+def test_read_systemd_cadence_minutes_prefers_onunitactivesec_over_oncalendar(tmp_path) -> None:
+    """Legacy monotonic units keep their existing meaning when both lines exist."""
+    timer_file = tmp_path / "both.timer"
+    timer_file.write_text("[Timer]\nOnUnitActiveSec=1800\nOnCalendar=*:00/15\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        assert rbo._read_systemd_cadence_minutes() == 30
+
+
+def test_read_systemd_cadence_minutes_non_repeating_oncalendar_falls_back(tmp_path) -> None:
+    """A daily/weekly OnCalendar has no repeating minute step → documented default."""
+    timer_file = tmp_path / "daily.timer"
+    timer_file.write_text("[Timer]\nOnCalendar=Sun *-*-* 22:00:00\n")
+    with patch.object(rbo, "_SYSTEMD_TIMER_PATH", timer_file):
+        assert rbo._read_systemd_cadence_minutes() == 30
