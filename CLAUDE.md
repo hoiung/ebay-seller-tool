@@ -99,7 +99,7 @@ Stage 1: Research — subagent swarm → main agent writes /tmp (findings + gaps
 Stage 2: Issue Creation — main agent from /tmp, illustrations, phase checkpoints, quality mantras verbatim
 Stage 3: Triple-Check — subagents verify scope vs audit = 100%, chat history, dead code
 Stage 4: Implementation — main agent implements, Verification Loop, Ralph Review, merge, user-review-checklist
-Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, quality scan, regression tests + completeness gate (Layer A pre-flight `bash SST3/scripts/leader-stage5-completeness-check.sh <issue>` + Layer B post-flight failsafe `.github/workflows/stage5-completeness.yml`; both mandatory, neither replaces the other; #460 W4)
+Stage 5: Post-Implementation Review — subagent swarm: wiring, goal alignment, quality scan, regression tests + completeness gate (Layer A pre-flight `bash SST3/scripts/leader-stage5-completeness-check.sh <issue>` + Layer B post-flight failsafe `.github/workflows/stage5-completeness.yml`; both mandatory where Layer B EXISTS, and neither replaces the other; #460 W4. Layer-B coverage is three-state, not binary: `SST3/drift-manifest.json` `layer_b_coverage` records each repo as covered, `exempt` (no GitHub Actions surface exists to replay a gate on — structural and permanent) or `pending` (a workflow is expected but not yet landed). Derive the current states from that field; the repos are named there and in dotfiles#565, deliberately not here, because this line publishes verbatim to public consumers. It read "both mandatory" unconditionally until #565 round 11, which is false for an exempt repo and was propagated to every consumer including that one)
 ```
 
 ### Solo Execution Checklist (Stage 4)
@@ -143,7 +143,7 @@ Edit fails with "File has been unexpectedly modified" → copy to `C:/temp/`, ed
 
 ### Append vs Extend (authoring guidance for the project-specific section below)
 
-> About to add a paragraph to `## Project-Specific Notes` (below the boundary) or to any other CLAUDE.md section? **First check whether an existing `docs/<area>.md` is the right home** — extend the destination and leave a one-line pointer here. Appending to CLAUDE.md is the **last resort**, not the default. (Rationale: every CLAUDE.md line costs tokens on every future session; apbst#1494 trimmed 58k→28k after WHY-prose accumulation. Full rule: `../dotfiles/SST3/standards/STANDARDS.md` "Append vs Extend Rule".)
+> About to add a paragraph to `## Project-Specific Notes` (below the boundary) or to any other CLAUDE.md section? **First check whether an existing `docs/<area>.md` is the right home** — extend the destination and leave a one-line pointer here. Appending to CLAUDE.md is the **last resort**, not the default. (Rationale: every CLAUDE.md line costs tokens on every future session; one consumer's CLAUDE.md was trimmed 58k→28k after WHY-prose accumulation — the repo is named in dotfiles#565, not here, because this line sits ABOVE the boundary marker and is published verbatim to the public consumers. Full rule: `../dotfiles/SST3/standards/STANDARDS.md` "Append vs Extend Rule".)
 
 ---
 <!-- ============================================================== -->

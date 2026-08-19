@@ -3,7 +3,13 @@
 # Catches the case where an agent forgets to invoke `leader-stage5-completeness-check.sh`
 # pre-flight: the workflow runs the same gate, posts a PASS/FAIL receipt comment.
 #
-# Trigger: issue_comment.created. Filter by sign-off heading regex in body.
+# Triggers (all four, kept in step with the `on:` block below — #565 Ralph T3
+# round 3 found this header still naming only the first, three commits after two
+# more auto-fire paths landed in the same file):
+#   issue_comment.created  — filtered by sign-off heading regex in body; full scope
+#   issues.closed          — every close; close scope (C11/C14/C16 only)
+#   schedule (daily)       — --self-check of both gates, no Issue replay
+#   workflow_dispatch      — manual re-run against an arbitrary Issue; full scope
 #
 # Note (cross-repo gap): issue_comment.created fires PER-REPO. This workflow at
 # dotfiles only catches sign-off comments on dotfiles Issues. For consumer-repo
@@ -14,13 +20,59 @@ on:
   issue_comment:
     types: [created]
   # workflow_dispatch enables manual re-run against an arbitrary Issue
-  # (per AC 11.9). The auto-fire path remains issue_comment.created.
+  # (per AC 11.9). It is one of four triggers; see the header block. This line
+  # used to read "The auto-fire path remains issue_comment.created", which the
+  # `issues` and `schedule` blocks below contradicted from the same file.
   workflow_dispatch:
     inputs:
       issue:
         description: 'Issue number to re-run gate against'
         required: true
         type: string
+  # dotfiles#565 AC 4.3 — the two agent-independent triggers.
+  #
+  # MEASURED over the last 25 runs in each of three sampled repos before this:
+  # 25/25 skipped, 25/25 skipped, and 24 skipped + 1 failure — roughly one
+  # execution in 75. The only auto-fire path was issue_comment.created filtered
+  # on three literal sign-off strings, typed by the same agent this gate exists
+  # to check. A failsafe an agent can bypass by wording a comment differently is
+  # not a failsafe. (Per-repo figures are in dotfiles#565 AC 4.3; they are not
+  # repeated here because this file mirrors into public repos.)
+  #
+  # `issues: [closed]` fires on the terminal act the gate guards. Closing is not
+  # optional the way typing a heading is, so the replay now runs on essentially
+  # every close instead of one in 75.
+  #
+  # #565 Ralph T3 round 3, SHIPPED-BEHAVIOUR: this paragraph used to argue the
+  # trigger was "green on merit, not merely green" BECAUSE "C5 requires
+  # `last_updated == today`". C5 does not run on this trigger. The `issues` event
+  # sets `scope=close` (see the Compute-Issue step), and the gate's
+  # CLOSE_SCOPE_CHECKS is " C11 C14 C16 " — everything else, C5 included, is
+  # rewritten to `skip`. The merit argument cited a check the trigger skips.
+  #
+  # Ordering shows how: the comment landed at c2883c21 (AC 4.3) and `--scope
+  # close` landed later at b7a36071, and nothing re-derived the justification
+  # written before it. That is this Issue's class aimed at a rationale rather
+  # than a gate — a claim that was true when written, falsified by a later
+  # commit, and left standing as the reason to trust the thing.
+  #
+  # The honest statement: what this trigger buys is the three git-state
+  # invariants a close must satisfy (C11 unpushed work, C14 branch cleanup, C16
+  # issue state), on essentially every close instead of one in 75. That is worth
+  # having on its own. The Stage-5 contract checks (C1-C6, C17) are deliberately
+  # NOT in close scope — the gate's own note records that they fail on a real
+  # ad-hoc close — and this trigger makes no claim about them.
+  issues:
+    types: [closed]
+  # The schedule fires with no human or agent action at all. It deliberately does
+  # NOT replay the Issue-scoped gate: C5 pins `last_updated` to TODAY, so a cron
+  # replay of any past Issue would be red every night on non-merit, and C11/D1-D4
+  # are structurally vacuous against a fresh CI checkout (AC 4.2). What it runs
+  # instead is the --self-check mode of both gates, which is exactly the invariant
+  # this Issue was opened over: "a production gate was dead and nothing was
+  # tracking it."
+  schedule:
+    - cron: '17 6 * * *'
 
 permissions:
   contents: read
@@ -31,10 +83,46 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'issues' ||
       contains(github.event.comment.body, '## Stage 5 — Post-Implementation Review') ||
       contains(github.event.comment.body, '### Stage 5 — Post-Implementation Review') ||
       contains(github.event.comment.body, 'Stage 5 (Post-Implementation Review) complete')
     steps:
+      # dotfiles#565 Ralph T3 round 3 (R10). MEASURED 2026-08-10 via
+      # `gh secret list` across every mirror this file is propagated to: 13 of
+      # the 19 carry DOTFILES_READ_TOKEN and 6 do not (the most recent onboards;
+      # named in the Issue, deliberately not here — this file mirrors into
+      # public repos).
+      #
+      # In those 6, the `|| github.token` fallback on the next step hands
+      # actions/checkout a token scoped to the CONSUMER repo, so the cross-repo
+      # private read of hoiung/dotfiles fails with a bare git exit 128
+      # ("Repository not found" — the auth failure is not distinguishable from a
+      # missing repo). That is technically loud and practically undiagnosable,
+      # and a job that is red on every single run is a job nobody reads — which
+      # is how a failsafe stops being one without ever reporting a false green.
+      #
+      # This step states the cause BEFORE the failure, and it fails rather than
+      # skips: the gate genuinely cannot run here, and per this Issue's own
+      # doctrine a probe that could not look must never be recorded as one that
+      # looked and found nothing. Only the BOOLEAN reaches the environment, so
+      # the secret itself is never exposed to the runner's process table.
+      - name: Preflight — cross-repo canonical checkout needs DOTFILES_READ_TOKEN
+        env:
+          HAVE_PAT: ${{ secrets.DOTFILES_READ_TOKEN != '' }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$THIS_REPO" = "hoiung/dotfiles" ]; then
+            echo "same-repo run: the default github.token can read the canonical"
+            exit 0
+          fi
+          if [ "$HAVE_PAT" = "true" ]; then
+            echo "DOTFILES_READ_TOKEN present: cross-repo canonical checkout can proceed"
+            exit 0
+          fi
+          echo "::error title=DOTFILES_READ_TOKEN missing::${THIS_REPO} has no DOTFILES_READ_TOKEN secret, so this workflow cannot check out the private hoiung/dotfiles canonical that the Stage-5 gates live in. Without it actions/checkout fails with a bare git exit 128 and the Layer-B failsafe is silently absent for this repo. Fix: add a fine-grained PAT scoped Contents:Read on hoiung/dotfiles ONLY as the repository secret DOTFILES_READ_TOKEN (see dotfiles#565 / #473)."
+          exit 1
+
       - name: Checkout dotfiles canonical (gate script + helpers live here)
         uses: actions/checkout@v6
         with:
@@ -49,6 +137,11 @@ jobs:
           # repo IS hoiung/dotfiles, same-repo read) runs work via the default
           # GITHUB_TOKEN; consumer-side runs use the PAT for cross-repo private
           # read (their GITHUB_TOKEN is repo-scoped to the consumer).
+          #
+          # #565 R10: the fallback is therefore NOT a safety net on the
+          # consumer side — it substitutes a token that cannot do the job. The
+          # preflight step above measures that case and names it, so read the
+          # two together; the fallback alone reads as more forgiving than it is.
           token: ${{ secrets.DOTFILES_READ_TOKEN || github.token }}
 
       # Issue #493 AC 2.9 — second checkout of the actor (consumer) repo so the
@@ -77,42 +170,60 @@ jobs:
       - name: Install pyyaml (feedback_parser dep)
         run: pip install --quiet pyyaml
 
-      - name: Whole-corpus feedback #486 silent-rot catch (non-swallowed; #488 AC 3.2(i-a))
-        # The commit-stage `sst3-metrics-feedback-drift` hook is now PER-FILE
-        # (#488 AC 3.2) so a feedback file broken in an EARLIER commit no
-        # longer fails a later per-file commit — that is the intended
-        # bystander-unblocking. This step is the RETAINED whole-corpus
-        # silent-rot catch the dotfiles#486 governance invariant requires:
-        # `--summarize` internally forces `regenerate_index --rebuild`
-        # (leader-feedback-aggregate.sh ~424 — bypassing the md5/mtime
-        # short-circuits that masked an earlier breakage) and returns the
-        # HARD parse/validate verdict ONLY (advisory DRIFT stays exit-0 by
-        # construction). DELIBERATELY no `continue-on-error`: a corpus-wide
-        # parse failure FAILS this job — this is the non-swallowed exit-coded
-        # invocation AC 3.2(i) mandates, distinct from the AC 2.3 `|| true`
-        # C6-feeding prepend (which a swallowed --rebuild cannot fail-catch).
-        working-directory: dotfiles
-        run: bash SST3/scripts/leader-feedback-aggregate.sh --summarize
-
       - name: Compute Issue + repo slug
         id: meta
         run: |
           # owner/repo split (e.g. hoiung/dotfiles -> dotfiles)
           repo_slug=$(echo "${{ github.repository }}" | cut -d/ -f2)
-          # workflow_dispatch supplies issue via input; issue_comment via event.
+          # workflow_dispatch supplies issue via input; issue_comment AND
+          # issues.closed both supply it via github.event.issue.number. The
+          # schedule trigger supplies neither — it runs the self-check job
+          # below, not this one.
           issue_num="${{ github.event.inputs.issue || github.event.issue.number }}"
           echo "issue=$issue_num" >> "$GITHUB_OUTPUT"
           echo "repo=$repo_slug" >> "$GITHUB_OUTPUT"
+          # dotfiles#565 Ralph Tier 3 F6 — a bare close gets the close-scoped
+          # suite; a sign-off comment (or an explicit dispatch) gets the full one.
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            echo "scope=close" >> "$GITHUB_OUTPUT"
+          else
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run Stage 5 completeness gate
         id: gate
         continue-on-error: true
         working-directory: dotfiles
+        env:
+          # dotfiles#565 AC 4.1 — harvested from the three hand-adapted consumer
+          # copies that are ahead of canonical here (named in AC 6.2; not listed
+          # in this file, which mirrors into public repos), alongside their
+          # `Fail if gate failed` step. Both halves of that harvest are
+          # load-bearing and neither works without the other.
+          #
+          # MEASURED: `gh auth status` exits 1 under an empty config with no
+          # token ("You are not logged into any GitHub hosts"), which is the
+          # state of a GitHub-hosted runner — it ships the gh binary but no
+          # hosts.yml. AC 5.5 made that state a C16 FAIL rather than skip-clean,
+          # and C17 in leader-stage5-completeness-check.sh was already
+          # fail-closed on it. So making this job fatal without the token would
+          # put all 19 mirrors
+          # permanently red on a could-not-look — swapping a gate that cannot
+          # fail for one that cannot pass, which is the same defect inverted.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
+          # dotfiles#565 Ralph Tier 3 F6. A close is not a Stage-5 sign-off:
+          # MEASURED, 41% of closed Issues across 10 repos never entered Stage 5,
+          # so the full C1-C18 suite on the issues trigger would redden 19 repos
+          # on Issues that never claimed the contract. --scope close evaluates
+          # only C11/C14/C16, the invariants any close must satisfy — and the
+          # ones this Issue is actually about. The sign-off-comment path keeps
+          # the full suite.
           OUT=$(bash SST3/scripts/leader-stage5-completeness-check.sh \
                   "${{ steps.meta.outputs.issue }}" \
-                  --repo "${{ steps.meta.outputs.repo }}" 2>err.log)
+                  --repo "${{ steps.meta.outputs.repo }}" \
+                  --scope "${{ steps.meta.outputs.scope }}" 2>err.log)
           EX=$?
           {
             echo 'json<<EOF'
@@ -131,16 +242,28 @@ jobs:
         id: drain
         continue-on-error: true
         working-directory: dotfiles
+        env:
+          # Same harvest. The drain gate reaches gh only on its optional
+          # --waive-residue receipt post — the `gh issue comment ... --body-file -`
+          # call in leader-stage5-drain-check.sh;
+          # without a token that post fails silently to stderr, so the receipt
+          # the operator is meant to read never appears.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
           # --issue-repo wired from github.repository so any future
           # --waive-residue invocation posts the HTML-comment receipt to
           # the ACTOR's Issue (consumer-side or dotfiles-side), not the
           # script default. Ralph Tier 3 (Opus) cross-repo hardening fix.
+          # Ralph Tier 3 restart F2: the SAME scope as the completeness gate.
+          # Scoping one of the two gates fixed nothing — the terminal step
+          # requires BOTH exits, and D6 (feedback file present) fails on every
+          # merit-free close, so ~36% of closes stayed red after the first fix.
           OUT=$(bash SST3/scripts/leader-stage5-drain-check.sh \
                   "${{ steps.meta.outputs.issue }}" \
                   --repo "${{ steps.meta.outputs.repo }}" \
-                  --issue-repo "${{ github.repository }}" 2>err.log)
+                  --issue-repo "${{ github.repository }}" \
+                  --scope "${{ steps.meta.outputs.scope }}" 2>err.log)
           EX=$?
           {
             echo 'json<<EOF'
@@ -170,6 +293,10 @@ jobs:
           DRAIN_JSON: ${{ steps.drain.outputs.json }}
           DRAIN_ERR: ${{ steps.drain.outputs.err }}
           ISSUE_NUM: ${{ steps.meta.outputs.issue }}
+          # #565 Ralph T3 r3 — the receipt now states its own trigger and
+          # scope, so it needs both. Passed via env for the same escaping
+          # reason as the blobs above.
+          GATE_SCOPE: ${{ steps.meta.outputs.scope }}
         with:
           script: |
             const compEx = process.env.COMP_EX || '';
@@ -179,13 +306,18 @@ jobs:
             const drainJson = process.env.DRAIN_JSON || '';
             const drainErr = process.env.DRAIN_ERR || '';
             const issueNumber = parseInt(process.env.ISSUE_NUM || '0', 10);
+            const gateScope = process.env.GATE_SCOPE || 'unknown';
             const compVerdict = compEx === '0' ? 'PASS' : 'FAIL';
             const drainVerdict = drainEx === '0' ? 'PASS' : 'FAIL';
             const overall = (compEx === '0' && drainEx === '0') ? 'PASS' : 'FAIL';
             const body = [
               `## Stage 5 — Completeness + Drain Gates (Layer B replay): ${overall}`,
               '',
-              '_Server-side replay of both Layer-A gates after the Stage 5 sign-off comment was posted._',
+              // #565 Ralph T3 r3: this line asserted "after the Stage 5 sign-off
+              // comment was posted" on every run, including issues.closed runs
+              // where no sign-off comment exists. The receipt now states what
+              // actually triggered it and at which scope.
+              `_Server-side replay of both Layer-A gates (trigger: ${context.eventName}, scope: ${gateScope})._`,
               '',
               `### Completeness gate (\`leader-stage5-completeness-check.sh\`): ${compVerdict}`,
               '',
@@ -213,3 +345,116 @@ jobs:
               issue_number: issueNumber,
               body,
             });
+
+      # dotfiles#565 AC 4.1 — the step that makes this job able to fail at all.
+      #
+      # HARVESTED, not authored: three hand-adapted consumer copies (named in
+      # dotfiles#565 AC 6.2 — not here, since this file mirrors into public
+      # repos) have been running `test "<gate exit>" = "0"` in CI while the 16
+      # manifest mirrors run nothing. Those three are AHEAD of canonical on this
+      # axis, so AC 6.2 brings them under drift management only AFTER this
+      # lands — propagating first would overwrite a working gate with one that
+      # cannot fail. Drift is a direction, not a synonym for staleness.
+      #
+      # Extended to BOTH verdicts, which the harvested single-gate form predates:
+      # canonical gained the drain gate in #493 and its exit was equally unheeded.
+      # Written as two separate `test` lines rather than `A && B` on purpose —
+      # under `bash -e` a failure on the left of `&&` is exempt from set -e, so
+      # the one-liner's correctness would rest on it also happening to be the
+      # script's last command. Two statements need no such reasoning.
+      #
+      # NO continue-on-error here, and the `continue-on-error: true` on the two
+      # steps with `id: gate` and `id: drain` STAYS: those keep the receipt
+      # comment posting, which is the whole point of running both gates before
+      # reporting. This step reads their recorded verdicts afterwards.
+      #
+      # Named by step id, not by line number. This comment cited `:109/:132`
+      # until an edit in this same commit-series moved both — the rot class Ralph
+      # kept finding here, and a step id cannot drift the way a line can.
+      # dotfiles#565 Ralph T3 round 3, SHIPPED-BEHAVIOUR. This step used to sit
+      # BEFORE the Issue-scoped gate, the drain gate and the receipt. It has no
+      # continue-on-error by deliberate design (#488 AC 3.2(i-a)) — correct, and
+      # kept — but combined with its position that made ONE malformed feedback
+      # file anywhere in the dotfiles corpus a fleet-wide Layer-B blackout: no
+      # gate run, no receipt, in all 19 mirrors. It is red on origin/master right
+      # now — one in-flight feedback file in another repo's lane, parse rc=1;
+      # the filename is recorded in the Issue and deliberately NOT repeated here,
+      # because this workflow mirrors to public repos and the name carries a
+      # private repo slug (dotfiles#565 Ralph round 8) — and AC 4.3's new
+      # `issues: [closed]` trigger converts that from a rare transient into every
+      # close. Moving it AFTER the receipt keeps the non-swallowed invariant
+      # exactly — a corpus parse failure still fails this job — while ensuring the
+      # check this workflow exists to perform actually runs and reports first.
+      # Swallowing it with continue-on-error would have been the wrong fix: that
+      # trades a loud blackout for a silent one, which is this Issue's own class.
+      - name: Whole-corpus feedback #486 silent-rot catch (non-swallowed; #488 AC 3.2(i-a))
+        # The commit-stage `sst3-metrics-feedback-drift` hook is now PER-FILE
+        # (#488 AC 3.2) so a feedback file broken in an EARLIER commit no
+        # longer fails a later per-file commit — that is the intended
+        # bystander-unblocking. This step is the RETAINED whole-corpus
+        # silent-rot catch the dotfiles#486 governance invariant requires:
+        # `--summarize` internally forces `regenerate_index --rebuild`
+        # (leader-feedback-aggregate.sh ~424 — bypassing the md5/mtime
+        # short-circuits that masked an earlier breakage) and returns the
+        # HARD parse/validate verdict ONLY (advisory DRIFT stays exit-0 by
+        # construction). DELIBERATELY no `continue-on-error`: a corpus-wide
+        # parse failure FAILS this job — this is the non-swallowed exit-coded
+        # invocation AC 3.2(i) mandates, distinct from the AC 2.3 `|| true`
+        # C6-feeding prepend (which a swallowed --rebuild cannot fail-catch).
+        working-directory: dotfiles
+        run: bash SST3/scripts/leader-feedback-aggregate.sh --summarize
+
+      - name: Fail if gate failed
+        run: |
+          test "${{ steps.gate.outputs.exit }}" = "0"
+          test "${{ steps.drain.outputs.exit }}" = "0"
+
+  # dotfiles#565 AC 4.3 — the scheduled leg, deliberately a separate job.
+  #
+  # The replay job above is Issue-scoped and cannot be green on a cron (C5 pins
+  # last_updated to TODAY). This one takes the trigger's zero-action property and
+  # spends it on the thing that actually went unobserved in the incident: whether
+  # the gates still run. --self-check parses each gate and resolves its
+  # dependencies without asserting Stage-5-terminal state, so it is meaningful
+  # every night and red only when a gate is genuinely broken.
+  #
+  # Guarded to the canonical repo. The scripts this job checks live in
+  # hoiung/dotfiles and every consumer's copy checks THAT canonical out fresh, so
+  # once AC 4.4 propagates this file to 19 repos the identical check would run 19
+  # times a day against the identical file — 18 of them pure waste, and several
+  # hundred billable minutes a month against an allowance that has been hit
+  # before. MEASURED: the last 8 runs of this workflow were all `skipped`,
+  # completing in 0-8s, and GitHub does not bill a skipped job — so the guard
+  # costs the consumers one no-op run a day, which is within the noise the
+  # issue_comment trigger already produces there. The condition self-evaluates
+  # per repo, so the propagated file stays byte-identical and AC 4.4's per-copy
+  # `cmp -s` proof is unaffected.
+  gate-self-check:
+    if: github.event_name == 'schedule' && github.repository == 'hoiung/dotfiles'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout dotfiles canonical (gate scripts live here)
+        uses: actions/checkout@v6
+        with:
+          repository: hoiung/dotfiles
+          ref: master
+          path: dotfiles
+          token: ${{ secrets.DOTFILES_READ_TOKEN || github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install pyyaml (feedback_parser dep)
+        run: pip install --quiet pyyaml
+
+      # No continue-on-error: a dead gate must redden the run. That is the
+      # entire reason this job exists.
+      - name: Completeness gate self-check
+        working-directory: dotfiles
+        run: bash SST3/scripts/leader-stage5-completeness-check.sh --self-check
+
+      - name: Drain gate self-check
+        working-directory: dotfiles
+        run: bash SST3/scripts/leader-stage5-drain-check.sh --self-check
