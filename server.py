@@ -1335,25 +1335,23 @@ async def create_listing(
 
     # --- Best Offer (operator policy: ON for every new listing) ---
     # create_listing has no UI to opt out per-call except best_offer_enabled=False.
-    # Thresholds come from the qty-tier ladder in config/fees.yaml (same source as
-    # the autonomous responder + recommend_best_offer_thresholds), anchored on the
-    # break-even floor. Sub-£2 listings can't yield integer thresholds — in that
-    # case we still enable Best Offer (toggle on) but omit auto-accept/decline.
+    #
+    # NO eBay-side auto-accept / auto-decline price is set (2026-08-19). Accept
+    # authority belongs to the autonomous responder, which tiers on the OFFER's
+    # quantity (BestOffer.Quantity -> ebay/best_offers.py _parse_offer_node):
+    # qty=1 95% / qty=2 92.5% / qty>=3 90%. eBay's threshold is a single static
+    # per-unit price with no quantity dimension, and eBay evaluates it before the
+    # responder's next poll — so setting one installs a second, blinder accept
+    # authority that wins. This code previously derived it from the LISTING
+    # quantity, so on a multi-qty listing a single-unit offer could be accepted at
+    # the bulk tier (e.g. qty=7 £19.99 held £17 where a 1-unit offer needs £18).
+    # Eight live listings carried such thresholds and were cleared via
+    # ebay-ops scripts/clear_ebay_side_best_offer_thresholds.py.
+    #
+    # Preview what the responder will do with recommend_best_offer_thresholds(
+    # item_id, quantity=N) — that is a read-only advisory, not listing state.
     bo_accept_gbp: float | None = None
     bo_decline_gbp: float | None = None
-    if best_offer_enabled:
-        try:
-            floor_result = compute_floor_price()
-            thresholds = compute_best_offer_thresholds(
-                floor_gbp=floor_result["floor_gbp"],
-                live_price_gbp=price,
-                quantity=quantity,
-            )
-            bo_accept_gbp = thresholds["auto_accept_gbp"]
-            bo_decline_gbp = thresholds["auto_decline_gbp"]
-        except ValueError as e:
-            photo_warnings.append(f"Best Offer enabled without auto-accept/decline thresholds: {e}")
-            log_debug(f"create_listing best_offer threshold skip: {e}")
 
     # --- P3.9 Build the Add payload ---
     # Publish only the listing body — strip authoring-worksheet scaffolding

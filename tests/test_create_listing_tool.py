@@ -195,8 +195,15 @@ def test_create_listing_apply_sets_uuid_in_payload(tmp_path: Path) -> None:
     assert captured_payload["Item"]["UUID"] == result["uuid"]
 
 
-def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_path: Path) -> None:
-    """Operator policy: every new listing is born with Best Offer ON; thresholds from qty tier."""
+def test_create_listing_apply_enables_best_offer_without_ebay_side_thresholds(tmp_path: Path) -> None:
+    """Best Offer ON, but NO eBay-side auto-accept/decline price.
+
+    Accept authority is the autonomous responder, which tiers on the OFFER's
+    quantity. eBay's threshold is a single static per-unit price with no
+    quantity dimension and is evaluated before the responder polls, so writing
+    one installs a second accept authority that can accept below the tier the
+    responder would have applied (2026-08-19).
+    """
     folder = _mk_product_folder(tmp_path)
     server._create_listing_uuid_cache.clear()
     captured_payload: dict = {}
@@ -241,11 +248,15 @@ def test_create_listing_apply_enables_best_offer_with_qty_tier_thresholds(tmp_pa
     item = captured_payload["Item"]
     # Best Offer ON by default (no explicit arg) — policy enforced by code
     assert item["BestOfferDetails"]["BestOfferEnabled"] == "true"
-    # qty=1 → 95% accept on £49.99 → £47 (math.floor); decline 75% → £37
-    assert item["ListingDetails"]["BestOfferAutoAcceptPrice"]["#text"] == "47.00"
-    assert item["ListingDetails"]["MinimumBestOfferPrice"]["#text"] == "37.00"
+    # ...but the listing carries NO eBay-side accept/decline price. Assert on the
+    # payload actually sent: neither field may appear, however ListingDetails is
+    # otherwise populated.
+    listing_details = item.get("ListingDetails", {})
+    assert "BestOfferAutoAcceptPrice" not in listing_details
+    assert "MinimumBestOfferPrice" not in listing_details
     assert result["after"]["best_offer"]["enabled"] is True
-    assert result["after"]["best_offer"]["auto_accept_gbp"] == 47
+    assert result["after"]["best_offer"]["auto_accept_gbp"] is None
+    assert result["after"]["best_offer"]["auto_decline_gbp"] is None
 
 
 def test_create_listing_best_offer_disabled_when_opted_out(tmp_path: Path) -> None:
