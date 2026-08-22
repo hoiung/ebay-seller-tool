@@ -163,7 +163,7 @@ jobs:
           fetch-depth: 0  # full history so git rev-list origin/<br>..<br> works
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -444,7 +444,7 @@ jobs:
           token: ${{ secrets.DOTFILES_READ_TOKEN || github.token }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
