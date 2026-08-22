@@ -207,7 +207,7 @@ jobs:
           # hosts.yml. AC 5.5 made that state a C16 FAIL rather than skip-clean,
           # and C17 in leader-stage5-completeness-check.sh was already
           # fail-closed on it. So making this job fatal without the token would
-          # put all 19 mirrors
+          # put every covered mirror
           # permanently red on a could-not-look — swapping a gate that cannot
           # fail for one that cannot pass, which is the same defect inverted.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -376,7 +376,8 @@ jobs:
       # continue-on-error by deliberate design (#488 AC 3.2(i-a)) — correct, and
       # kept — but combined with its position that made ONE malformed feedback
       # file anywhere in the dotfiles corpus a fleet-wide Layer-B blackout: no
-      # gate run, no receipt, in all 19 mirrors. It is red on origin/master right
+      # gate run, no receipt, in every covered mirror. It is red on
+      # origin/master right
       # now — one in-flight feedback file in another repo's lane, parse rc=1;
       # the filename is recorded in the Issue and deliberately NOT repeated here,
       # because this workflow mirrors to public repos and the name carries a
@@ -420,8 +421,9 @@ jobs:
   #
   # Guarded to the canonical repo. The scripts this job checks live in
   # hoiung/dotfiles and every consumer's copy checks THAT canonical out fresh, so
-  # once AC 4.4 propagates this file to 19 repos the identical check would run 19
-  # times a day against the identical file — 18 of them pure waste, and several
+  # once AC 4.4 propagates this file to the consumers the identical check would
+  # run once per consumer per day against the identical file — all but one pure
+  # waste, and several
   # hundred billable minutes a month against an allowance that has been hit
   # before. MEASURED: the last 8 runs of this workflow were all `skipped`,
   # completing in 0-8s, and GitHub does not bill a skipped job — so the guard
