@@ -8,7 +8,7 @@
 
 **MANDATORY READING**:
 1. `../dotfiles/SST3/standards/STANDARDS.md` (ALWAYS)
-2. `../dotfiles/SST3/standards/ANTI-PATTERNS.md` (ALWAYS — 28 documented failure modes you must not repeat)
+2. `../dotfiles/SST3/standards/ANTI-PATTERNS.md` (ALWAYS — 32 documented failure modes you must not repeat)
 3. `{repository-name}/CLAUDE.md` (ALWAYS - replace with repo root)
 
 **Reading Confirmation Checklist** (MUST display and complete):
@@ -57,7 +57,7 @@ Pre-start read (CLAUDE.md + STANDARDS.md + Issue) → phase checkpoints (on long
 
 - `/start` — list repos, prompt selection, load CLAUDE.md, WAIT for task.
 - `/SST3-solo` — load STANDARDS.md + repo CLAUDE.md, display summary, prompt for task, execute with guardrails.
-- `/handover` — pre-compact: write a structured AI-to-AI handover to `~/handover/handover_<slug>_<date>.md` + point `~/handover/current-task.txt` at it, so post-compact resume loses no context (the `~/handover` dir survives compaction AND a WSL VM reboot, and is auto-pruned after 7 days). Handovers are ephemeral resume aids — NOT auto-memory (durable lessons go to `feedback_*`/`project_*` memories instead).
+- `/handover` — pre-compact: write a structured AI-to-AI handover to `~/handover/handover_<slug>_<date>.md` + point `~/handover/current-task-<repo>.txt` at it (repo-scoped since dotfiles#568 — one pointer per repository, so concurrent sessions in different repos never read each other's), so post-compact resume loses no context (the `~/handover` dir survives compaction AND a WSL VM reboot, and is auto-pruned after 7 days). Handovers are ephemeral resume aids — NOT auto-memory (durable lessons go to `feedback_*`/`project_*` memories instead).
 
 Handover template: `../dotfiles/SST3/templates/chat-handover.md` (post checkpoint to Issue FIRST).
 
@@ -122,7 +122,7 @@ Cleanup branch, close Issue
 ### Emergency Procedures
 - **Context overflow**: Create handover immediately
 - **Stuck**: Re-read Issue, identify blocker, post to Issue
-- **User compact**: Read the handover file in full (if `~/handover/current-task.txt` present) + re-read the active `/Leader` stage section line-by-line + CLAUDE.md, STANDARDS.md, Issue last comment — a pre-compact read does not count; post-compact memory is diluted.
+- **User compact**: Read the handover file in full (if `~/handover/current-task-<repo>.txt` present) + re-read the active `/Leader` stage section line-by-line + CLAUDE.md, STANDARDS.md, Issue last comment — a pre-compact read does not count; post-compact memory is diluted.
 
 ### MCP Configuration (Global)
 - **Location**: `~/.claude.json` (user scope)
