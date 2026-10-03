@@ -172,19 +172,29 @@ jobs:
 
       - name: Compute Issue + repo slug
         id: meta
+        # Expressions reach the script through env, never pasted into its
+        # source (#577 escalation, class C2): the dispatch input is free text.
+        env:
+          REPO_FULL: ${{ github.repository }}
+          ISSUE_IN: ${{ github.event.inputs.issue || github.event.issue.number }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           # owner/repo split (e.g. hoiung/dotfiles -> dotfiles)
-          repo_slug=$(echo "${{ github.repository }}" | cut -d/ -f2)
+          repo_slug=$(echo "$REPO_FULL" | cut -d/ -f2)
           # workflow_dispatch supplies issue via input; issue_comment AND
           # issues.closed both supply it via github.event.issue.number. The
           # schedule trigger supplies neither — it runs the self-check job
           # below, not this one.
-          issue_num="${{ github.event.inputs.issue || github.event.issue.number }}"
+          issue_num="$ISSUE_IN"
+          if ! [[ "$issue_num" =~ ^[0-9]+$ ]]; then
+            echo "::error::issue must be a number, got '$issue_num'"
+            exit 1
+          fi
           echo "issue=$issue_num" >> "$GITHUB_OUTPUT"
           echo "repo=$repo_slug" >> "$GITHUB_OUTPUT"
           # dotfiles#565 Ralph Tier 3 F6 — a bare close gets the close-scoped
           # suite; a sign-off comment (or an explicit dispatch) gets the full one.
-          if [ "${{ github.event_name }}" = "issues" ]; then
+          if [ "$EVENT_NAME" = "issues" ]; then
             echo "scope=close" >> "$GITHUB_OUTPUT"
           else
             echo "scope=full" >> "$GITHUB_OUTPUT"
@@ -211,6 +221,9 @@ jobs:
           # permanently red on a could-not-look — swapping a gate that cannot
           # fail for one that cannot pass, which is the same defect inverted.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ steps.meta.outputs.issue }}
+          REPO_SLUG: ${{ steps.meta.outputs.repo }}
+          SCOPE: ${{ steps.meta.outputs.scope }}
         run: |
           set +e
           # dotfiles#565 Ralph Tier 3 F6. A close is not a Stage-5 sign-off:
@@ -221,18 +234,22 @@ jobs:
           # ones this Issue is actually about. The sign-off-comment path keeps
           # the full suite.
           OUT=$(bash SST3/scripts/leader-stage5-completeness-check.sh \
-                  "${{ steps.meta.outputs.issue }}" \
-                  --repo "${{ steps.meta.outputs.repo }}" \
-                  --scope "${{ steps.meta.outputs.scope }}" 2>err.log)
+                  "$ISSUE" --repo "$REPO_SLUG" --scope "$SCOPE" 2>err.log)
           EX=$?
+          # A random delimiter per value, and exit written LAST. With a fixed
+          # `EOF`, a line reading EOF in the gate's JSON or stderr (which can
+          # quote Issue text) ended the value early, and a following
+          # `exit=0` line then overrode the real exit code, turning the
+          # terminal `Fail if gate failed` step green (#577 escalation).
+          D=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
           {
-            echo 'json<<EOF'
+            echo "json<<json_$D"
             echo "$OUT"
-            echo 'EOF'
-            echo "exit=$EX"
-            echo 'err<<EOF'
+            echo "json_$D"
+            echo "err<<err_$D"
             cat err.log
-            echo 'EOF'
+            echo "err_$D"
+            echo "exit=$EX"
           } >> "$GITHUB_OUTPUT"
 
       # Issue #493 AC 2.9 — drain-gate gate runs after the completeness gate;
@@ -249,6 +266,10 @@ jobs:
           # without a token that post fails silently to stderr, so the receipt
           # the operator is meant to read never appears.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ steps.meta.outputs.issue }}
+          REPO_SLUG: ${{ steps.meta.outputs.repo }}
+          SCOPE: ${{ steps.meta.outputs.scope }}
+          REPO_FULL: ${{ github.repository }}
         run: |
           set +e
           # --issue-repo wired from github.repository so any future
@@ -260,19 +281,19 @@ jobs:
           # requires BOTH exits, and D6 (feedback file present) fails on every
           # merit-free close, so ~36% of closes stayed red after the first fix.
           OUT=$(bash SST3/scripts/leader-stage5-drain-check.sh \
-                  "${{ steps.meta.outputs.issue }}" \
-                  --repo "${{ steps.meta.outputs.repo }}" \
-                  --issue-repo "${{ github.repository }}" \
-                  --scope "${{ steps.meta.outputs.scope }}" 2>err.log)
+                  "$ISSUE" --repo "$REPO_SLUG" --issue-repo "$REPO_FULL" \
+                  --scope "$SCOPE" 2>err.log)
           EX=$?
+          # Random delimiters, exit written last: see the gate step above.
+          D=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
           {
-            echo 'json<<EOF'
+            echo "json<<json_$D"
             echo "$OUT"
-            echo 'EOF'
-            echo "exit=$EX"
-            echo 'err<<EOF'
+            echo "json_$D"
+            echo "err<<err_$D"
             cat err.log
-            echo 'EOF'
+            echo "err_$D"
+            echo "exit=$EX"
           } >> "$GITHUB_OUTPUT"
 
       - name: Post combined receipt comment to Issue (#493 AC 2.9)
@@ -406,9 +427,12 @@ jobs:
         run: bash SST3/scripts/leader-feedback-aggregate.sh --summarize
 
       - name: Fail if gate failed
+        env:
+          GATE_EXIT: ${{ steps.gate.outputs.exit }}
+          DRAIN_EXIT: ${{ steps.drain.outputs.exit }}
         run: |
-          test "${{ steps.gate.outputs.exit }}" = "0"
-          test "${{ steps.drain.outputs.exit }}" = "0"
+          test "$GATE_EXIT" = "0"
+          test "$DRAIN_EXIT" = "0"
 
   # dotfiles#565 AC 4.3 — the scheduled leg, deliberately a separate job.
   #
