@@ -54,6 +54,86 @@ repos:
         stages: [pre-push]
       # <<< END SST3 MANAGED BLOCK — propagated by propagate-block.py <<<
 
+      # >>> SST3 CLOSURE-LOOP BLOCK — DO NOT EDIT — propagated by propagate-block.py >>>
+      - id: sst3-closure-loop-applied
+        name: Stage 1 closure-loop applied_in propagation gate (#460 Phase 6 W1; consumer copy)
+        # Fires on commits whose LAST `Phase:` trailer is 4 or 5 (the shared
+        # reader, sst3_utils phase-trailer). The grep pre-filter only asks for the
+        # text `Phase:` anywhere: the reader splits lines on more than \n and
+        # strips Unicode blanks, so each narrower pattern skipped a trailer it
+        # reads (#577 Stage 5 R51, fix review r2). The dotfiles clone comes from this
+        # repo's vendored check-mirror-drift.py --canon-current, which resolves
+        # it from a linked worktree too and stops on a clone that is off origin's
+        # default branch, behind or ahead of it, or dirty (dotfiles#577 D1, R44). The hand copies this
+        # block replaced resolved ../dotfiles from the worktree's own directory
+        # and skipped silently on every worktree commit.
+        # Bypass: SKIP=sst3-closure-loop-applied git commit ...
+        entry: bash
+        args:
+          - -c
+          - |
+            msg_file="$1"
+            grep -qF "Phase:" "$msg_file" || exit 0
+            dot=$(python3 scripts/check-mirror-drift.py --canon-current --quiet) || exit 2
+            phase=$(python3 "$dot/SST3/scripts/sst3_utils.py" phase-trailer "$msg_file") || exit 1
+            test "$phase" = "4" -o "$phase" = "5" || exit 0
+            branch=$(git rev-parse --abbrev-ref HEAD)
+            issue=$(echo "$branch" | grep -oE "issue-[0-9]+" | grep -oE "[0-9]+" | head -1 || true)
+            test -n "$issue" || exit 0
+            python3 "$dot/SST3/scripts/check-closure-loop-applied.py" --repo ebay-seller-tool "$issue"
+          - --
+        language: system
+        stages: [commit-msg]
+        always_run: true
+        verbose: true
+      # <<< END SST3 CLOSURE-LOOP BLOCK — propagated by propagate-block.py <<<
+
+      # >>> SST3 SEC BLOCK — DO NOT EDIT — propagated by propagate-block.py >>>
+      # SEC lane for SEC-applicable shapes (sst3_utils.sec_dep_applicable; STANDARDS.md
+      # "Security & Dependency Audit Gate", AP #27): offline ast-grep over staged code,
+      # net-new-gated. The dotfiles clone comes from this repo's vendored
+      # check-mirror-drift.py --canon-current, which resolves it from a linked worktree
+      # too and stops on a clone that is off origin's default branch, behind or ahead
+      # of it, or dirty (dotfiles#577 D1, R44): a stale clone ran a stale adapter.
+      - id: sst3-sec
+        name: SST3 SEC lane (offline ast-grep) on staged code — net-new gate
+        # Bypass: SKIP=sst3-sec
+        entry: bash
+        args:
+          - -c
+          - |
+            dot=$(python3 scripts/check-mirror-drift.py --canon-current --quiet) || exit 2
+            bash "$dot/scripts/sec-staged-scan.sh" "$@"
+          - --
+        language: system
+        # No `files:` filter: the adapter keeps code names itself (its own extension
+        # list) and must also see a non-code name a code-named symlink points at.
+        # types: pre-commit passes only `file` by default and a symlink is tagged
+        # `symlink` alone, so a commit that only retargeted run.py ran nothing. `types`
+        # is ANDed with `types_or`, so it is emptied (types_or alone still dropped it).
+        types: []
+        types_or: [file, symlink]
+        pass_filenames: true
+        stages: [pre-commit]
+        verbose: true
+
+      - id: sst3-sec-prepush
+        name: SST3 SEC lane on push range — covers operator/non-Claude commits
+        # Bypass: SKIP=sst3-sec-prepush. The adapter reads the pushed refs itself and
+        # scans the pushed commit, so no file names are passed.
+        entry: bash
+        args:
+          - -c
+          - |
+            dot=$(python3 scripts/check-mirror-drift.py --canon-current --quiet) || exit 2
+            bash "$dot/scripts/sec-staged-scan.sh"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        verbose: true
+      # <<< END SST3 SEC BLOCK — propagated by propagate-block.py <<<
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
