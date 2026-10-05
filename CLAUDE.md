@@ -8,7 +8,7 @@
 
 **MANDATORY READING**:
 1. `../dotfiles/SST3/standards/STANDARDS.md` (ALWAYS)
-2. `../dotfiles/SST3/standards/ANTI-PATTERNS.md` (ALWAYS — 32 documented failure modes you must not repeat)
+2. `../dotfiles/SST3/standards/ANTI-PATTERNS.md` (ALWAYS — the documented failure modes you must not repeat)
 3. `{repository-name}/CLAUDE.md` (ALWAYS - replace with repo root)
 
 **Reading Confirmation Checklist** (MUST display and complete):
@@ -115,7 +115,7 @@ Run Ralph Review (Haiku → Sonnet → Opus)
 Merge to main (BEFORE user review - protects work, check for conflicts first)
 Post user-review-checklist.md (from TEMPLATE, ALL sections mandatory)
 User reviews and approves
-Post closing-summary comment (sentinel <!-- sst3-closing-summary -->; C18 gate — the final comment closing agents forget)
+Post closing-summary comment (sentinel <!-- sst3-closing-summary --> on its own line; C18 gate — the final comment closing agents forget)
 Cleanup branch, close Issue
 ```
 
