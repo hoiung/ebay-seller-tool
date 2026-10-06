@@ -33,7 +33,6 @@ extend-exclude = [
     "scripts/sst3_mirror_utils.py",
     "scripts/check-mirror-drift.py",
     "scripts/sst3_block_utils.py",
-    "scripts/sst3_protected_tag_guard.py",
 ]
 
 [tool.ruff.lint]
