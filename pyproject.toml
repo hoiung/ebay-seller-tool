@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-heic = ["pillow-heif>=0.18.0"]
+heic = ["pillow-heif>=1.4.0"]
 
 [build-system]
 requires = ["hatchling"]
